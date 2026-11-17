@@ -37,6 +37,8 @@ class TranscribeWorker(context: Context, params: WorkerParameters) : ProjectWork
         val duration = project.durationSeconds ?: 0.0
         val workDir = container.workspace.transcribeDir(projectId)
         notify(project.title, "Mentranskripsi audio…")
+        // Panjang audio yang terkirim di percobaan ini (dan ditagih penyedia), dicatat di halaman Pemakaian AI.
+        var sent = 0.0
         try {
             val srt = container.transcriber.transcribe(
                 config,
@@ -48,6 +50,7 @@ class TranscribeWorker(context: Context, params: WorkerParameters) : ProjectWork
                     update { it.copy(transcriptionMessage = message) }
                     notify(project.title, message, if (total > 1) done * 100 / total else null)
                 },
+                onChunkSent = { seconds -> sent += seconds },
             )
             val result = container.transcripts.import(projectId, srt.toByteArray(), TranscriptSource.Api, "id")
             update {
@@ -55,6 +58,9 @@ class TranscribeWorker(context: Context, params: WorkerParameters) : ProjectWork
                     transcriptionMessage = "$DONE_PREFIX ${config.provider.label}: ${result.segmentCount} segmen" +
                         (if (result.correctionCount > 0) ", ${result.correctionCount} kata dikoreksi kamus" else "") + ".",
                 )
+            }
+            if (container.analysis.startAutomatically(projectId)) {
+                update { it.copy(transcriptionMessage = it.transcriptionMessage + " Analisis otomatis dimulai di tab Klip.") }
             }
         } catch (e: AiRateLimitException) {
             return waitForQuota(e, duration)
@@ -67,6 +73,8 @@ class TranscribeWorker(context: Context, params: WorkerParameters) : ProjectWork
         } catch (e: Throwable) {
             if (e is kotlinx.coroutines.CancellationException) throw e
             return restore("Transkripsi gagal: ${e.message ?: e.javaClass.simpleName}" + savedNote(duration))
+        } finally {
+            if (sent > 0) container.analysis.recordUsage("transcription", projectId, config.provider.value, config.model, audioSeconds = sent)
         }
         return Result.success()
     }

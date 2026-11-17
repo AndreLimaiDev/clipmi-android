@@ -116,3 +116,69 @@ interface SettingDao {
         if (updateValue(key, value, now) == 0) insert(AppSettingEntity(key = key, value = value, createdAt = now, updatedAt = now))
     }
 }
+
+@Dao
+interface ClipDao {
+    /** Skor tertinggi lebih dulu; klip manual (tanpa skor) di akhir (urutan sama dengan desktop). */
+    @Query("SELECT * FROM clips WHERE project_id = :projectId ORDER BY score IS NULL, score DESC, start_time")
+    fun observe(projectId: Long): Flow<List<ClipEntity>>
+
+    @Query("SELECT * FROM clips WHERE project_id = :projectId")
+    suspend fun forProject(projectId: Long): List<ClipEntity>
+
+    @Query("SELECT * FROM clips WHERE id = :id")
+    suspend fun find(id: Long): ClipEntity?
+
+    @Query("SELECT project_id, COUNT(*) AS total FROM clips WHERE review_status != 'rejected' GROUP BY project_id")
+    fun observeCounts(): Flow<List<ProjectClipCount>>
+
+    @Insert
+    suspend fun insert(clip: ClipEntity): Long
+
+    @Update
+    suspend fun update(clip: ClipEntity)
+
+    @Query("UPDATE clips SET review_status = :status, updated_at = :now WHERE id = :id")
+    suspend fun setReview(id: Long, status: String, now: Long = System.currentTimeMillis())
+
+    @Query("DELETE FROM clips WHERE id = :id")
+    suspend fun delete(id: Long)
+
+    /** Hasil analisis yang belum disentuh (kandidat dari AI), misalnya sebelum menempel jawaban baru. */
+    @Query("DELETE FROM clips WHERE project_id = :projectId AND source = 'ai' AND review_status = 'candidate'")
+    suspend fun deleteUnreviewed(projectId: Long): Int
+
+    @Query("SELECT COUNT(*) FROM clips WHERE project_id = :projectId")
+    suspend fun count(projectId: Long): Int
+}
+
+data class ProjectClipCount(
+    @androidx.room.ColumnInfo(name = "project_id") val projectId: Long,
+    val total: Int,
+)
+
+@Dao
+interface SeriesDao {
+    @Query("SELECT * FROM clip_series WHERE project_id = :projectId")
+    fun observe(projectId: Long): Flow<List<ClipSeriesEntity>>
+
+    @Query("SELECT * FROM clip_series WHERE project_id = :projectId AND title = :title LIMIT 1")
+    suspend fun find(projectId: Long, title: String): ClipSeriesEntity?
+
+    @Insert
+    suspend fun insert(series: ClipSeriesEntity): Long
+
+    /** firstOrCreate desktop: seri dengan judul yang sama di project yang sama dipakai ulang. */
+    @Transaction
+    suspend fun firstOrCreate(projectId: Long, title: String): Long =
+        find(projectId, title)?.id ?: insert(ClipSeriesEntity(projectId = projectId, title = title))
+}
+
+@Dao
+interface AiUsageDao {
+    @Query("SELECT * FROM ai_usages ORDER BY created_at DESC, id DESC")
+    fun observeAll(): Flow<List<AiUsageEntity>>
+
+    @Insert
+    suspend fun insert(usage: AiUsageEntity)
+}

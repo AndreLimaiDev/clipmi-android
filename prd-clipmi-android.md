@@ -48,6 +48,7 @@ Urutan pengembangan disusun agar risiko teknis terbesar dibuktikan lebih dulu, l
     *   *Terapkan Otomatis & Ulang:* Dijalankan pada transkrip baru, dan bisa diterapkan ulang ke project lama, dengan ringkasan jumlah kata yang dikoreksi.
 
 ### Fase 2: Pemilihan Momen dengan AI
+*Dibangun (17 November 2026): mode manual, Mode API multi-penyedia, kandidat klip, klip manual, dan seri; prompt dan impor balasan identik dengan desktop (diuji di HP). Catatan di `docs/fase2-catatan.md`.*
 *   **Analisis Mode Manual** [high] — Memakai aplikasi chat AI yang sudah ada di HP tanpa biaya API.
     *   *Salin atau Bagikan Prompt:* Prompt yang sama dengan desktop (ID segmen, timestamp, instruksi, format JSON) disalin ke clipboard atau dibagikan langsung ke aplikasi Claude, ChatGPT, atau Gemini; transkrip panjang dipecah otomatis.
     *   *Tempel Hasil JSON:* Kolom tempel dengan validasi format dan pesan error yang jelas, toleran terhadap teks pembuka dan penutup.

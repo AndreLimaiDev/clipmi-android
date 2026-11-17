@@ -158,6 +158,7 @@ class YouTubeWorker(context: Context, params: WorkerParameters) : ProjectWorker(
             val file = File(youtubeDir, "youtube.${track.language}.json3")
             if (!file.isFile) error("Subtitle tersedia di YouTube tetapi gagal diunduh. Coba lagi beberapa saat lagi.")
             container.transcripts.import(projectId, file.readBytes(), track.source, "id")
+            container.analysis.startAutomatically(projectId)
         } catch (e: Throwable) {
             // Error juga ditangkap (misalnya ExceptionInInitializerError): status project harus selalu diperbarui.
             if (e is kotlinx.coroutines.CancellationException) throw e

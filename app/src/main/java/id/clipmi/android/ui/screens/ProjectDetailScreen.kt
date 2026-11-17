@@ -2,7 +2,8 @@ package id.clipmi.android.ui.screens
 
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.foundation.clickable
+import androidx.compose.foundation.background
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.FlowRow
@@ -26,6 +27,8 @@ import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Tab
+import androidx.compose.material3.TabRow
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
@@ -76,6 +79,10 @@ fun ProjectDetailScreen(container: AppContainer, projectId: Long, onBack: () -> 
     var confirm by remember { mutableStateOf<Confirm?>(null) }
     var notice by remember { mutableStateOf<String?>(null) }
     var query by remember { mutableStateOf("") }
+    var tab by remember { mutableStateOf(0) }
+    // Pilihan segmen untuk klip manual (seperti selectSegment desktop): tekan lama segmen awal, lalu ketuk segmen akhir.
+    var selectStart by remember { mutableStateOf<Int?>(null) }
+    var selectEnd by remember { mutableStateOf<Int?>(null) }
     val transcriptionReady by produceState(false, project?.transcriptStatus) { value = container.settings.transcription() != null }
 
     val context = LocalContext.current
@@ -86,6 +93,24 @@ fun ProjectDetailScreen(container: AppContainer, projectId: Long, onBack: () -> 
         if (videoFile != null) {
             player.setMediaItem(MediaItem.fromUri(videoFile.toURI().toString()))
             player.prepare()
+        }
+    }
+    // Putar rentang klip: berhenti sendiri di akhir rentang.
+    var stopAtMs by remember { mutableStateOf<Long?>(null) }
+    LaunchedEffect(stopAtMs) {
+        val stop = stopAtMs ?: return@LaunchedEffect
+        while (player.currentPosition < stop) {
+            if (!player.playWhenReady) return@LaunchedEffect
+            kotlinx.coroutines.delay(100)
+        }
+        player.pause()
+        stopAtMs = null
+    }
+    val playRange: (Double, Double) -> Unit = { start, end ->
+        if (videoFile != null) {
+            player.seekTo((start * 1000).toLong())
+            player.play()
+            stopAtMs = (end * 1000).toLong()
         }
     }
 
@@ -126,7 +151,17 @@ fun ProjectDetailScreen(container: AppContainer, projectId: Long, onBack: () -> 
             }
             item { StatusSection(p, segments.size, transcriptionReady, onRetry = { scope.launch { container.actions.retry(projectId) } }) }
             item {
-                FlowRow(Modifier.padding(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                TabRow(selectedTabIndex = tab) {
+                    Tab(selected = tab == 0, onClick = { tab = 0 }, text = { Text("Transkrip") })
+                    Tab(selected = tab == 1, onClick = { tab = 1 }, text = { Text("Klip") })
+                }
+            }
+            if (tab == 1) {
+                item { ClipsTab(container, p, segments.isNotEmpty(), playRange) }
+                return@LazyColumn
+            }
+            item {
+                FlowRow(Modifier.padding(start = 16.dp, end = 16.dp, top = 12.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     OutlinedButton(onClick = {
                         val open = { pickSubtitle.launch(arrayOf("application/x-subrip", "text/vtt", "text/plain", "application/octet-stream", "*/*")) }
                         if (segments.isEmpty()) open() else confirm = Confirm("Ganti transkrip?", "Transkrip sekarang (${segments.size} segmen) diganti isi file subtitle.") { open() }
@@ -177,13 +212,57 @@ fun ProjectDetailScreen(container: AppContainer, projectId: Long, onBack: () -> 
                 if (query.isNotBlank()) item {
                     Text("${shown.size} segmen cocok", style = MaterialTheme.typography.labelMedium, modifier = Modifier.padding(horizontal = 16.dp))
                 }
-                items(shown, key = { it.id }) { segment ->
-                    SegmentRow(segment, query.trim()) {
-                        if (videoFile != null) {
-                            player.seekTo((segment.startTime * 1000).toLong())
-                            player.play()
+                item {
+                    val start = selectStart
+                    if (start == null) {
+                        Text(
+                            "Ketuk segmen untuk memutar. Tekan lama segmen untuk membuat klip sendiri.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
+                        )
+                    } else {
+                        val end = selectEnd ?: start
+                        val first = segments.firstOrNull { it.sequence == start }
+                        val last = segments.firstOrNull { it.sequence == end }
+                        Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp), verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
+                            Text(
+                                (if (selectEnd == null) "Ketuk segmen akhir. " else "") +
+                                    "S%04d–S%04d".format(start, end) +
+                                    (if (first != null && last != null) " · ${Timecode.format(last.endTime - first.startTime)}" else ""),
+                                style = MaterialTheme.typography.bodySmall,
+                                modifier = Modifier.weight(1f),
+                            )
+                            TextButton(onClick = { selectStart = null; selectEnd = null }) { Text("Batal") }
+                            TextButton(onClick = {
+                                scope.launch {
+                                    container.analysis.createManualClip(projectId, start, end)
+                                    selectStart = null
+                                    selectEnd = null
+                                    tab = 1
+                                    notice = "Klip manual dibuat dan langsung terpilih. Ubah judul, hook, dan caption-nya di tab Klip."
+                                }
+                            }) { Text("Buat klip") }
                         }
                     }
+                }
+                items(shown, key = { it.id }) { segment ->
+                    val start = selectStart
+                    val selected = start != null && segment.sequence in start..(selectEnd ?: start)
+                    SegmentRow(
+                        segment, query.trim(), selected,
+                        onClick = {
+                            if (start == null) {
+                                playRange(segment.startTime, segments.last().endTime)
+                            } else if (selectEnd != null || segment.sequence < start) {
+                                selectStart = segment.sequence
+                                selectEnd = null
+                            } else {
+                                selectEnd = segment.sequence
+                            }
+                        },
+                        onLongClick = { selectStart = segment.sequence; selectEnd = null },
+                    )
                     HorizontalDivider()
                 }
             }
@@ -245,9 +324,15 @@ private fun StatusSection(p: ProjectEntity, segmentCount: Int, transcriptionRead
     }
 }
 
+@OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
 @Composable
-private fun SegmentRow(segment: TranscriptSegmentEntity, query: String, onClick: () -> Unit) {
-    Row(Modifier.fillMaxWidth().clickable(onClick = onClick).padding(horizontal = 16.dp, vertical = 10.dp)) {
+private fun SegmentRow(segment: TranscriptSegmentEntity, query: String, selected: Boolean, onClick: () -> Unit, onLongClick: () -> Unit) {
+    Row(
+        Modifier.fillMaxWidth()
+            .background(if (selected) MaterialTheme.colorScheme.primaryContainer else Color.Transparent)
+            .combinedClickable(onClick = onClick, onLongClick = onLongClick)
+            .padding(horizontal = 16.dp, vertical = 10.dp),
+    ) {
         Text(
             Timecode.format(segment.startTime),
             style = MaterialTheme.typography.labelMedium,

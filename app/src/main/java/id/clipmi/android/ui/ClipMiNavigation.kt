@@ -26,6 +26,7 @@ import androidx.navigation.compose.rememberNavController
 import androidx.navigation.toRoute
 import id.clipmi.android.AppContainer
 import id.clipmi.android.lab.LabScreen
+import id.clipmi.android.ui.screens.AiUsageScreen
 import id.clipmi.android.ui.screens.CorrectionsScreen
 import id.clipmi.android.ui.screens.ProjectDetailScreen
 import id.clipmi.android.ui.screens.ProjectListScreen
@@ -41,6 +42,7 @@ import kotlinx.serialization.Serializable
 @Serializable object SettingsRoute
 @Serializable object CorrectionsRoute
 @Serializable object LabRoute
+@Serializable object AiUsageRoute
 
 private data class Tab(val route: Any, val label: String, val icon: ImageVector)
 
@@ -99,10 +101,16 @@ fun ClipMiNavigation(container: AppContainer, shared: SharedResult?, onSharedHan
             composable<ScheduleRoute> { ScheduleScreen() }
             composable<StatsRoute> { StatsScreen() }
             composable<SettingsRoute> {
-                SettingsScreen(container, onOpenCorrections = { nav.navigate(CorrectionsRoute) }, onOpenLab = { nav.navigate(LabRoute) })
+                SettingsScreen(
+                    container,
+                    onOpenCorrections = { nav.navigate(CorrectionsRoute) },
+                    onOpenUsage = { nav.navigate(AiUsageRoute) },
+                    onOpenLab = { nav.navigate(LabRoute) },
+                )
             }
             composable<CorrectionsRoute> { CorrectionsScreen(container, onBack = { nav.popBackStack() }) }
             composable<LabRoute> { LabScreen() }
+            composable<AiUsageRoute> { AiUsageScreen(container, onBack = { nav.popBackStack() }) }
         }
     }
 }

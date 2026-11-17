@@ -56,6 +56,7 @@ import kotlinx.coroutines.withContext
 @Composable
 fun ProjectListScreen(container: AppContainer, onOpen: (Long) -> Unit, message: String?, onMessageShown: () -> Unit) {
     val projects by container.database.projects().observeAll().collectAsState(initial = null)
+    val clipCounts by container.database.clips().observeCounts().collectAsState(initial = emptyList())
     var creating by remember { mutableStateOf(false) }
 
     Box(Modifier.fillMaxSize()) {
@@ -71,7 +72,9 @@ fun ProjectListScreen(container: AppContainer, onOpen: (Long) -> Unit, message: 
                 contentPadding = androidx.compose.foundation.layout.PaddingValues(16.dp, 16.dp, 16.dp, 96.dp),
                 verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
-                items(projects!!, key = { it.id }) { ProjectCard(container, it, onClick = { onOpen(it.id) }) }
+                items(projects!!, key = { it.id }) { p ->
+                    ProjectCard(container, p, clipCounts.firstOrNull { it.projectId == p.id }?.total ?: 0, onClick = { onOpen(p.id) })
+                }
             }
         }
         ExtendedFloatingActionButton(
@@ -89,7 +92,7 @@ fun ProjectListScreen(container: AppContainer, onOpen: (Long) -> Unit, message: 
 }
 
 @Composable
-private fun ProjectCard(container: AppContainer, project: ProjectEntity, onClick: () -> Unit) {
+private fun ProjectCard(container: AppContainer, project: ProjectEntity, clipCount: Int, onClick: () -> Unit) {
     val size by produceState(0L, project.updatedAt) { value = withContext(Dispatchers.IO) { container.workspace.projectSize(project.id) } }
     Card(Modifier.fillMaxWidth().clickable(onClick = onClick)) {
         Row(Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -101,6 +104,7 @@ private fun ProjectCard(container: AppContainer, project: ProjectEntity, onClick
                     listOfNotNull(
                         project.durationSeconds?.let { Timecode.format(it) },
                         if (project.isYouTube) "YouTube" else "Galeri",
+                        if (clipCount > 0) "$clipCount klip" else null,
                         size.takeIf { it > 0 }?.let(::formatBytes),
                     ).joinToString(" · "),
                     style = MaterialTheme.typography.bodySmall,

@@ -45,7 +45,7 @@ fun ScheduleScreen() = EmptyState("Jadwal posting", "Kalender, antrean, dan peng
 fun StatsScreen() = EmptyState("Statistik", "Tayangan, suka, dan analisis performa postingan (Fase 4–5).")
 
 @Composable
-fun SettingsScreen(container: AppContainer, onOpenCorrections: () -> Unit, onOpenLab: () -> Unit) {
+fun SettingsScreen(container: AppContainer, onOpenCorrections: () -> Unit, onOpenUsage: () -> Unit, onOpenLab: () -> Unit) {
     val scope = rememberCoroutineScope()
     var provider by remember { mutableStateOf(TranscriptionProvider.Groq) }
     var baseUrl by remember { mutableStateOf("") }
@@ -123,6 +123,9 @@ fun SettingsScreen(container: AppContainer, onOpenCorrections: () -> Unit, onOpe
             if (hasKey) TextButton(onClick = { container.settings.removeKey(provider); hasKey = false }) { Text("Hapus API key") }
         }
         saved?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
+
+        HorizontalDivider()
+        AnalysisSettingsSection(container, onOpenUsage)
 
         HorizontalDivider()
         Text("Transkrip", style = MaterialTheme.typography.titleMedium)

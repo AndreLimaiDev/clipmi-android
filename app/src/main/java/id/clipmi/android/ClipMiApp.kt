@@ -4,6 +4,8 @@ import android.app.Application
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import id.clipmi.android.data.AppDatabase
+import id.clipmi.android.domain.AiClient
+import id.clipmi.android.domain.Analysis
 import id.clipmi.android.domain.Ffmpeg
 import id.clipmi.android.domain.ProjectActions
 import id.clipmi.android.domain.Settings
@@ -24,6 +26,8 @@ class AppContainer(app: Application) {
     val ytDlp: YtDlp by lazy { YtDlp(app) }
     val transcriber: Transcriber by lazy { Transcriber(ffmpeg) }
     val actions: ProjectActions by lazy { ProjectActions(app, database, workspace, transcripts) }
+    val aiClient: AiClient by lazy { AiClient() }
+    val analysis: Analysis by lazy { Analysis(app, database, settings, transcripts) }
 }
 
 class ClipMiApp : Application() {

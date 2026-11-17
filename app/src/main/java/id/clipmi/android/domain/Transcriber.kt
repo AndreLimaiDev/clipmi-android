@@ -163,6 +163,8 @@ class Transcriber(private val ffmpeg: Ffmpeg) {
         val detail = if (detailText.isNotEmpty()) " ($detailText)" else ""
         val code = response.code
         val message = when {
+            // 403 juga dipakai penyedia untuk model yang diblokir di akun/project (misalnya pengaturan project Groq).
+            code == 403 && detailText.contains("model", ignoreCase = true) -> "Model ini tidak diizinkan untuk akun/project ${provider.label}. Pilih model lain atau izinkan model itu di konsol penyedia."
             code == 401 || code == 403 -> "API key ditolak oleh ${provider.label}. Periksa key di Pengaturan."
             code == 404 -> "Model atau alamat API tidak ditemukan. Periksa nama model di Pengaturan."
             code == 413 -> "Data yang dikirim terlalu besar untuk penyedia ini."
