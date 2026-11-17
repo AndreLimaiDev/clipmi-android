@@ -1,0 +1,25 @@
+[Script Info]
+ScriptType: v4.00+
+PlayResX: 1080
+PlayResY: 1920
+WrapStyle: 0
+ScaledBorderAndShadow: yes
+
+[V4+ Styles]
+Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
+Style: Sub,Anton,76,&H00FFFFFF,&H00FFFFFF,&H00000000,&H64000000,0,0,0,0,100,100,0,0,1,8,0,2,90,90,460,1
+Style: Line,Anton,76,&HFF000000,&HFF000000,&H59000000,&HFF000000,0,0,0,0,100,100,0,0,3,17,0,2,90,90,460,1
+Style: Hook,Anton,62,&H00FFFFFF,&H00FFFFFF,&H50000000,&H00000000,0,0,0,0,100,100,0,0,3,18,0,8,110,110,300,1
+Style: Title,Anton,60,&H00FFFFFF,&H00FFFFFF,&H00000000,&H00000000,0,0,0,0,100,100,0,0,1,0,0,5,70,70,0,1
+Style: Box,Anton,76,&HFF000000,&HFF000000,&H0000D4FF,&HFF000000,0,0,0,0,100,100,0,0,3,8,0,2,90,90,460,1
+
+[Events]
+Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
+Dialogue: 0,0:00:00.30,0:00:00.75,Sub,,0,0,0,,{\blur5}{\1c&H0000D4FF}RASULULLAH{\r}{\blur5} BERSABDA, ORANG YANG
+Dialogue: 0,0:00:00.75,0:00:01.20,Sub,,0,0,0,,{\blur5}RASULULLAH {\1c&H0000D4FF}BERSABDA,{\r}{\blur5} ORANG YANG
+Dialogue: 0,0:00:01.20,0:00:01.65,Sub,,0,0,0,,{\blur5}RASULULLAH BERSABDA, {\1c&H0000D4FF}ORANG{\r}{\blur5} YANG
+Dialogue: 0,0:00:01.65,0:00:02.10,Sub,,0,0,0,,{\blur5}RASULULLAH BERSABDA, ORANG {\1c&H0000D4FF}YANG{\r}{\blur5}
+Dialogue: 0,0:00:02.10,0:00:02.55,Sub,,0,0,0,,{\blur5}{\1c&H005EC522}{\1c&H0000D4FF}SABAR{\r}{\blur5} ITU DICINTAI ALLAH.
+Dialogue: 0,0:00:02.55,0:00:03.00,Sub,,0,0,0,,{\blur5}{\1c&H005EC522}SABAR{\r}{\blur5} {\1c&H0000D4FF}ITU{\r}{\blur5} DICINTAI ALLAH.
+Dialogue: 0,0:00:03.00,0:00:03.45,Sub,,0,0,0,,{\blur5}{\1c&H005EC522}SABAR{\r}{\blur5} ITU {\1c&H0000D4FF}DICINTAI{\r}{\blur5} ALLAH.
+Dialogue: 0,0:00:03.45,0:00:03.90,Sub,,0,0,0,,{\blur5}{\1c&H005EC522}SABAR{\r}{\blur5} ITU DICINTAI {\1c&H0000D4FF}ALLAH.{\r}{\blur5}

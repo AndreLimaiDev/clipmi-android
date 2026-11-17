@@ -1,0 +1,28 @@
+# Gradle & build
+.gradle/
+build/
+.kotlin/
+.cxx/
+.externalNativeBuild/
+captures/
+
+# Lokal per PC
+local.properties
+*.iml
+.idea/
+
+# Kunci tanda tangan APK: jangan pernah di-commit
+*.jks
+*.keystore
+signing.properties
+
+# Hasil build
+*.apk
+*.aab
+
+# Hasil build native (bangun ulang: native/build-native.sh)
+native/out/
+
+# Fixture dari subtitle video asli (konten pihak lain): hanya lokal, tes melewatinya bila tidak ada
+core/src/test/resources/fixtures/transcript/input/real/
+core/src/test/resources/fixtures/transcript/expected/real/
