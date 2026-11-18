@@ -141,7 +141,19 @@ class Settings(private val dao: SettingDao, private val secrets: SecretStore) {
 
     private fun analysisSecret(provider: AiProvider) = "ai.analysis.${provider.value}.api_key"
 
+    // --- Statistik postingan ----------------------------------------------------------------------------------
+
+    /** API key YouTube Data API (opsional, Keystore): statistik YouTube resmi tanpa login (`PostStatsFetcher`). */
+    fun youtubeKey(): String? = secrets.get(YOUTUBE_KEY)?.takeIf { it.isNotBlank() }
+
+    fun hasYoutubeKey(): Boolean = secrets.has(YOUTUBE_KEY)
+
+    fun saveYoutubeKey(key: String) = secrets.put(YOUTUBE_KEY, key.trim())
+
+    fun removeYoutubeKey() = secrets.remove(YOUTUBE_KEY)
+
     companion object {
+        const val YOUTUBE_KEY = "stats.youtube_key"
         const val KEY_AI_PROVIDER = "ai.analysis.provider"
         const val KEY_AI_MODEL = "ai.analysis.model"
         const val KEY_AI_BASE_URL = "ai.analysis.base_url"

@@ -82,7 +82,7 @@ private data class OutputInfo(val exists: Boolean, val bytes: Long?, val width: 
  * aplikasi sosmed, dan peringatan bila klip diubah setelah dirender atau file hasilnya hilang dari galeri.
  */
 @Composable
-fun ResultsScreen(container: AppContainer, onBack: () -> Unit, onOpenProject: (Long) -> Unit, onOpenEditor: (Long) -> Unit) {
+fun ResultsScreen(container: AppContainer, onBack: () -> Unit, onOpenProject: (Long) -> Unit, onOpenEditor: (Long) -> Unit, onSchedule: (Long) -> Unit = {}) {
     val clips by container.database.clips().observeRendered().collectAsState(initial = null)
     val context = LocalContext.current
     val installed = remember {
@@ -105,7 +105,7 @@ fun ResultsScreen(container: AppContainer, onBack: () -> Unit, onOpenProject: (L
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             items(list.orEmpty(), key = { it.id }) { clip ->
-                ResultCard(container, clip, installed, onOpenProject, onOpenEditor)
+                ResultCard(container, clip, installed, onOpenProject, onOpenEditor, onSchedule)
             }
         }
     }
@@ -118,6 +118,7 @@ private fun ResultCard(
     installed: List<Pair<String, String>>,
     onOpenProject: (Long) -> Unit,
     onOpenEditor: (Long) -> Unit,
+    onSchedule: (Long) -> Unit,
 ) {
     val c = ClipMi.colors
     val context = LocalContext.current
@@ -199,6 +200,7 @@ private fun ResultCard(
                     if (!missing) IconCircle(ClipMiIcons.Play, "Putar hasil", { openVideo(context, clip.outputPath) }, size = 40.dp, background = c.panel)
                     IconCircle(ClipMiIcons.Edit, "Buka editor", { onOpenEditor(clip.id) }, size = 40.dp, background = c.panel)
                     GhostButton("Buka project", onClick = { onOpenProject(clip.projectId) })
+                    if (!missing) GhostButton("Jadwalkan", onClick = { onSchedule(clip.id) })
                 }
             }
         }

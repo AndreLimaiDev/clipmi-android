@@ -16,9 +16,9 @@ import androidx.sqlite.db.SupportSQLiteDatabase
     entities = [
         ProjectEntity::class, TranscriptSegmentEntity::class, CorrectionEntryEntity::class, AppSettingEntity::class,
         ClipSeriesEntity::class, ClipEntity::class, AiUsageEntity::class, CaptionStyleEntity::class, FrameStyleEntity::class,
-        BumperEntity::class,
+        BumperEntity::class, SocialAccountEntity::class, ScheduleEntity::class, ScheduleAccountEntity::class, PostStatEntity::class,
     ],
-    version = 5,
+    version = 6,
     exportSchema = true,
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -31,6 +31,7 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun aiUsages(): AiUsageDao
     abstract fun bumpers(): BumperDao
     abstract fun styles(): StyleDao
+    abstract fun schedules(): ScheduleDao
 
     companion object {
         const val NAME = "clipmi.db"
@@ -180,5 +181,31 @@ object Migrations {
         }
     }
 
-    val ALL: Array<Migration> = arrayOf(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5)
+    /** Fase 4: akun sosmed, jadwal posting, akun tujuan jadwal, dan statistik postingan (tabel baru saja). */
+    val MIGRATION_5_6 = object : Migration(5, 6) {
+        override fun migrate(db: SupportSQLiteDatabase) {
+            listOf(
+                "CREATE TABLE IF NOT EXISTS `social_accounts` (`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `name` TEXT NOT NULL, `platform` TEXT NOT NULL, " +
+                    "`handle` TEXT, `color` TEXT NOT NULL, `slots` TEXT, `created_at` INTEGER NOT NULL, `updated_at` INTEGER NOT NULL)",
+                "CREATE TABLE IF NOT EXISTS `schedules` (`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `clip_id` INTEGER NOT NULL, `scheduled_at` INTEGER NOT NULL, " +
+                    "`caption` TEXT, `hashtags` TEXT, `note` TEXT, `notified_at` INTEGER, `created_at` INTEGER NOT NULL, `updated_at` INTEGER NOT NULL, " +
+                    "FOREIGN KEY(`clip_id`) REFERENCES `clips`(`id`) ON UPDATE NO ACTION ON DELETE CASCADE )",
+                "CREATE INDEX IF NOT EXISTS `index_schedules_clip_id` ON `schedules` (`clip_id`)",
+                "CREATE INDEX IF NOT EXISTS `index_schedules_scheduled_at` ON `schedules` (`scheduled_at`)",
+                "CREATE TABLE IF NOT EXISTS `schedule_accounts` (`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `schedule_id` INTEGER NOT NULL, " +
+                    "`social_account_id` INTEGER NOT NULL, `status` TEXT NOT NULL DEFAULT 'pending', `url` TEXT, `published_at` INTEGER, `stats_checked_at` INTEGER, " +
+                    "`stats_error` TEXT, `created_at` INTEGER NOT NULL, `updated_at` INTEGER NOT NULL, " +
+                    "FOREIGN KEY(`schedule_id`) REFERENCES `schedules`(`id`) ON UPDATE NO ACTION ON DELETE CASCADE , " +
+                    "FOREIGN KEY(`social_account_id`) REFERENCES `social_accounts`(`id`) ON UPDATE NO ACTION ON DELETE CASCADE )",
+                "CREATE UNIQUE INDEX IF NOT EXISTS `index_schedule_accounts_schedule_id_social_account_id` ON `schedule_accounts` (`schedule_id`, `social_account_id`)",
+                "CREATE INDEX IF NOT EXISTS `index_schedule_accounts_social_account_id` ON `schedule_accounts` (`social_account_id`)",
+                "CREATE TABLE IF NOT EXISTS `post_stats` (`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `schedule_account_id` INTEGER NOT NULL, `views` INTEGER, " +
+                    "`likes` INTEGER, `comments` INTEGER, `shares` INTEGER, `source` TEXT NOT NULL, `recorded_at` INTEGER NOT NULL, `created_at` INTEGER NOT NULL, " +
+                    "`updated_at` INTEGER NOT NULL, FOREIGN KEY(`schedule_account_id`) REFERENCES `schedule_accounts`(`id`) ON UPDATE NO ACTION ON DELETE CASCADE )",
+                "CREATE INDEX IF NOT EXISTS `index_post_stats_schedule_account_id_recorded_at` ON `post_stats` (`schedule_account_id`, `recorded_at`)",
+            ).forEach(db::execSQL)
+        }
+    }
+
+    val ALL: Array<Migration> = arrayOf(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6)
 }

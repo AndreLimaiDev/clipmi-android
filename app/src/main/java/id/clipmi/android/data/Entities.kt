@@ -368,3 +368,81 @@ data class BumperEntity(
         const val MAX_SECONDS = 30
     }
 }
+
+/**
+ * Akun sosmed (tabel social_accounts, kolom sama dengan desktop): hanya label untuk merencanakan posting, tanpa login.
+ * slots: JSON [{"time": "19:00", "days": [1..7]}] untuk Isi otomatis.
+ */
+@Entity(tableName = "social_accounts")
+data class SocialAccountEntity(
+    @PrimaryKey(autoGenerate = true) val id: Long = 0,
+    val name: String,
+    val platform: String,
+    val handle: String? = null,
+    val color: String,
+    val slots: String? = null,
+    @ColumnInfo(name = "created_at") val createdAt: Long = System.currentTimeMillis(),
+    @ColumnInfo(name = "updated_at") val updatedAt: Long = System.currentTimeMillis(),
+)
+
+/**
+ * Jadwal posting satu klip ke satu atau beberapa akun. Caption dan hashtag kosong = ikut klip. Waktu dalam epoch
+ * milidetik (jam dinding HP saat ditampilkan); notified_at diisi saat pengingat dikirim.
+ */
+@Entity(
+    tableName = "schedules",
+    foreignKeys = [ForeignKey(entity = ClipEntity::class, parentColumns = ["id"], childColumns = ["clip_id"], onDelete = ForeignKey.CASCADE)],
+    indices = [Index("clip_id"), Index("scheduled_at")],
+)
+data class ScheduleEntity(
+    @PrimaryKey(autoGenerate = true) val id: Long = 0,
+    @ColumnInfo(name = "clip_id") val clipId: Long,
+    @ColumnInfo(name = "scheduled_at") val scheduledAt: Long,
+    val caption: String? = null,
+    val hashtags: String? = null,
+    val note: String? = null,
+    @ColumnInfo(name = "notified_at") val notifiedAt: Long? = null,
+    @ColumnInfo(name = "created_at") val createdAt: Long = System.currentTimeMillis(),
+    @ColumnInfo(name = "updated_at") val updatedAt: Long = System.currentTimeMillis(),
+)
+
+/** Akun tujuan satu jadwal: status terbit, link postingan, waktu terbit, dan percobaan statistik terakhir. */
+@Entity(
+    tableName = "schedule_accounts",
+    foreignKeys = [
+        ForeignKey(entity = ScheduleEntity::class, parentColumns = ["id"], childColumns = ["schedule_id"], onDelete = ForeignKey.CASCADE),
+        ForeignKey(entity = SocialAccountEntity::class, parentColumns = ["id"], childColumns = ["social_account_id"], onDelete = ForeignKey.CASCADE),
+    ],
+    indices = [Index(value = ["schedule_id", "social_account_id"], unique = true), Index("social_account_id")],
+)
+data class ScheduleAccountEntity(
+    @PrimaryKey(autoGenerate = true) val id: Long = 0,
+    @ColumnInfo(name = "schedule_id") val scheduleId: Long,
+    @ColumnInfo(name = "social_account_id") val socialAccountId: Long,
+    @ColumnInfo(defaultValue = "pending") val status: String = "pending",
+    val url: String? = null,
+    @ColumnInfo(name = "published_at") val publishedAt: Long? = null,
+    @ColumnInfo(name = "stats_checked_at") val statsCheckedAt: Long? = null,
+    @ColumnInfo(name = "stats_error") val statsError: String? = null,
+    @ColumnInfo(name = "created_at") val createdAt: Long = System.currentTimeMillis(),
+    @ColumnInfo(name = "updated_at") val updatedAt: Long = System.currentTimeMillis(),
+)
+
+/** Satu pengambilan statistik sebuah postingan (youtube_api, ytdlp, atau manual). */
+@Entity(
+    tableName = "post_stats",
+    foreignKeys = [ForeignKey(entity = ScheduleAccountEntity::class, parentColumns = ["id"], childColumns = ["schedule_account_id"], onDelete = ForeignKey.CASCADE)],
+    indices = [Index(value = ["schedule_account_id", "recorded_at"])],
+)
+data class PostStatEntity(
+    @PrimaryKey(autoGenerate = true) val id: Long = 0,
+    @ColumnInfo(name = "schedule_account_id") val scheduleAccountId: Long,
+    val views: Long? = null,
+    val likes: Long? = null,
+    val comments: Long? = null,
+    val shares: Long? = null,
+    val source: String,
+    @ColumnInfo(name = "recorded_at") val recordedAt: Long,
+    @ColumnInfo(name = "created_at") val createdAt: Long = System.currentTimeMillis(),
+    @ColumnInfo(name = "updated_at") val updatedAt: Long = System.currentTimeMillis(),
+)

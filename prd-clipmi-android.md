@@ -87,6 +87,7 @@ Urutan pengembangan disusun agar risiko teknis terbesar dibuktikan lebih dulu, l
     *   *Peringatan Render Usang:* Tanda bila klip diubah setelah dirender atau file hasilnya hilang.
 
 ### Fase 4: Jadwal, Unggah & Statistik
+*Selesai (18 November 2026): logika jadwal, Isi otomatis, pengingat, dan statistik diport ke core dan identik dengan desktop (1.900+ kasus uji); akun sosmed, kalender minggu/bulan, antrean, pengingat alarm dengan notifikasi, Siap Unggah, dan tab Statistik diuji di HP. Catatan di `docs/fase4-catatan.md`.*
 *   **Jadwal Posting** [high] — Perencanaan posting pribadi di HP, sama konsepnya dengan desktop.
     *   *Akun Sosmed:* Daftar akun (nama, platform, handle, warna) dengan slot rutin per akun.
     *   *Kalender & Antrean:* Tampilan minggu dan bulan, antrean klip siap unggah, dan "Isi otomatis" yang mengisi slot kosong dengan urutan seri terjaga.

@@ -1,0 +1,1776 @@
+{
+  "formatVersion": 1,
+  "database": {
+    "version": 6,
+    "identityHash": "33fa23f1909b126e324f46b1b7f57597",
+    "entities": [
+      {
+        "tableName": "projects",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `title` TEXT NOT NULL, `source_type` TEXT NOT NULL, `source_url` TEXT, `youtube_video_id` TEXT, `video_path` TEXT, `preview_path` TEXT, `thumbnail_path` TEXT, `duration_seconds` REAL, `video_status` TEXT NOT NULL, `video_progress` INTEGER, `transcript_status` TEXT NOT NULL, `transcript_source` TEXT, `transcript_language` TEXT, `transcription_message` TEXT, `transcription_resume_at` INTEGER, `error_message` TEXT, `analysis_status` TEXT, `analysis_message` TEXT, `analysis_parts` TEXT, `analysis_heartbeat_at` INTEGER, `source_deleted_at` INTEGER, `crop_position` INTEGER NOT NULL DEFAULT 50, `intro_id` INTEGER, `outro_id` INTEGER, `created_at` INTEGER NOT NULL, `updated_at` INTEGER NOT NULL, FOREIGN KEY(`intro_id`) REFERENCES `bumpers`(`id`) ON UPDATE NO ACTION ON DELETE SET NULL , FOREIGN KEY(`outro_id`) REFERENCES `bumpers`(`id`) ON UPDATE NO ACTION ON DELETE SET NULL )",
+        "fields": [
+          {
+            "fieldPath": "id",
+            "columnName": "id",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "title",
+            "columnName": "title",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "sourceType",
+            "columnName": "source_type",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "sourceUrl",
+            "columnName": "source_url",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "youtubeVideoId",
+            "columnName": "youtube_video_id",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "videoPath",
+            "columnName": "video_path",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "previewPath",
+            "columnName": "preview_path",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "thumbnailPath",
+            "columnName": "thumbnail_path",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "durationSeconds",
+            "columnName": "duration_seconds",
+            "affinity": "REAL"
+          },
+          {
+            "fieldPath": "videoStatus",
+            "columnName": "video_status",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "videoProgress",
+            "columnName": "video_progress",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "transcriptStatus",
+            "columnName": "transcript_status",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "transcriptSource",
+            "columnName": "transcript_source",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "transcriptLanguage",
+            "columnName": "transcript_language",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "transcriptionMessage",
+            "columnName": "transcription_message",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "transcriptionResumeAt",
+            "columnName": "transcription_resume_at",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "errorMessage",
+            "columnName": "error_message",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "analysisStatus",
+            "columnName": "analysis_status",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "analysisMessage",
+            "columnName": "analysis_message",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "analysisParts",
+            "columnName": "analysis_parts",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "analysisHeartbeatAt",
+            "columnName": "analysis_heartbeat_at",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "sourceDeletedAt",
+            "columnName": "source_deleted_at",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "cropPosition",
+            "columnName": "crop_position",
+            "affinity": "INTEGER",
+            "notNull": true,
+            "defaultValue": "50"
+          },
+          {
+            "fieldPath": "introId",
+            "columnName": "intro_id",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "outroId",
+            "columnName": "outro_id",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "createdAt",
+            "columnName": "created_at",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "updatedAt",
+            "columnName": "updated_at",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": true,
+          "columnNames": [
+            "id"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_projects_youtube_video_id",
+            "unique": false,
+            "columnNames": [
+              "youtube_video_id"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_projects_youtube_video_id` ON `${TABLE_NAME}` (`youtube_video_id`)"
+          },
+          {
+            "name": "index_projects_intro_id",
+            "unique": false,
+            "columnNames": [
+              "intro_id"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_projects_intro_id` ON `${TABLE_NAME}` (`intro_id`)"
+          },
+          {
+            "name": "index_projects_outro_id",
+            "unique": false,
+            "columnNames": [
+              "outro_id"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_projects_outro_id` ON `${TABLE_NAME}` (`outro_id`)"
+          }
+        ],
+        "foreignKeys": [
+          {
+            "table": "bumpers",
+            "onDelete": "SET NULL",
+            "onUpdate": "NO ACTION",
+            "columns": [
+              "intro_id"
+            ],
+            "referencedColumns": [
+              "id"
+            ]
+          },
+          {
+            "table": "bumpers",
+            "onDelete": "SET NULL",
+            "onUpdate": "NO ACTION",
+            "columns": [
+              "outro_id"
+            ],
+            "referencedColumns": [
+              "id"
+            ]
+          }
+        ]
+      },
+      {
+        "tableName": "transcript_segments",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `project_id` INTEGER NOT NULL, `sequence` INTEGER NOT NULL, `start_time` REAL NOT NULL, `end_time` REAL NOT NULL, `text` TEXT NOT NULL, `words` TEXT, `words_estimated` INTEGER NOT NULL, FOREIGN KEY(`project_id`) REFERENCES `projects`(`id`) ON UPDATE NO ACTION ON DELETE CASCADE )",
+        "fields": [
+          {
+            "fieldPath": "id",
+            "columnName": "id",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "projectId",
+            "columnName": "project_id",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "sequence",
+            "columnName": "sequence",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "startTime",
+            "columnName": "start_time",
+            "affinity": "REAL",
+            "notNull": true
+          },
+          {
+            "fieldPath": "endTime",
+            "columnName": "end_time",
+            "affinity": "REAL",
+            "notNull": true
+          },
+          {
+            "fieldPath": "text",
+            "columnName": "text",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "words",
+            "columnName": "words",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "wordsEstimated",
+            "columnName": "words_estimated",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": true,
+          "columnNames": [
+            "id"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_transcript_segments_project_id_sequence",
+            "unique": true,
+            "columnNames": [
+              "project_id",
+              "sequence"
+            ],
+            "orders": [],
+            "createSql": "CREATE UNIQUE INDEX IF NOT EXISTS `index_transcript_segments_project_id_sequence` ON `${TABLE_NAME}` (`project_id`, `sequence`)"
+          }
+        ],
+        "foreignKeys": [
+          {
+            "table": "projects",
+            "onDelete": "CASCADE",
+            "onUpdate": "NO ACTION",
+            "columns": [
+              "project_id"
+            ],
+            "referencedColumns": [
+              "id"
+            ]
+          }
+        ]
+      },
+      {
+        "tableName": "correction_entries",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `wrong_text` TEXT NOT NULL COLLATE NOCASE, `correct_text` TEXT NOT NULL, `is_active` INTEGER NOT NULL, `created_at` INTEGER NOT NULL, `updated_at` INTEGER NOT NULL)",
+        "fields": [
+          {
+            "fieldPath": "id",
+            "columnName": "id",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "wrongText",
+            "columnName": "wrong_text",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "correctText",
+            "columnName": "correct_text",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "isActive",
+            "columnName": "is_active",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "createdAt",
+            "columnName": "created_at",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "updatedAt",
+            "columnName": "updated_at",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": true,
+          "columnNames": [
+            "id"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_correction_entries_wrong_text",
+            "unique": true,
+            "columnNames": [
+              "wrong_text"
+            ],
+            "orders": [],
+            "createSql": "CREATE UNIQUE INDEX IF NOT EXISTS `index_correction_entries_wrong_text` ON `${TABLE_NAME}` (`wrong_text`)"
+          }
+        ]
+      },
+      {
+        "tableName": "app_settings",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `key` TEXT NOT NULL, `value` TEXT, `created_at` INTEGER NOT NULL, `updated_at` INTEGER NOT NULL)",
+        "fields": [
+          {
+            "fieldPath": "id",
+            "columnName": "id",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "key",
+            "columnName": "key",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "value",
+            "columnName": "value",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "createdAt",
+            "columnName": "created_at",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "updatedAt",
+            "columnName": "updated_at",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": true,
+          "columnNames": [
+            "id"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_app_settings_key",
+            "unique": true,
+            "columnNames": [
+              "key"
+            ],
+            "orders": [],
+            "createSql": "CREATE UNIQUE INDEX IF NOT EXISTS `index_app_settings_key` ON `${TABLE_NAME}` (`key`)"
+          }
+        ]
+      },
+      {
+        "tableName": "clip_series",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `project_id` INTEGER NOT NULL, `title` TEXT NOT NULL, `created_at` INTEGER NOT NULL, `updated_at` INTEGER NOT NULL, FOREIGN KEY(`project_id`) REFERENCES `projects`(`id`) ON UPDATE NO ACTION ON DELETE CASCADE )",
+        "fields": [
+          {
+            "fieldPath": "id",
+            "columnName": "id",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "projectId",
+            "columnName": "project_id",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "title",
+            "columnName": "title",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "createdAt",
+            "columnName": "created_at",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "updatedAt",
+            "columnName": "updated_at",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": true,
+          "columnNames": [
+            "id"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_clip_series_project_id_title",
+            "unique": true,
+            "columnNames": [
+              "project_id",
+              "title"
+            ],
+            "orders": [],
+            "createSql": "CREATE UNIQUE INDEX IF NOT EXISTS `index_clip_series_project_id_title` ON `${TABLE_NAME}` (`project_id`, `title`)"
+          }
+        ],
+        "foreignKeys": [
+          {
+            "table": "projects",
+            "onDelete": "CASCADE",
+            "onUpdate": "NO ACTION",
+            "columns": [
+              "project_id"
+            ],
+            "referencedColumns": [
+              "id"
+            ]
+          }
+        ]
+      },
+      {
+        "tableName": "clips",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `project_id` INTEGER NOT NULL, `clip_series_id` INTEGER, `caption_style_id` INTEGER, `frame_style_id` INTEGER, `crop_position` INTEGER, `crop_zoom` INTEGER, `crop_y` INTEGER, `cuts` TEXT, `part_number` INTEGER, `title` TEXT NOT NULL, `start_time` REAL NOT NULL, `end_time` REAL NOT NULL, `score` INTEGER, `hook` TEXT, `caption` TEXT, `hashtags` TEXT, `keywords` TEXT, `reason` TEXT, `review_status` TEXT NOT NULL, `source` TEXT NOT NULL, `subtitle_lines` TEXT, `subtitle_edited` INTEGER NOT NULL, `show_hook_overlay` INTEGER NOT NULL, `hook_layout` TEXT, `render_status` TEXT NOT NULL, `render_progress` INTEGER, `render_error` TEXT, `output_path` TEXT, `rendered_at` INTEGER, `edited_at` INTEGER, `cover_time` REAL, `cover_path` TEXT, `cover_title` INTEGER NOT NULL DEFAULT 0, `cover_in_video` INTEGER NOT NULL DEFAULT 1, `intro_id` INTEGER, `outro_id` INTEGER, `created_at` INTEGER NOT NULL, `updated_at` INTEGER NOT NULL, FOREIGN KEY(`project_id`) REFERENCES `projects`(`id`) ON UPDATE NO ACTION ON DELETE CASCADE , FOREIGN KEY(`clip_series_id`) REFERENCES `clip_series`(`id`) ON UPDATE NO ACTION ON DELETE SET NULL , FOREIGN KEY(`caption_style_id`) REFERENCES `caption_styles`(`id`) ON UPDATE NO ACTION ON DELETE SET NULL , FOREIGN KEY(`frame_style_id`) REFERENCES `frame_styles`(`id`) ON UPDATE NO ACTION ON DELETE SET NULL , FOREIGN KEY(`intro_id`) REFERENCES `bumpers`(`id`) ON UPDATE NO ACTION ON DELETE SET NULL , FOREIGN KEY(`outro_id`) REFERENCES `bumpers`(`id`) ON UPDATE NO ACTION ON DELETE SET NULL )",
+        "fields": [
+          {
+            "fieldPath": "id",
+            "columnName": "id",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "projectId",
+            "columnName": "project_id",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "clipSeriesId",
+            "columnName": "clip_series_id",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "captionStyleId",
+            "columnName": "caption_style_id",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "frameStyleId",
+            "columnName": "frame_style_id",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "cropPosition",
+            "columnName": "crop_position",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "cropZoom",
+            "columnName": "crop_zoom",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "cropY",
+            "columnName": "crop_y",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "cuts",
+            "columnName": "cuts",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "partNumber",
+            "columnName": "part_number",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "title",
+            "columnName": "title",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "startTime",
+            "columnName": "start_time",
+            "affinity": "REAL",
+            "notNull": true
+          },
+          {
+            "fieldPath": "endTime",
+            "columnName": "end_time",
+            "affinity": "REAL",
+            "notNull": true
+          },
+          {
+            "fieldPath": "score",
+            "columnName": "score",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "hook",
+            "columnName": "hook",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "caption",
+            "columnName": "caption",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "hashtags",
+            "columnName": "hashtags",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "keywords",
+            "columnName": "keywords",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "reason",
+            "columnName": "reason",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "reviewStatus",
+            "columnName": "review_status",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "source",
+            "columnName": "source",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "subtitleLines",
+            "columnName": "subtitle_lines",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "subtitleEdited",
+            "columnName": "subtitle_edited",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "showHookOverlay",
+            "columnName": "show_hook_overlay",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "hookLayout",
+            "columnName": "hook_layout",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "renderStatus",
+            "columnName": "render_status",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "renderProgress",
+            "columnName": "render_progress",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "renderError",
+            "columnName": "render_error",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "outputPath",
+            "columnName": "output_path",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "renderedAt",
+            "columnName": "rendered_at",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "editedAt",
+            "columnName": "edited_at",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "coverTime",
+            "columnName": "cover_time",
+            "affinity": "REAL"
+          },
+          {
+            "fieldPath": "coverPath",
+            "columnName": "cover_path",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "coverTitle",
+            "columnName": "cover_title",
+            "affinity": "INTEGER",
+            "notNull": true,
+            "defaultValue": "0"
+          },
+          {
+            "fieldPath": "coverInVideo",
+            "columnName": "cover_in_video",
+            "affinity": "INTEGER",
+            "notNull": true,
+            "defaultValue": "1"
+          },
+          {
+            "fieldPath": "introId",
+            "columnName": "intro_id",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "outroId",
+            "columnName": "outro_id",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "createdAt",
+            "columnName": "created_at",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "updatedAt",
+            "columnName": "updated_at",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": true,
+          "columnNames": [
+            "id"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_clips_project_id_review_status",
+            "unique": false,
+            "columnNames": [
+              "project_id",
+              "review_status"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_clips_project_id_review_status` ON `${TABLE_NAME}` (`project_id`, `review_status`)"
+          },
+          {
+            "name": "index_clips_clip_series_id",
+            "unique": false,
+            "columnNames": [
+              "clip_series_id"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_clips_clip_series_id` ON `${TABLE_NAME}` (`clip_series_id`)"
+          },
+          {
+            "name": "index_clips_caption_style_id",
+            "unique": false,
+            "columnNames": [
+              "caption_style_id"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_clips_caption_style_id` ON `${TABLE_NAME}` (`caption_style_id`)"
+          },
+          {
+            "name": "index_clips_frame_style_id",
+            "unique": false,
+            "columnNames": [
+              "frame_style_id"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_clips_frame_style_id` ON `${TABLE_NAME}` (`frame_style_id`)"
+          },
+          {
+            "name": "index_clips_intro_id",
+            "unique": false,
+            "columnNames": [
+              "intro_id"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_clips_intro_id` ON `${TABLE_NAME}` (`intro_id`)"
+          },
+          {
+            "name": "index_clips_outro_id",
+            "unique": false,
+            "columnNames": [
+              "outro_id"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_clips_outro_id` ON `${TABLE_NAME}` (`outro_id`)"
+          }
+        ],
+        "foreignKeys": [
+          {
+            "table": "projects",
+            "onDelete": "CASCADE",
+            "onUpdate": "NO ACTION",
+            "columns": [
+              "project_id"
+            ],
+            "referencedColumns": [
+              "id"
+            ]
+          },
+          {
+            "table": "clip_series",
+            "onDelete": "SET NULL",
+            "onUpdate": "NO ACTION",
+            "columns": [
+              "clip_series_id"
+            ],
+            "referencedColumns": [
+              "id"
+            ]
+          },
+          {
+            "table": "caption_styles",
+            "onDelete": "SET NULL",
+            "onUpdate": "NO ACTION",
+            "columns": [
+              "caption_style_id"
+            ],
+            "referencedColumns": [
+              "id"
+            ]
+          },
+          {
+            "table": "frame_styles",
+            "onDelete": "SET NULL",
+            "onUpdate": "NO ACTION",
+            "columns": [
+              "frame_style_id"
+            ],
+            "referencedColumns": [
+              "id"
+            ]
+          },
+          {
+            "table": "bumpers",
+            "onDelete": "SET NULL",
+            "onUpdate": "NO ACTION",
+            "columns": [
+              "intro_id"
+            ],
+            "referencedColumns": [
+              "id"
+            ]
+          },
+          {
+            "table": "bumpers",
+            "onDelete": "SET NULL",
+            "onUpdate": "NO ACTION",
+            "columns": [
+              "outro_id"
+            ],
+            "referencedColumns": [
+              "id"
+            ]
+          }
+        ]
+      },
+      {
+        "tableName": "ai_usages",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `purpose` TEXT NOT NULL, `project_id` INTEGER, `project_title` TEXT NOT NULL, `provider` TEXT NOT NULL, `model` TEXT NOT NULL, `input_tokens` INTEGER NOT NULL, `output_tokens` INTEGER NOT NULL, `audio_seconds` REAL NOT NULL, `cost` REAL, `created_at` INTEGER NOT NULL, `updated_at` INTEGER NOT NULL, FOREIGN KEY(`project_id`) REFERENCES `projects`(`id`) ON UPDATE NO ACTION ON DELETE SET NULL )",
+        "fields": [
+          {
+            "fieldPath": "id",
+            "columnName": "id",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "purpose",
+            "columnName": "purpose",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "projectId",
+            "columnName": "project_id",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "projectTitle",
+            "columnName": "project_title",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "provider",
+            "columnName": "provider",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "model",
+            "columnName": "model",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "inputTokens",
+            "columnName": "input_tokens",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "outputTokens",
+            "columnName": "output_tokens",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "audioSeconds",
+            "columnName": "audio_seconds",
+            "affinity": "REAL",
+            "notNull": true
+          },
+          {
+            "fieldPath": "cost",
+            "columnName": "cost",
+            "affinity": "REAL"
+          },
+          {
+            "fieldPath": "createdAt",
+            "columnName": "created_at",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "updatedAt",
+            "columnName": "updated_at",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": true,
+          "columnNames": [
+            "id"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_ai_usages_created_at",
+            "unique": false,
+            "columnNames": [
+              "created_at"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_ai_usages_created_at` ON `${TABLE_NAME}` (`created_at`)"
+          },
+          {
+            "name": "index_ai_usages_project_id",
+            "unique": false,
+            "columnNames": [
+              "project_id"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_ai_usages_project_id` ON `${TABLE_NAME}` (`project_id`)"
+          }
+        ],
+        "foreignKeys": [
+          {
+            "table": "projects",
+            "onDelete": "SET NULL",
+            "onUpdate": "NO ACTION",
+            "columns": [
+              "project_id"
+            ],
+            "referencedColumns": [
+              "id"
+            ]
+          }
+        ]
+      },
+      {
+        "tableName": "caption_styles",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `name` TEXT NOT NULL COLLATE NOCASE, `font_family` TEXT NOT NULL, `font_size` INTEGER NOT NULL, `uppercase` INTEGER NOT NULL, `primary_color` TEXT NOT NULL, `outline_color` TEXT NOT NULL, `highlight_active_word` INTEGER NOT NULL, `highlight_style` TEXT NOT NULL, `highlight_color` TEXT NOT NULL, `upcoming_color` TEXT, `keyword_highlight` INTEGER NOT NULL, `keyword_color` TEXT NOT NULL, `position` TEXT NOT NULL, `words_per_line` INTEGER NOT NULL, `animation` TEXT NOT NULL, `effect` TEXT NOT NULL, `line_box` INTEGER NOT NULL, `line_box_color` TEXT NOT NULL, `line_box_opacity` INTEGER NOT NULL, `is_default` INTEGER NOT NULL, `created_at` INTEGER NOT NULL, `updated_at` INTEGER NOT NULL)",
+        "fields": [
+          {
+            "fieldPath": "id",
+            "columnName": "id",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "name",
+            "columnName": "name",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "fontFamily",
+            "columnName": "font_family",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "fontSize",
+            "columnName": "font_size",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "uppercase",
+            "columnName": "uppercase",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "primaryColor",
+            "columnName": "primary_color",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "outlineColor",
+            "columnName": "outline_color",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "highlightActiveWord",
+            "columnName": "highlight_active_word",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "highlightStyle",
+            "columnName": "highlight_style",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "highlightColor",
+            "columnName": "highlight_color",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "upcomingColor",
+            "columnName": "upcoming_color",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "keywordHighlight",
+            "columnName": "keyword_highlight",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "keywordColor",
+            "columnName": "keyword_color",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "position",
+            "columnName": "position",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "wordsPerLine",
+            "columnName": "words_per_line",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "animation",
+            "columnName": "animation",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "effect",
+            "columnName": "effect",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "lineBox",
+            "columnName": "line_box",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "lineBoxColor",
+            "columnName": "line_box_color",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "lineBoxOpacity",
+            "columnName": "line_box_opacity",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "isDefault",
+            "columnName": "is_default",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "createdAt",
+            "columnName": "created_at",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "updatedAt",
+            "columnName": "updated_at",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": true,
+          "columnNames": [
+            "id"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_caption_styles_name",
+            "unique": true,
+            "columnNames": [
+              "name"
+            ],
+            "orders": [],
+            "createSql": "CREATE UNIQUE INDEX IF NOT EXISTS `index_caption_styles_name` ON `${TABLE_NAME}` (`name`)"
+          }
+        ]
+      },
+      {
+        "tableName": "frame_styles",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `name` TEXT NOT NULL COLLATE NOCASE, `aspect` TEXT NOT NULL, `mode` TEXT NOT NULL, `background` TEXT NOT NULL, `blur_strength` INTEGER NOT NULL, `background_color` TEXT NOT NULL, `background_color_2` TEXT NOT NULL, `background_path` TEXT, `template_path` TEXT, `template_area` TEXT, `video_height` INTEGER NOT NULL, `video_position` TEXT NOT NULL, `zoom` INTEGER NOT NULL, `corner_radius` INTEGER NOT NULL, `border_width` INTEGER NOT NULL, `border_color` TEXT NOT NULL, `logo_path` TEXT, `logo_x` INTEGER NOT NULL, `logo_y` INTEGER NOT NULL, `logo_size` INTEGER NOT NULL, `logo_opacity` INTEGER NOT NULL, `watermark_text` TEXT, `watermark_font` TEXT NOT NULL, `watermark_size` INTEGER NOT NULL, `watermark_color` TEXT NOT NULL, `watermark_opacity` INTEGER NOT NULL, `watermark_x` INTEGER NOT NULL, `watermark_y` INTEGER NOT NULL, `title_bar` INTEGER NOT NULL, `title_bar_color` TEXT NOT NULL, `title_text_color` TEXT NOT NULL, `subtitle_y` INTEGER, `is_default` INTEGER NOT NULL, `created_at` INTEGER NOT NULL, `updated_at` INTEGER NOT NULL)",
+        "fields": [
+          {
+            "fieldPath": "id",
+            "columnName": "id",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "name",
+            "columnName": "name",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "aspect",
+            "columnName": "aspect",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "mode",
+            "columnName": "mode",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "background",
+            "columnName": "background",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "blurStrength",
+            "columnName": "blur_strength",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "backgroundColor",
+            "columnName": "background_color",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "backgroundColor2",
+            "columnName": "background_color_2",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "backgroundPath",
+            "columnName": "background_path",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "templatePath",
+            "columnName": "template_path",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "templateArea",
+            "columnName": "template_area",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "videoHeight",
+            "columnName": "video_height",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "videoPosition",
+            "columnName": "video_position",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "zoom",
+            "columnName": "zoom",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "cornerRadius",
+            "columnName": "corner_radius",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "borderWidth",
+            "columnName": "border_width",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "borderColor",
+            "columnName": "border_color",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "logoPath",
+            "columnName": "logo_path",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "logoX",
+            "columnName": "logo_x",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "logoY",
+            "columnName": "logo_y",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "logoSize",
+            "columnName": "logo_size",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "logoOpacity",
+            "columnName": "logo_opacity",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "watermarkText",
+            "columnName": "watermark_text",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "watermarkFont",
+            "columnName": "watermark_font",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "watermarkSize",
+            "columnName": "watermark_size",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "watermarkColor",
+            "columnName": "watermark_color",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "watermarkOpacity",
+            "columnName": "watermark_opacity",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "watermarkX",
+            "columnName": "watermark_x",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "watermarkY",
+            "columnName": "watermark_y",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "titleBar",
+            "columnName": "title_bar",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "titleBarColor",
+            "columnName": "title_bar_color",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "titleTextColor",
+            "columnName": "title_text_color",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "subtitleY",
+            "columnName": "subtitle_y",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "isDefault",
+            "columnName": "is_default",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "createdAt",
+            "columnName": "created_at",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "updatedAt",
+            "columnName": "updated_at",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": true,
+          "columnNames": [
+            "id"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_frame_styles_name",
+            "unique": true,
+            "columnNames": [
+              "name"
+            ],
+            "orders": [],
+            "createSql": "CREATE UNIQUE INDEX IF NOT EXISTS `index_frame_styles_name` ON `${TABLE_NAME}` (`name`)"
+          }
+        ]
+      },
+      {
+        "tableName": "bumpers",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `kind` TEXT NOT NULL, `name` TEXT NOT NULL, `path` TEXT NOT NULL, `duration` REAL NOT NULL, `thumbnail_path` TEXT, `last_used_at` INTEGER, `created_at` INTEGER NOT NULL, `updated_at` INTEGER NOT NULL)",
+        "fields": [
+          {
+            "fieldPath": "id",
+            "columnName": "id",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "kind",
+            "columnName": "kind",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "name",
+            "columnName": "name",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "path",
+            "columnName": "path",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "duration",
+            "columnName": "duration",
+            "affinity": "REAL",
+            "notNull": true
+          },
+          {
+            "fieldPath": "thumbnailPath",
+            "columnName": "thumbnail_path",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "lastUsedAt",
+            "columnName": "last_used_at",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "createdAt",
+            "columnName": "created_at",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "updatedAt",
+            "columnName": "updated_at",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": true,
+          "columnNames": [
+            "id"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_bumpers_kind_last_used_at",
+            "unique": false,
+            "columnNames": [
+              "kind",
+              "last_used_at"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_bumpers_kind_last_used_at` ON `${TABLE_NAME}` (`kind`, `last_used_at`)"
+          }
+        ]
+      },
+      {
+        "tableName": "social_accounts",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `name` TEXT NOT NULL, `platform` TEXT NOT NULL, `handle` TEXT, `color` TEXT NOT NULL, `slots` TEXT, `created_at` INTEGER NOT NULL, `updated_at` INTEGER NOT NULL)",
+        "fields": [
+          {
+            "fieldPath": "id",
+            "columnName": "id",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "name",
+            "columnName": "name",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "platform",
+            "columnName": "platform",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "handle",
+            "columnName": "handle",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "color",
+            "columnName": "color",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "slots",
+            "columnName": "slots",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "createdAt",
+            "columnName": "created_at",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "updatedAt",
+            "columnName": "updated_at",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": true,
+          "columnNames": [
+            "id"
+          ]
+        }
+      },
+      {
+        "tableName": "schedules",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `clip_id` INTEGER NOT NULL, `scheduled_at` INTEGER NOT NULL, `caption` TEXT, `hashtags` TEXT, `note` TEXT, `notified_at` INTEGER, `created_at` INTEGER NOT NULL, `updated_at` INTEGER NOT NULL, FOREIGN KEY(`clip_id`) REFERENCES `clips`(`id`) ON UPDATE NO ACTION ON DELETE CASCADE )",
+        "fields": [
+          {
+            "fieldPath": "id",
+            "columnName": "id",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "clipId",
+            "columnName": "clip_id",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "scheduledAt",
+            "columnName": "scheduled_at",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "caption",
+            "columnName": "caption",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "hashtags",
+            "columnName": "hashtags",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "note",
+            "columnName": "note",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "notifiedAt",
+            "columnName": "notified_at",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "createdAt",
+            "columnName": "created_at",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "updatedAt",
+            "columnName": "updated_at",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": true,
+          "columnNames": [
+            "id"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_schedules_clip_id",
+            "unique": false,
+            "columnNames": [
+              "clip_id"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_schedules_clip_id` ON `${TABLE_NAME}` (`clip_id`)"
+          },
+          {
+            "name": "index_schedules_scheduled_at",
+            "unique": false,
+            "columnNames": [
+              "scheduled_at"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_schedules_scheduled_at` ON `${TABLE_NAME}` (`scheduled_at`)"
+          }
+        ],
+        "foreignKeys": [
+          {
+            "table": "clips",
+            "onDelete": "CASCADE",
+            "onUpdate": "NO ACTION",
+            "columns": [
+              "clip_id"
+            ],
+            "referencedColumns": [
+              "id"
+            ]
+          }
+        ]
+      },
+      {
+        "tableName": "schedule_accounts",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `schedule_id` INTEGER NOT NULL, `social_account_id` INTEGER NOT NULL, `status` TEXT NOT NULL DEFAULT 'pending', `url` TEXT, `published_at` INTEGER, `stats_checked_at` INTEGER, `stats_error` TEXT, `created_at` INTEGER NOT NULL, `updated_at` INTEGER NOT NULL, FOREIGN KEY(`schedule_id`) REFERENCES `schedules`(`id`) ON UPDATE NO ACTION ON DELETE CASCADE , FOREIGN KEY(`social_account_id`) REFERENCES `social_accounts`(`id`) ON UPDATE NO ACTION ON DELETE CASCADE )",
+        "fields": [
+          {
+            "fieldPath": "id",
+            "columnName": "id",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "scheduleId",
+            "columnName": "schedule_id",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "socialAccountId",
+            "columnName": "social_account_id",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "status",
+            "columnName": "status",
+            "affinity": "TEXT",
+            "notNull": true,
+            "defaultValue": "'pending'"
+          },
+          {
+            "fieldPath": "url",
+            "columnName": "url",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "publishedAt",
+            "columnName": "published_at",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "statsCheckedAt",
+            "columnName": "stats_checked_at",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "statsError",
+            "columnName": "stats_error",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "createdAt",
+            "columnName": "created_at",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "updatedAt",
+            "columnName": "updated_at",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": true,
+          "columnNames": [
+            "id"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_schedule_accounts_schedule_id_social_account_id",
+            "unique": true,
+            "columnNames": [
+              "schedule_id",
+              "social_account_id"
+            ],
+            "orders": [],
+            "createSql": "CREATE UNIQUE INDEX IF NOT EXISTS `index_schedule_accounts_schedule_id_social_account_id` ON `${TABLE_NAME}` (`schedule_id`, `social_account_id`)"
+          },
+          {
+            "name": "index_schedule_accounts_social_account_id",
+            "unique": false,
+            "columnNames": [
+              "social_account_id"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_schedule_accounts_social_account_id` ON `${TABLE_NAME}` (`social_account_id`)"
+          }
+        ],
+        "foreignKeys": [
+          {
+            "table": "schedules",
+            "onDelete": "CASCADE",
+            "onUpdate": "NO ACTION",
+            "columns": [
+              "schedule_id"
+            ],
+            "referencedColumns": [
+              "id"
+            ]
+          },
+          {
+            "table": "social_accounts",
+            "onDelete": "CASCADE",
+            "onUpdate": "NO ACTION",
+            "columns": [
+              "social_account_id"
+            ],
+            "referencedColumns": [
+              "id"
+            ]
+          }
+        ]
+      },
+      {
+        "tableName": "post_stats",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `schedule_account_id` INTEGER NOT NULL, `views` INTEGER, `likes` INTEGER, `comments` INTEGER, `shares` INTEGER, `source` TEXT NOT NULL, `recorded_at` INTEGER NOT NULL, `created_at` INTEGER NOT NULL, `updated_at` INTEGER NOT NULL, FOREIGN KEY(`schedule_account_id`) REFERENCES `schedule_accounts`(`id`) ON UPDATE NO ACTION ON DELETE CASCADE )",
+        "fields": [
+          {
+            "fieldPath": "id",
+            "columnName": "id",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "scheduleAccountId",
+            "columnName": "schedule_account_id",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "views",
+            "columnName": "views",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "likes",
+            "columnName": "likes",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "comments",
+            "columnName": "comments",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "shares",
+            "columnName": "shares",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "source",
+            "columnName": "source",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "recordedAt",
+            "columnName": "recorded_at",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "createdAt",
+            "columnName": "created_at",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "updatedAt",
+            "columnName": "updated_at",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": true,
+          "columnNames": [
+            "id"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_post_stats_schedule_account_id_recorded_at",
+            "unique": false,
+            "columnNames": [
+              "schedule_account_id",
+              "recorded_at"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_post_stats_schedule_account_id_recorded_at` ON `${TABLE_NAME}` (`schedule_account_id`, `recorded_at`)"
+          }
+        ],
+        "foreignKeys": [
+          {
+            "table": "schedule_accounts",
+            "onDelete": "CASCADE",
+            "onUpdate": "NO ACTION",
+            "columns": [
+              "schedule_account_id"
+            ],
+            "referencedColumns": [
+              "id"
+            ]
+          }
+        ]
+      }
+    ],
+    "setupQueries": [
+      "CREATE TABLE IF NOT EXISTS room_master_table (id INTEGER PRIMARY KEY,identity_hash TEXT)",
+      "INSERT OR REPLACE INTO room_master_table (id,identity_hash) VALUES(42, '33fa23f1909b126e324f46b1b7f57597')"
+    ]
+  }
+}

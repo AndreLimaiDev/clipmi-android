@@ -55,20 +55,6 @@ import id.clipmi.android.ui.theme.ClipMiIcons
 import kotlinx.coroutines.launch
 
 @Composable
-fun ScheduleScreen() = PlaceholderScreen("Jadwal", "Jadwal posting", "Kalender, antrean, dan pengingat posting hadir di Fase 4.", ClipMiIcons.Calendar)
-
-@Composable
-fun StatsScreen() = PlaceholderScreen("Statistik", "Statistik postingan", "Tayangan, suka, dan analisis performa postingan hadir di Fase 4–5.", ClipMiIcons.Chart)
-
-@Composable
-private fun PlaceholderScreen(title: String, emptyTitle: String, body: String, icon: androidx.compose.ui.graphics.vector.ImageVector) {
-    Column(Modifier.fillMaxSize().statusBarsPadding().padding(top = 20.dp)) {
-        ScreenHeader(title, Modifier.padding(horizontal = ScreenGutter), eyebrow = "ClipMI")
-        Box(Modifier.weight(1f).padding(bottom = FloatingNavSpace)) { EmptyState(emptyTitle, body, icon = icon) }
-    }
-}
-
-@Composable
 fun SettingsScreen(
     container: AppContainer,
     onOpenTranscription: () -> Unit,
@@ -98,6 +84,9 @@ fun SettingsScreen(
     var enhanceAudio by remember { mutableStateOf(true) }
     LaunchedEffect(Unit) { enhanceAudio = container.settings.enhanceAudio() }
     LaunchedEffect(Unit) { ytdlp = runCatching { container.ytDlp.version() }.getOrNull() }
+    var hasYoutubeKey by remember { mutableStateOf(container.settings.hasYoutubeKey()) }
+    var editingYoutubeKey by remember { mutableStateOf(false) }
+    if (editingYoutubeKey) YoutubeKeySheet(container, hasYoutubeKey, onDone = { editingYoutubeKey = false; hasYoutubeKey = container.settings.hasYoutubeKey() })
 
     Column(
         Modifier.fillMaxSize().verticalScroll(rememberScrollState()).statusBarsPadding().padding(start = ScreenGutter, end = ScreenGutter, top = 20.dp, bottom = FloatingNavSpace + 16.dp),
@@ -140,6 +129,15 @@ fun SettingsScreen(
             })
             GroupDivider()
             SettingsRow("Hasil render", "Galeri › Movies/ClipMI/<judul project>", onClick = onOpenResults)
+        }
+
+        SettingsGroup("Statistik") {
+            SettingsRow(
+                "YouTube Data API",
+                if (hasYoutubeKey) "Key tersimpan · statistik YouTube lewat API resmi" else "Opsional · tanpa key, YouTube dibaca lewat yt-dlp",
+                onClick = { editingYoutubeKey = true },
+                trailing = { ReadyBadge(hasYoutubeKey) },
+            )
         }
 
         SettingsGroup("Aplikasi") {
@@ -244,5 +242,49 @@ fun TranscriptionSettingsScreen(container: AppContainer, onBack: () -> Unit) {
             }
             Spacer(Modifier.height(8.dp))
         }
+    }
+}
+
+/**
+ * API key YouTube Data API v3 untuk statistik YouTube resmi (opsional). Disimpan di Keystore dan tidak pernah
+ * ditampilkan lagi; tanpa key, statistik YouTube dibaca lewat yt-dlp.
+ */
+@Composable
+private fun YoutubeKeySheet(container: AppContainer, hasKey: Boolean, onDone: () -> Unit) {
+    val notifier = LocalNotifier.current
+    var key by remember { mutableStateOf("") }
+    var error by remember { mutableStateOf<String?>(null) }
+    id.clipmi.android.ui.components.ClipMiSheet(onDone, title = "YouTube Data API", subtitle = "Tayangan, suka, dan komentar YouTube lewat jalur resmi, tanpa login.") {
+        Text(
+            "Buat key di Google Cloud Console: aktifkan \"YouTube Data API v3\", lalu Credentials › Create credentials › API key. Kuota gratisnya cukup untuk ribuan pembaruan per hari.",
+            style = MaterialTheme.typography.bodySmall, color = ClipMi.colors.textMuted,
+        )
+        Field(
+            key, { key = it.trim(); error = null },
+            label = "API key",
+            placeholder = if (hasKey) "Tersimpan (tidak ditampilkan)" else "AIza…",
+            singleLine = true,
+            error = error,
+            visualTransformation = PasswordVisualTransformation(),
+            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
+        )
+        PrimaryButton("Simpan key", modifier = Modifier.fillMaxWidth(), onClick = {
+            error = when {
+                key.isEmpty() -> "Tempel API key dulu."
+                key.length < 20 -> "API key terlalu pendek."
+                key.length > 200 -> "API key terlalu panjang."
+                else -> null
+            }
+            if (error == null) {
+                container.settings.saveYoutubeKey(key)
+                notifier.show("API key YouTube tersimpan.")
+                onDone()
+            }
+        })
+        if (hasKey) GhostButton("Hapus key", danger = true, onClick = {
+            container.settings.removeYoutubeKey()
+            notifier.show("API key YouTube dihapus. Statistik YouTube kembali lewat yt-dlp.")
+            onDone()
+        })
     }
 }

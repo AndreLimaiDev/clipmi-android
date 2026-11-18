@@ -3,11 +3,15 @@ package id.clipmi.android.domain
 import android.content.Context
 import com.yausername.youtubedl_android.YoutubeDL
 import com.yausername.youtubedl_android.YoutubeDLRequest
+import id.clipmi.core.schedule.PostStats
+import id.clipmi.core.schedule.StatNumbers
 import id.clipmi.core.youtube.YtDlpArgs
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.runInterruptible
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeout
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.jsonObject
@@ -78,6 +82,27 @@ class YtDlp(private val context: Context) {
         val audio = File(directory, "source.stream.m4a")
         if (!video.isFile || !audio.isFile) throw YtDlpException(errorMessage(result.second))
         return video to audio
+    }
+
+    /**
+     * Statistik publik sebuah postingan (YouTube, TikTok, dan Instagram bila diizinkan) tanpa mengunduh video
+     * (`YtDlp::stats` desktop). Hanya angka yang dicetak ke stdout.
+     */
+    suspend fun stats(url: String): StatNumbers {
+        ensureInit()
+        val id = "stats-${System.nanoTime()}"
+        val (out, err) = withContext(Dispatchers.IO) {
+            val request = YoutubeDLRequest(emptyList()).addCommands(PostStats.ytDlpArgs(YtDlpArgs.base(cacheDir), url))
+            try {
+                withTimeout(120_000) { runInterruptible { ytdl.execute(request, id, null).let { it.out to it.err } } }
+            } catch (e: kotlinx.coroutines.TimeoutCancellationException) {
+                ytdl.destroyProcessById(id)
+                "" to "Waktu habis membaca statistik (2 menit)."
+            } catch (e: Exception) {
+                "" to (e.message ?: e.javaClass.simpleName)
+            }
+        }
+        return PostStats.parseYtDlp(out) ?: throw YtDlpException(errorMessage(err))
     }
 
     fun cancel(processId: String) = ytdl.destroyProcessById(processId)

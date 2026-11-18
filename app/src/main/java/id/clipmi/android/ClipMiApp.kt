@@ -10,6 +10,7 @@ import id.clipmi.android.domain.Ffmpeg
 import id.clipmi.android.domain.MediaLibrary
 import id.clipmi.android.domain.Renderer
 import id.clipmi.android.domain.ProjectActions
+import id.clipmi.android.domain.Scheduler
 import id.clipmi.android.domain.Settings
 import id.clipmi.android.domain.Transcriber
 import id.clipmi.android.domain.Transcripts
@@ -32,6 +33,7 @@ class AppContainer(app: Application) {
     val analysis: Analysis by lazy { Analysis(app, database, settings, transcripts) }
     val renderer: Renderer by lazy { Renderer(app, database, workspace, transcripts, settings, ffmpeg) }
     val media: MediaLibrary by lazy { MediaLibrary(app, database, workspace, ffmpeg) }
+    val scheduler: Scheduler by lazy { Scheduler(app, database, analysis) }
 }
 
 class ClipMiApp : Application() {
@@ -45,12 +47,15 @@ class ClipMiApp : Application() {
     }
 
     private fun createNotificationChannels() {
-        val channel = NotificationChannel(CHANNEL_WORK, getString(R.string.channel_work), NotificationManager.IMPORTANCE_LOW)
+        val work = NotificationChannel(CHANNEL_WORK, getString(R.string.channel_work), NotificationManager.IMPORTANCE_LOW)
             .apply { description = getString(R.string.channel_work_desc) }
-        getSystemService(NotificationManager::class.java).createNotificationChannel(channel)
+        val reminder = NotificationChannel(CHANNEL_REMINDER, getString(R.string.channel_reminder), NotificationManager.IMPORTANCE_HIGH)
+            .apply { description = getString(R.string.channel_reminder_desc) }
+        getSystemService(NotificationManager::class.java).createNotificationChannels(listOf(work, reminder))
     }
 
     companion object {
         const val CHANNEL_WORK = "work"
+        const val CHANNEL_REMINDER = "reminder"
     }
 }

@@ -13,6 +13,10 @@ import androidx.compose.ui.unit.dp
  * Dibuat sendiri agar tidak perlu material-icons-extended (besar).
  */
 object ClipMiIcons {
+    val Users by lazy { stroke(circle(9f, 8f, 3.5f), "M2.5 20a6.5 6.5 0 0 1 13 0M16 4.6a3.5 3.5 0 0 1 0 6.8M18 14.5a6.5 6.5 0 0 1 3.5 5.5") }
+    val Clock by lazy { stroke(circle(12f, 12f, 9f), "M12 7v5l3 2") }
+    val Bell by lazy { stroke("M6 9a6 6 0 0 1 12 0c0 7 3 8 3 8H3s3-1 3-8", "M10.3 21a1.9 1.9 0 0 0 3.4 0") }
+    val Upload by lazy { stroke("M12 15V3M7 8l5-5 5 5", "M5 15v4a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-4") }
     val Home by lazy { stroke("M3 10.5 12 3l9 7.5V20a1 1 0 0 1-1 1h-5v-6H9v6H4a1 1 0 0 1-1-1z") }
     val Calendar by lazy { stroke("M6 5h12a3 3 0 0 1 3 3v10a3 3 0 0 1-3 3H6a3 3 0 0 1-3-3V8a3 3 0 0 1 3-3z", "M16 3v4M8 3v4M3 10h18") }
     val Chart by lazy { stroke("M5 20V11M12 20V5M19 20v-6") }

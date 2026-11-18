@@ -3,4 +3,6 @@
     <string name="app_name">ClipMI</string>
     <string name="channel_work">Proses latar</string>
     <string name="channel_work_desc">Progres unduh, analisis, dan render</string>
+    <string name="channel_reminder">Pengingat posting</string>
+    <string name="channel_reminder_desc">"Waktunya posting" sesuai jadwal, walaupun aplikasi tertutup</string>
 </resources>

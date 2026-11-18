@@ -190,6 +190,13 @@ interface ClipDao {
     @Query("SELECT * FROM clips WHERE render_status != 'not_rendered' ORDER BY COALESCE(rendered_at, updated_at) DESC")
     fun observeRendered(): Flow<List<ClipEntity>>
 
+    /** Klip untuk halaman Jadwal: terpilih, sudah dirender, atau sudah dijadwalkan. */
+    @Query("SELECT * FROM clips WHERE review_status = 'selected' OR render_status = 'done' OR id IN (SELECT clip_id FROM schedules)")
+    fun observeSchedulable(): Flow<List<ClipEntity>>
+
+    @Query("SELECT * FROM clips WHERE review_status = 'selected' OR render_status = 'done' OR id IN (SELECT clip_id FROM schedules)")
+    suspend fun schedulable(): List<ClipEntity>
+
     @Query("SELECT * FROM clips WHERE render_status IN ('queued', 'rendering')")
     suspend fun busyRenders(): List<ClipEntity>
 
@@ -329,4 +336,118 @@ interface BumperDao {
 
     @Query("UPDATE bumpers SET last_used_at = :now WHERE id = :id")
     suspend fun touchUsed(id: Long, now: Long = System.currentTimeMillis())
+}
+
+/** Akun sosmed, jadwal posting, akun tujuan, dan statistik postingan (tabel sama dengan desktop). */
+@Dao
+interface ScheduleDao {
+    @Query("SELECT * FROM social_accounts ORDER BY name COLLATE NOCASE, id")
+    fun observeAccounts(): Flow<List<SocialAccountEntity>>
+
+    @Query("SELECT * FROM social_accounts ORDER BY name COLLATE NOCASE, id")
+    suspend fun accounts(): List<SocialAccountEntity>
+
+    @Query("SELECT * FROM social_accounts WHERE id = :id")
+    suspend fun account(id: Long): SocialAccountEntity?
+
+    @Insert
+    suspend fun insertAccount(account: SocialAccountEntity): Long
+
+    @Update
+    suspend fun updateAccount(account: SocialAccountEntity)
+
+    @Query("SELECT DISTINCT schedule_id FROM schedule_accounts WHERE social_account_id = :id")
+    suspend fun scheduleIdsFor(id: Long): List<Long>
+
+    @Query("DELETE FROM social_accounts WHERE id = :id")
+    suspend fun deleteAccountRow(id: Long)
+
+    @Query("DELETE FROM schedules WHERE id IN (:ids) AND NOT EXISTS (SELECT 1 FROM schedule_accounts WHERE schedule_id = schedules.id)")
+    suspend fun deleteEmptySchedules(ids: List<Long>)
+
+    /** Akun dihapus: dilepas dari semua jadwal; jadwal yang jadi tanpa akun dihapus (klipnya kembali ke antrean). */
+    @Transaction
+    suspend fun deleteAccount(id: Long) {
+        val schedules = scheduleIdsFor(id)
+        deleteAccountRow(id)
+        if (schedules.isNotEmpty()) deleteEmptySchedules(schedules)
+    }
+
+    @Query("SELECT * FROM schedules ORDER BY scheduled_at, id")
+    fun observeSchedules(): Flow<List<ScheduleEntity>>
+
+    @Query("SELECT * FROM schedules ORDER BY scheduled_at, id")
+    suspend fun schedules(): List<ScheduleEntity>
+
+    @Query("SELECT * FROM schedules WHERE id = :id")
+    suspend fun schedule(id: Long): ScheduleEntity?
+
+    @Insert
+    suspend fun insertSchedule(schedule: ScheduleEntity): Long
+
+    @Update
+    suspend fun updateSchedule(schedule: ScheduleEntity)
+
+    @Query("DELETE FROM schedules WHERE id = :id")
+    suspend fun deleteSchedule(id: Long)
+
+    @Query("UPDATE schedules SET notified_at = :now WHERE id IN (:ids)")
+    suspend fun markNotified(ids: List<Long>, now: Long)
+
+    /** Jadwal yang perlu diingatkan: waktunya tiba, belum diingatkan, dan masih ada akun yang menunggu. */
+    @Query(
+        """SELECT * FROM schedules WHERE notified_at IS NULL AND scheduled_at <= :now
+        AND EXISTS (SELECT 1 FROM schedule_accounts WHERE schedule_id = schedules.id AND status = 'pending') ORDER BY scheduled_at, id""",
+    )
+    suspend fun dueReminders(now: Long): List<ScheduleEntity>
+
+    /** Waktu pengingat berikutnya (untuk alarm), atau null bila tidak ada. */
+    @Query(
+        """SELECT MIN(scheduled_at) FROM schedules WHERE notified_at IS NULL AND scheduled_at > :now
+        AND EXISTS (SELECT 1 FROM schedule_accounts WHERE schedule_id = schedules.id AND status = 'pending')""",
+    )
+    suspend fun nextReminderAt(now: Long): Long?
+
+    @Query("SELECT * FROM schedule_accounts ORDER BY id")
+    fun observeTargets(): Flow<List<ScheduleAccountEntity>>
+
+    @Query("SELECT * FROM schedule_accounts ORDER BY id")
+    suspend fun allTargets(): List<ScheduleAccountEntity>
+
+    @Query("SELECT * FROM schedule_accounts WHERE schedule_id = :scheduleId ORDER BY id")
+    suspend fun targets(scheduleId: Long): List<ScheduleAccountEntity>
+
+    @Query("SELECT * FROM schedule_accounts WHERE id = :id")
+    suspend fun target(id: Long): ScheduleAccountEntity?
+
+    @Insert(onConflict = androidx.room.OnConflictStrategy.IGNORE)
+    suspend fun insertTargets(targets: List<ScheduleAccountEntity>)
+
+    @Update
+    suspend fun updateTarget(target: ScheduleAccountEntity)
+
+    @Query("DELETE FROM schedule_accounts WHERE schedule_id = :scheduleId AND social_account_id NOT IN (:keep)")
+    suspend fun deleteTargetsExcept(scheduleId: Long, keep: List<Long>)
+
+    @Query("UPDATE schedule_accounts SET schedule_id = :to, updated_at = :now WHERE schedule_id = :from AND social_account_id IN (:accounts)")
+    suspend fun moveTargets(from: Long, to: Long, accounts: List<Long>, now: Long = System.currentTimeMillis())
+
+    @Query("UPDATE schedule_accounts SET stats_checked_at = :at, stats_error = :error, updated_at = :at WHERE id = :id")
+    suspend fun setStatsChecked(id: Long, at: Long, error: String?)
+
+    /** Postingan terbit yang punya link dan terbit sejak [from] (kandidat pembaruan statistik otomatis). */
+    @Query("SELECT * FROM schedule_accounts WHERE status = 'published' AND url IS NOT NULL AND published_at >= :from")
+    suspend fun refreshCandidates(from: Long): List<ScheduleAccountEntity>
+
+    @Query("SELECT id FROM schedule_accounts WHERE status = 'published' AND url IS NOT NULL")
+    suspend fun publishedWithLink(): List<Long>
+
+    @Query("SELECT * FROM post_stats ORDER BY recorded_at, id")
+    fun observeStats(): Flow<List<PostStatEntity>>
+
+    @Query("SELECT * FROM post_stats WHERE schedule_account_id = :targetId ORDER BY recorded_at DESC, id DESC LIMIT 1")
+    suspend fun latestStat(targetId: Long): PostStatEntity?
+
+    @Insert
+    suspend fun insertStat(stat: PostStatEntity): Long
 }

@@ -20,6 +20,10 @@ import id.clipmi.core.youtube.YouTubeUrl
 import kotlinx.coroutines.launch
 
 class MainActivity : ComponentActivity() {
+    companion object {
+        const val EXTRA_OPEN_SCHEDULE = "open_schedule"
+    }
+
     private val notificationPermission = registerForActivityResult(ActivityResultContracts.RequestPermission()) {}
     private var shared by mutableStateOf<SharedResult?>(null)
 
@@ -37,6 +41,8 @@ class MainActivity : ComponentActivity() {
             lifecycleScope.launch {
                 container.actions.resumeInterrupted()
                 id.clipmi.android.work.RenderQueue.resumeInterrupted(this@MainActivity)
+                id.clipmi.android.reminders.ReminderAlarm.arm(this@MainActivity)
+                id.clipmi.android.work.StatsQueue.schedulePeriodic(this@MainActivity)
             }
         }
     }
@@ -68,6 +74,13 @@ class MainActivity : ComponentActivity() {
         if (intent.action == Intent.ACTION_SEND && intent.type?.startsWith("text/") == true) {
             handleSharedText(intent.getStringExtra(Intent.EXTRA_TEXT).orEmpty())
             intent.action = null
+            return
+        }
+        // Notifikasi pengingat: jadwal tertentu (layar Siap Unggah) atau daftar Jadwal (0).
+        if (intent.hasExtra(EXTRA_OPEN_SCHEDULE)) {
+            val id = intent.getLongExtra(EXTRA_OPEN_SCHEDULE, 0)
+            shared = if (id > 0) SharedResult(openSchedule = id) else SharedResult(openScheduleList = true)
+            intent.removeExtra(EXTRA_OPEN_SCHEDULE)
             return
         }
         // Uji dari PC: adb shell am start -n id.clipmi.android/.MainActivity --el editor_clip <id>

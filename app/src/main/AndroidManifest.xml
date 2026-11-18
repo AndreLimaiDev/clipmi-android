@@ -11,6 +11,12 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
     <!-- Render klip (Android 15+: tipe khusus pemrosesan media). -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PROCESSING" />
+    <!-- Pengingat "Waktunya posting" tepat waktu: Android 13+ memakai USE_EXACT_ALARM (diberikan saat dipasang, untuk
+         aplikasi kalender/pengingat); Android 12 memakai SCHEDULE_EXACT_ALARM. -->
+    <uses-permission android:name="android.permission.USE_EXACT_ALARM" />
+    <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" android:maxSdkVersion="32" />
+    <!-- Alarm pengingat dipasang lagi setelah HP menyala ulang. -->
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
 
     <!--
         allowBackup="false": data hanya dicadangkan lewat fitur Cadangkan milik aplikasi (Fase 5), dan API key di
@@ -58,6 +64,16 @@
                 <data android:mimeType="text/plain" />
             </intent-filter>
         </activity>
+
+        <receiver android:name=".reminders.ReminderReceiver" android:exported="false" />
+        <receiver android:name=".reminders.RearmReceiver" android:exported="false">
+            <intent-filter>
+                <action android:name="android.intent.action.BOOT_COMPLETED" />
+                <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
+                <action android:name="android.intent.action.TIME_SET" />
+                <action android:name="android.intent.action.TIMEZONE_CHANGED" />
+            </intent-filter>
+        </receiver>
 
         <!-- Foreground service milik WorkManager: tipe untuk unduh/AI (dataSync) dan render (mediaProcessing). -->
         <service

@@ -68,10 +68,13 @@ import id.clipmi.android.ui.screens.AnalysisSettingsScreen
 import id.clipmi.android.ui.screens.CorrectionsScreen
 import id.clipmi.android.ui.screens.ProjectDetailScreen
 import id.clipmi.android.ui.screens.ProjectListScreen
-import id.clipmi.android.ui.screens.ScheduleScreen
 import id.clipmi.android.ui.screens.SettingsScreen
-import id.clipmi.android.ui.screens.StatsScreen
 import id.clipmi.android.ui.screens.TranscriptionSettingsScreen
+import id.clipmi.android.ui.schedule.AccountsScreen
+import id.clipmi.android.ui.schedule.ReadyScreen
+import id.clipmi.android.ui.schedule.ScheduleEditScreen
+import id.clipmi.android.ui.schedule.ScheduleScreen
+import id.clipmi.android.ui.schedule.StatsScreen
 import id.clipmi.android.ui.theme.ClipMi
 import id.clipmi.android.ui.theme.ClipMiIcons
 import kotlinx.serialization.Serializable
@@ -93,6 +96,9 @@ import kotlinx.serialization.Serializable
 @Serializable data class FrameStyleEditRoute(val id: Long, val copyOf: Long = 0)
 @Serializable object BumpersRoute
 @Serializable object ResultsRoute
+@Serializable object AccountsRoute
+@Serializable data class ScheduleEditRoute(val id: Long = 0, val clipId: Long = 0, val date: String? = null)
+@Serializable data class ReadyRoute(val id: Long)
 
 private data class Tab(val route: Any, val label: String, val icon: ImageVector)
 
@@ -119,6 +125,14 @@ fun ClipMiNavigation(container: AppContainer, shared: SharedResult?, onSharedHan
         val result = shared ?: return@LaunchedEffect
         result.openProject?.let { nav.navigate(ProjectDetailRoute(it)) { launchSingleTop = true } }
         result.openEditor?.let { nav.navigate(EditorRoute(it)) { launchSingleTop = true } }
+        if (result.openScheduleList || result.openSchedule != null) {
+            nav.navigate(ScheduleRoute) {
+                popUpTo(nav.graph.findStartDestination().id) { saveState = true }
+                launchSingleTop = true
+                restoreState = true
+            }
+        }
+        result.openSchedule?.let { nav.navigate(ReadyRoute(it)) { launchSingleTop = true } }
         result.message?.let { notifier.show(it) }
         onSharedHandled()
     }
@@ -131,8 +145,29 @@ fun ClipMiNavigation(container: AppContainer, shared: SharedResult?, onSharedHan
                     ProjectDetailScreen(container, it.toRoute<ProjectDetailRoute>().id, onBack = { nav.popBackStack() }, onOpenEditor = { clip -> nav.navigate(EditorRoute(clip)) })
                 }
                 composable<EditorRoute> { EditorScreen(container, it.toRoute<EditorRoute>().clipId, onClose = { nav.popBackStack() }) }
-                composable<ScheduleRoute> { ScheduleScreen() }
-                composable<StatsRoute> { StatsScreen() }
+                composable<ScheduleRoute> {
+                    ScheduleScreen(
+                        container,
+                        onOpenAccounts = { nav.navigate(AccountsRoute) },
+                        onOpenSchedule = { nav.navigate(ReadyRoute(it)) },
+                        onNewSchedule = { clip, date -> nav.navigate(ScheduleEditRoute(clipId = clip, date = date)) },
+                    )
+                }
+                composable<StatsRoute> { StatsScreen(container, onOpenSchedule = { nav.navigate(ReadyRoute(it)) }) }
+                composable<AccountsRoute> { AccountsScreen(container, onBack = { nav.popBackStack() }) }
+                composable<ScheduleEditRoute> {
+                    val route = it.toRoute<ScheduleEditRoute>()
+                    ScheduleEditScreen(container, route.id, route.clipId, route.date, onBack = { nav.popBackStack() }, onSaved = { saved ->
+                        // Jadwal baru: kembali ke asal. Diubah: kembali ke Siap Unggah. Dihapus: tutup juga Siap Unggah-nya.
+                        if (saved == 0L) { nav.popBackStack<ReadyRoute>(inclusive = true) || nav.popBackStack() } else nav.popBackStack()
+                    })
+                }
+                composable<ReadyRoute> {
+                    val id = it.toRoute<ReadyRoute>().id
+                    ReadyScreen(container, id, onBack = { nav.popBackStack() }, onEdit = { nav.navigate(ScheduleEditRoute(id = id)) }, onOpened = { other ->
+                        nav.navigate(ReadyRoute(other)) { popUpTo<ReadyRoute> { inclusive = true } }
+                    })
+                }
                 composable<SettingsRoute> {
                     SettingsScreen(
                         container,
@@ -176,6 +211,7 @@ fun ClipMiNavigation(container: AppContainer, shared: SharedResult?, onSharedHan
                         container, onBack = { nav.popBackStack() },
                         onOpenProject = { nav.navigate(ProjectDetailRoute(it)) },
                         onOpenEditor = { nav.navigate(EditorRoute(it)) },
+                        onSchedule = { nav.navigate(ScheduleEditRoute(clipId = it)) },
                     )
                 }
             }
@@ -247,6 +283,12 @@ private fun FloatingNavBar(destination: NavDestination?, onNavigate: (Any) -> Un
 }
 
 /** Hasil share intent: buka satu project, atau tampilkan pesan (beberapa project dibuat / link ditolak). */
-data class SharedResult(val openProject: Long? = null, val message: String? = null, val openEditor: Long? = null)
+data class SharedResult(
+    val openProject: Long? = null,
+    val message: String? = null,
+    val openEditor: Long? = null,
+    val openSchedule: Long? = null,
+    val openScheduleList: Boolean = false,
+)
 
 private fun NavDestination.chain(): Sequence<NavDestination> = generateSequence(this) { it.parent }
