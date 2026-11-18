@@ -1,5 +1,6 @@
 package id.clipmi.android.ui
 
+import id.clipmi.android.ui.styles.StylesHeader
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -195,7 +196,10 @@ fun ClipMiNavigation(container: AppContainer, shared: SharedResult?, onSharedHan
                 composable<LabRoute> { Box(Modifier.statusBarsPadding()) { LabScreen() } }
                 composable<AiUsageRoute> { AiUsageScreen(container, onBack = { nav.popBackStack() }) }
                 composable<CaptionStylesRoute> {
-                    CaptionStylesScreen(container, onBack = { nav.popBackStack() }, onEdit = { id, copy -> nav.navigate(CaptionStyleEditRoute(id, copy)) })
+                    // Menu Gaya klip: tab Subtitle (rute ini) dan Bingkai (FrameStylesRoute) saling menggantikan.
+                    CaptionStylesScreen(container, onBack = { nav.popBackStack() }, onEdit = { id, copy -> nav.navigate(CaptionStyleEditRoute(id, copy)) }, header = {
+                        StylesHeader(0, onBack = { nav.popBackStack() }) { tab -> if (tab == 1) nav.navigate(FrameStylesRoute) { popUpTo<CaptionStylesRoute> { inclusive = true } } }
+                    })
                 }
                 composable<CaptionStyleEditRoute> {
                     val route = it.toRoute<CaptionStyleEditRoute>()
@@ -204,7 +208,9 @@ fun ClipMiNavigation(container: AppContainer, shared: SharedResult?, onSharedHan
                     })
                 }
                 composable<FrameStylesRoute> {
-                    FrameStylesScreen(container, onBack = { nav.popBackStack() }, onEdit = { id, copy -> nav.navigate(FrameStyleEditRoute(id, copy)) })
+                    FrameStylesScreen(container, onBack = { nav.popBackStack() }, onEdit = { id, copy -> nav.navigate(FrameStyleEditRoute(id, copy)) }, header = {
+                        StylesHeader(1, onBack = { nav.popBackStack() }) { tab -> if (tab == 0) nav.navigate(CaptionStylesRoute) { popUpTo<FrameStylesRoute> { inclusive = true } } }
+                    })
                 }
                 composable<FrameStyleEditRoute> {
                     val route = it.toRoute<FrameStyleEditRoute>()

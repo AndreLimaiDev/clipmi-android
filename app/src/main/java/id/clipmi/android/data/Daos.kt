@@ -147,7 +147,10 @@ interface ClipDao {
     @Query("SELECT * FROM clips WHERE id = :id")
     suspend fun find(id: Long): ClipEntity?
 
-    @Query("SELECT project_id, COUNT(*) AS total FROM clips WHERE review_status != 'rejected' GROUP BY project_id")
+    @Query(
+        "SELECT project_id, COUNT(*) AS total, SUM(review_status = 'selected') AS selected, SUM(render_status = 'done') AS rendered " +
+            "FROM clips WHERE review_status != 'rejected' GROUP BY project_id",
+    )
     fun observeCounts(): Flow<List<ProjectClipCount>>
 
     @Insert
@@ -227,6 +230,8 @@ interface ClipDao {
 data class ProjectClipCount(
     @androidx.room.ColumnInfo(name = "project_id") val projectId: Long,
     val total: Int,
+    val selected: Int = 0,
+    val rendered: Int = 0,
 )
 
 @Dao

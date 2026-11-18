@@ -34,6 +34,11 @@ object ClipMiIcons {
     val Pause by lazy { fill("M7 5h4v14H7zM13 5h4v14h-4z") }
     val Undo by lazy { stroke("M9 14 4 9l5-5", "M4 9h11a5 5 0 0 1 0 10h-3") }
     val Redo by lazy { stroke("m15 14 5-5-5-5", "M20 9H9a5 5 0 0 0 0 10h3") }
+    val Heart by lazy { stroke("M19 14c1.5-1.5 3-3.2 3-5.5A5.5 5.5 0 0 0 16.5 3c-1.8 0-3 .5-4.5 2-1.5-1.5-2.7-2-4.5-2A5.5 5.5 0 0 0 2 8.5c0 2.3 1.5 4 3 5.5l7 7z") }
+    val Comment by lazy { stroke("M21 11.5a8.4 8.4 0 0 1-9 8.4 8.6 8.6 0 0 1-3.8-.9L3 21l1.9-5.2A8.4 8.4 0 1 1 21 11.5z") }
+    val Send by lazy { stroke("m22 2-7 20-4-9-9-4z", "M22 2 11 13") }
+    /** Lingkaran berisi centang: status siap. */
+    val CircleCheck by lazy { stroke(circle(12f, 12f, 9.5f), "m8 12.5 2.7 2.7L16.5 9.5") }
     val Eye by lazy { stroke("M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z", "M15 12a3 3 0 1 1-6 0 3 3 0 0 1 6 0z") }
     val Magnet by lazy { stroke("M6 15V9a6 6 0 0 1 12 0v6", "M6 15a6 6 0 0 0 12 0", "M6 11h4M14 11h4") }
     val Link by lazy { stroke("M10 14a5 5 0 0 0 7 0l3-3a5 5 0 0 0-7-7l-1 1", "M14 10a5 5 0 0 0-7 0l-3 3a5 5 0 0 0 7 7l1-1") }

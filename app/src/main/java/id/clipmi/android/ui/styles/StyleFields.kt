@@ -246,3 +246,15 @@ fun StickyPreview(expandedWidth: Dp, compactWidth: Dp, content: @Composable (Dp)
 object PreviewSize {
     var compact by mutableStateOf(false)
 }
+
+/** Judul menu Gaya klip dengan tab Subtitle | Bingkai (satu menu di Pengaturan). */
+@Composable
+fun StylesHeader(selected: Int, onBack: () -> Unit, onSelect: (Int) -> Unit) {
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        id.clipmi.android.ui.components.SubScreenHeader("Gaya klip", onBack)
+        id.clipmi.android.ui.components.SegmentedTabs(
+            listOf("Subtitle", "Bingkai"), selected, onSelect = onSelect,
+            modifier = Modifier.padding(start = id.clipmi.android.ui.components.ScreenGutter, end = id.clipmi.android.ui.components.ScreenGutter, bottom = 8.dp),
+        )
+    }
+}

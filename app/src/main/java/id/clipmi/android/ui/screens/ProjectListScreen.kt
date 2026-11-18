@@ -1,5 +1,10 @@
 package id.clipmi.android.ui.screens
 
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.layout.offset
+import id.clipmi.android.domain.Wall
+import id.clipmi.core.schedule.IdDate
+import id.clipmi.android.data.ProjectClipCount
 import id.clipmi.android.data.RenderStatus
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.material3.Icon
@@ -123,10 +128,6 @@ fun ProjectListScreen(container: AppContainer, onOpen: (Long) -> Unit, onOpenRes
                 .onFailure { notifier.show("Video tidak bisa dibuka: ${it.message}") }
         }
     }
-    val sizes by produceState(emptyMap<Long, Long>(), projects) {
-        val list = projects ?: return@produceState
-        value = withContext(Dispatchers.IO) { list.associate { it.id to container.workspace.projectSize(it.id) } }
-    }
 
     val all = projects
     LazyColumn(
@@ -136,7 +137,23 @@ fun ProjectListScreen(container: AppContainer, onOpen: (Long) -> Unit, onOpenRes
     ) {
         item {
             Column(Modifier.statusBarsPadding().padding(top = 12.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
-                ScreenHeader("Project", Modifier.padding(horizontal = ScreenGutter))
+                // Hasil render sebagai tombol ikon di kanan judul (angka = video siap; titik biru = sedang dirender).
+                ScreenHeader("Project", Modifier.padding(horizontal = ScreenGutter)) {
+                    if (rendered.isNotEmpty()) {
+                        val done = rendered.count { it.render == RenderStatus.Done }
+                        val busy = rendered.any { it.render.isBusy }
+                        Box {
+                            IconCircle(ClipMiIcons.Film, "Hasil render: $done video siap", onOpenResults)
+                            if (done > 0 || busy) {
+                                Box(
+                                    Modifier.align(Alignment.TopEnd).offset(x = 4.dp, y = (-2).dp).heightIn(min = 18.dp).widthIn(min = 18.dp)
+                                        .clip(RoundedCornerShape(50)).background(if (busy) ClipMi.colors.busy else ClipMi.colors.accent).padding(horizontal = 5.dp),
+                                    contentAlignment = Alignment.Center,
+                                ) { Text(if (busy && done == 0) "…" else "$done", style = MaterialTheme.typography.labelSmall, color = Color.White) }
+                            }
+                        }
+                    }
+                }
                 // Dua pintu masuk langsung: link YouTube (panel tempel) atau video dari galeri (langsung pemilih file).
                 Row(Modifier.padding(horizontal = ScreenGutter), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                     EntryCard(ClipMiIcons.Link, "Link YouTube", "Tempel link", Modifier.weight(1f)) { linking = true }
@@ -144,30 +161,14 @@ fun ProjectListScreen(container: AppContainer, onOpen: (Long) -> Unit, onOpenRes
                         pickVideo.launch(arrayOf("video/mp4", "video/quicktime", "video/x-matroska", "video/*"))
                     }
                 }
-                if (rendered.isNotEmpty()) {
-                    val done = rendered.count { it.render == RenderStatus.Done }
-                    val busy = rendered.count { it.render.isBusy }
-                    ClipMiCard(Modifier.padding(horizontal = ScreenGutter), onClick = onOpenResults, padding = PaddingValues(horizontal = 14.dp, vertical = 12.dp)) {
-                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                            IconBadge(ClipMiIcons.Film, size = 36.dp)
-                            Column(Modifier.weight(1f)) {
-                                Text("Hasil render", style = MaterialTheme.typography.titleSmall, color = ClipMi.colors.text)
-                                Text(
-                                    listOfNotNull("$done video siap", busy.takeIf { it > 0 }?.let { "$it sedang dirender" }).joinToString(" · "),
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = ClipMi.colors.textMuted,
-                                )
-                            }
-                            Icon(ClipMiIcons.Chevron, null, tint = ClipMi.colors.textMuted, modifier = Modifier.size(20.dp))
-                        }
-                    }
-                }
                 if (!all.isNullOrEmpty()) {
                     if (all.size > 3) {
                         SearchField(query, { query = it }, "Cari judul project", Modifier.padding(horizontal = ScreenGutter), onClear = { query = "" })
                     }
+                    // Filter hanya bila memang memisahkan sesuatu (bukan semua project di satu kelompok).
                     val filters = ProjectFilter.entries.filter { f -> f == ProjectFilter.All || filter == f || all.any(f::matches) }
-                    if (filters.size > 1) {
+                    val separates = filter != ProjectFilter.All || filters.any { f -> f != ProjectFilter.All && all.count(f::matches) in 1 until all.size }
+                    if (filters.size > 1 && separates) {
                         ChipRow {
                             filters.forEach { f -> FilterPill("${f.label} · ${all.count(f::matches)}", selected = filter == f, onClick = { filter = f }) }
                         }
@@ -198,8 +199,7 @@ fun ProjectListScreen(container: AppContainer, onOpen: (Long) -> Unit, onOpenRes
                 items(shown, key = { it.id }) { p ->
                     ProjectCard(
                         container, p,
-                        clipCount = clipCounts.firstOrNull { it.projectId == p.id }?.total ?: 0,
-                        size = sizes[p.id] ?: 0,
+                        counts = clipCounts.firstOrNull { it.projectId == p.id },
                         onClick = { onOpen(p.id) },
                         modifier = Modifier.padding(horizontal = ScreenGutter).animateItem(),
                     )
@@ -259,8 +259,12 @@ private fun ProjectEntity.steps(clipCount: Int): List<Step> = listOf(
 )
 
 @Composable
-private fun ProjectCard(container: AppContainer, project: ProjectEntity, clipCount: Int, size: Long, onClick: () -> Unit, modifier: Modifier = Modifier) {
+private fun ProjectCard(container: AppContainer, project: ProjectEntity, counts: ProjectClipCount?, onClick: () -> Unit, modifier: Modifier = Modifier) {
     val c = ClipMi.colors
+    val clipCount = counts?.total ?: 0
+    // Project siap (video, transkrip, klip): cukup kemajuan klipnya; tahap hanya tampil selama ada yang belum selesai.
+    val steps = project.steps(clipCount)
+    val ready = steps.all { it.tone == Tone.Good }
     ClipMiCard(modifier, onClick = onClick, padding = PaddingValues(10.dp)) {
         Row(horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
             Box(Modifier.width(112.dp).height(72.dp).clip(RoundedCornerShape(14.dp))) {
@@ -277,12 +281,23 @@ private fun ProjectCard(container: AppContainer, project: ProjectEntity, clipCou
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 Text(project.title, style = MaterialTheme.typography.titleSmall, color = c.text, maxLines = 2, overflow = TextOverflow.Ellipsis)
                 Text(
-                    listOfNotNull(if (project.isYouTube) "YouTube" else "Galeri", size.takeIf { it > 0 }?.let(::formatBytes)).joinToString(" · "),
+                    listOf(if (project.isYouTube) "YouTube" else "Galeri", IdDate.dayMonth(Wall.of(project.createdAt).toLocalDate())).joinToString(" · "),
                     style = MaterialTheme.typography.bodySmall,
                     color = c.textMuted,
                 )
-                FlowRow(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                    project.steps(clipCount).forEach { step -> StepMark(step) }
+                if (ready && counts != null) {
+                    Text(
+                        listOfNotNull(
+                            "$clipCount klip",
+                            counts.selected.takeIf { it > 0 }?.let { "$it terpilih" },
+                            counts.rendered.takeIf { it > 0 }?.let { "$it dirender" },
+                        ).joinToString(" · "),
+                        style = MaterialTheme.typography.labelMedium, color = c.textBody, maxLines = 1,
+                    )
+                } else {
+                    FlowRow(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                        steps.forEach { step -> StepMark(step) }
+                    }
                 }
             }
         }

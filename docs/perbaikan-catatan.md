@@ -239,3 +239,21 @@ potongan kamera; (2) potongan kamera dicari di 15 gambar/detik sehingga titik pi
 - Dicek di HP: klip 55 → 0 potongan kamera, 8 ganti pembicara (semua adegannya pergantian pembicara, kini halus);
   klip 30 → 2 potongan kamera (28,02 dan 44,40 dtk, sebelumnya 28,03/44,43) dan 2 ganti pembicara.
 - Klip yang dideteksi sebelum perubahan ini perlu "Deteksi ulang" agar pergantian pembicaranya halus.
+
+## Tahap 10: Project, Statistik, Pengaturan
+
+- **Project**: kartu Hasil render jadi tombol ikon di kanan judul dengan angka video siap (biru bila ada yang
+  dirender). Filter Semua/Siap hanya tampil bila memisahkan project. Kartu project siap: "YouTube · 18 Nov" dan
+  "10 klip · 1 terpilih · 1 dirender" (`observeCounts` kini menghitung terpilih dan dirender); tahap ✓ hanya untuk
+  project yang belum selesai. Ukuran MB dihapus.
+- **Statistik** (mengikuti referensi desain): subjudul "31 hari setelah terbit · diambil otomatis"; filter satu akun
+  (Semua + chip bertitik warna); kartu ringkasan dengan total tayangan besar, engagement di kanan atas, dan
+  suka/komentar/share berikon; "Per akun" dengan batang pembanding (ketuk = filter akun itu; hanya di Semua); kartu
+  Analisis performa gelap; urutan Terbaru/Terbaik bersegmen; postingan dengan gambar, angka sebaris berikon, dan
+  saat dibuka: empat angka, "Tayangan per periode" (hari ke-n dari 31, kotak hari 1/7/30 bergaris putus dengan
+  tanggal tersedia), sumber data, Buka jadwal / Ambil ulang. Catatan panjang di bawah dihapus.
+- **Pengaturan**: lencana Siap diganti ikon lingkaran centang hijau (`ClipMiIcons.CircleCheck`). Gaya subtitle dan
+  bingkai jadi satu menu "Gaya klip" dengan tab Subtitle | Bingkai (`StylesHeader`). Keterangan dipersingkat
+  (Kosong, 4 pemakaian, Kurangi noise…, Key tersimpan, 6 video, Terpakai 1,4 GB, Versi … · data hanya di HP ini);
+  tombol Perbarui yt-dlp kotak.
+- Dicek di HP: ketiga halaman, kartu postingan dibuka, tab Gaya klip. Belum: filter satu akun di Statistik.

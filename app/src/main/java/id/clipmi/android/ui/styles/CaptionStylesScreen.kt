@@ -65,14 +65,19 @@ import java.io.File
 
 /** Halaman Gaya Subtitle: daftar preset; gaya bawaan dipakai klip yang belum memilih gaya. */
 @Composable
-fun CaptionStylesScreen(container: AppContainer, onBack: () -> Unit, onEdit: (id: Long, copyOf: Long) -> Unit) {
+fun CaptionStylesScreen(
+    container: AppContainer,
+    onBack: () -> Unit,
+    onEdit: (id: Long, copyOf: Long) -> Unit,
+    header: @Composable () -> Unit = { SubScreenHeader("Gaya subtitle", onBack) },
+) {
     val styles by container.database.styles().observeCaptionStyles().collectAsState(initial = null)
     val fonts = remember { container.renderer.fontsDir() }
     val families = remember { HashMap<String, FontFamily>() }
 
     Box(Modifier.fillMaxSize().background(ClipMi.colors.bg)) {
         Column(Modifier.fillMaxSize().statusBarsPadding()) {
-            SubScreenHeader("Gaya subtitle", onBack)
+            header()
             val list = styles
             if (list != null && list.isEmpty()) {
                 EmptyState("Belum ada gaya", "Buat gaya subtitle pertama.", icon = ClipMiIcons.Edit)
@@ -82,12 +87,6 @@ fun CaptionStylesScreen(container: AppContainer, onBack: () -> Unit, onEdit: (id
                 contentPadding = androidx.compose.foundation.layout.PaddingValues(start = ScreenGutter, end = ScreenGutter, top = 4.dp, bottom = 120.dp),
                 verticalArrangement = Arrangement.spacedBy(10.dp),
             ) {
-                item {
-                    Text(
-                        "Preset tampilan subtitle untuk render. Gaya bawaan dipakai untuk klip yang belum memilih gaya.",
-                        style = MaterialTheme.typography.bodySmall, color = ClipMi.colors.textMuted,
-                    )
-                }
                 items(list.orEmpty(), key = { it.id }) { style ->
                     val family = families.getOrPut(style.fontFamily) { fontFamily(fonts, style.fontFamily) }
                     val usage by produceState(0, style) { value = container.database.styles().captionUsage(style.id, style.isDefault) }

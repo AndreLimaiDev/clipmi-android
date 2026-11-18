@@ -1,5 +1,12 @@
 package id.clipmi.android.ui.screens
 
+import androidx.compose.foundation.layout.size
+import androidx.compose.material3.Icon
+import kotlinx.coroutines.withContext
+import kotlinx.coroutines.Dispatchers
+import id.clipmi.android.data.RenderStatus
+import id.clipmi.android.ui.components.formatBytes
+import id.clipmi.android.ui.components.ActionChip
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -76,7 +83,7 @@ fun SettingsScreen(
     }
     val analysis by produceState<Pair<String, Boolean>?>(null) {
         val cfg = container.settings.analysis()
-        value = if (cfg != null) "${cfg.provider.label.substringBefore(" (")} · ${cfg.model}" to true else "Belum diatur · lewat chat AI tetap gratis" to false
+        value = if (cfg != null) "${cfg.provider.label.substringBefore(" (")} · ${cfg.model}" to true else "Belum diatur" to false
     }
     val usages by container.database.aiUsages().observeAll().collectAsState(initial = emptyList())
     val corrections by container.database.corrections().observeAll().collectAsState(initial = emptyList())
@@ -98,31 +105,30 @@ fun SettingsScreen(
         ScreenHeader("Pengaturan")
 
         SettingsGroup("AI & transkrip") {
-            SettingsRow("Analisis AI", analysis?.first, onClick = onOpenAnalysis, trailing = { analysis?.let { ReadyBadge(it.second) } })
+            SettingsRow("Analisis AI", analysis?.first, onClick = onOpenAnalysis, trailing = { analysis?.let { ReadyMark(it.second) } })
             GroupDivider()
-            SettingsRow("Transkripsi API", transcription?.first, onClick = onOpenTranscription, trailing = { transcription?.let { ReadyBadge(it.second) } })
+            SettingsRow("Transkripsi API", transcription?.first, onClick = onOpenTranscription, trailing = { transcription?.let { ReadyMark(it.second) } })
             GroupDivider()
             val active = corrections.count { it.isActive }
-            SettingsRow("Kamus koreksi", if (corrections.isEmpty()) "Kosong · tambahkan istilah yang sering salah" else "$active kata aktif · diterapkan otomatis", onClick = onOpenCorrections)
+            SettingsRow("Kamus koreksi", if (corrections.isEmpty()) "Kosong" else "$active kata aktif", onClick = onOpenCorrections)
             GroupDivider()
-            SettingsRow("Pemakaian AI", if (usages.isEmpty()) "Belum ada pemakaian" else "${usages.size} pemakaian tercatat", onClick = onOpenUsage)
+            SettingsRow("Pemakaian AI", if (usages.isEmpty()) "Belum ada" else "${usages.size} pemakaian", onClick = onOpenUsage)
         }
 
         SettingsGroup("Tampilan klip") {
             val captionStyles by container.database.styles().observeCaptionStyles().collectAsState(initial = emptyList())
             val frameStyles by container.database.styles().observeFrameStyles().collectAsState(initial = emptyList())
             val bumpers by container.database.bumpers().observeAll().collectAsState(initial = emptyList())
-            SettingsRow("Gaya subtitle", "${captionStyles.size} gaya" + (captionStyles.firstOrNull { it.isDefault }?.let { " · bawaan: ${it.name}" } ?: ""), onClick = onOpenCaptionStyles)
-            GroupDivider()
-            SettingsRow("Gaya bingkai", "${frameStyles.size} gaya" + (frameStyles.firstOrNull { it.isDefault }?.let { " · bawaan: ${it.name}" } ?: ""), onClick = onOpenFrameStyles)
+            // Gaya subtitle dan bingkai: satu menu dengan dua tab.
+            SettingsRow("Gaya klip", "${captionStyles.size} subtitle · ${frameStyles.size} bingkai", onClick = onOpenCaptionStyles)
             GroupDivider()
             SettingsRow(
                 "Intro & outro",
-                if (bumpers.isEmpty()) "Belum ada video pembuka/penutup" else "${bumpers.count { it.kind == "intro" }} intro · ${bumpers.count { it.kind == "outro" }} outro",
+                if (bumpers.isEmpty()) "Belum ada" else "${bumpers.count { it.kind == "intro" }} intro · ${bumpers.count { it.kind == "outro" }} outro",
                 onClick = onOpenBumpers,
             )
             GroupDivider()
-            SwitchRow("Rapikan audio saat render", "Buang dengung, kurangi noise ringan, samakan kekerasan ke -14 LUFS.", enhanceAudio, onCheckedChange = { on ->
+            SwitchRow("Rapikan audio saat render", "Kurangi noise, samakan volume", enhanceAudio, onCheckedChange = { on ->
                 enhanceAudio = on
                 scope.launch { container.settings.setEnhanceAudio(on) }
             })
@@ -131,16 +137,21 @@ fun SettingsScreen(
         SettingsGroup("Jadwal & statistik") {
             SettingsRow(
                 "YouTube Data API",
-                if (hasYoutubeKey) "Key tersimpan · statistik YouTube lewat API resmi" else "Opsional · tanpa key, YouTube dibaca lewat yt-dlp",
+                if (hasYoutubeKey) "Key tersimpan" else "Opsional",
                 onClick = { editingYoutubeKey = true },
-                trailing = { ReadyBadge(hasYoutubeKey) },
+                trailing = { ReadyMark(hasYoutubeKey) },
             )
         }
 
         SettingsGroup("Data") {
-            SettingsRow("Hasil render", "Galeri › Movies/ClipMI/<judul project>", onClick = onOpenResults)
+            val rendered by container.database.clips().observeRendered().collectAsState(initial = emptyList())
+            val used by produceState<Long?>(null) {
+                value = withContext(Dispatchers.IO) { container.database.projects().all().sumOf { container.workspace.projectSize(it.id) } }
+            }
+            val done = rendered.count { it.render == RenderStatus.Done }
+            SettingsRow("Hasil render", if (done == 0) "Belum ada" else "$done video", onClick = onOpenResults)
             GroupDivider()
-            SettingsRow("Data & penyimpanan", "Ruang HP, video sumber, cadangan, dan Paket Standar Tim", onClick = onOpenData)
+            SettingsRow("Data & penyimpanan", used?.let { "Terpakai ${formatBytes(it)}" } ?: "Menghitung…", onClick = onOpenData)
         }
 
         SettingsGroup("Aplikasi") {
@@ -148,7 +159,7 @@ fun SettingsScreen(
                 "Pengunduh YouTube",
                 ytdlp?.let { "yt-dlp $it" } ?: "yt-dlp",
                 trailing = {
-                    SecondaryButton(if (updating) "Memperbarui…" else "Perbarui", enabled = !updating, height = 36.dp, onClick = {
+                    ActionChip(if (updating) "Memperbarui…" else "Perbarui", enabled = !updating, height = 36.dp, onClick = {
                         updating = true
                         scope.launch {
                             notifier.show(
@@ -166,20 +177,27 @@ fun SettingsScreen(
             // Pembaruan dalam aplikasi hanya tampil di build yang punya repo rilis; alat uji hanya di build debug.
             if (BuildConfig.UPDATE_REPO.isNotBlank()) {
                 GroupDivider()
-                SettingsRow("Pembaruan aplikasi", "Versi ${BuildConfig.VERSION_NAME} · periksa rilis baru", onClick = { checkingUpdate = true })
+                SettingsRow("Pembaruan aplikasi", "Periksa rilis baru", onClick = { checkingUpdate = true })
             }
             if (BuildConfig.DEBUG) {
                 GroupDivider()
-                SettingsRow("Uji Fase 0", "Alat pengembang: uji yt-dlp, libass, dan render", onClick = onOpenLab)
+                SettingsRow("Uji Fase 0", "Alat pengembang", onClick = onOpenLab)
             }
             GroupDivider()
-            SettingsRow("Tentang ClipMI", "Versi ${BuildConfig.VERSION_NAME} · data hanya di HP ini · huruf Plus Jakarta Sans (OFL)")
+            SettingsRow("Tentang ClipMI", "Versi ${BuildConfig.VERSION_NAME} · data hanya di HP ini")
         }
     }
 }
 
 @Composable
 internal fun ReadyBadge(ready: Boolean) = StatusBadge(if (ready) "Siap" else "Belum", if (ready) Tone.Good else Tone.Idle)
+
+/** Tanda siap di baris pengaturan: lingkaran centang hijau, atau "Belum" redup. */
+@Composable
+internal fun ReadyMark(ready: Boolean) {
+    if (ready) Icon(ClipMiIcons.CircleCheck, contentDescription = "Siap", tint = ClipMi.colors.accent, modifier = Modifier.size(24.dp))
+    else Text("Belum", style = MaterialTheme.typography.labelMedium, color = ClipMi.colors.textMuted)
+}
 
 /** Transkripsi API untuk video tanpa subtitle Indonesia (Groq/OpenAI Whisper atau server kompatibel). */
 @Composable
