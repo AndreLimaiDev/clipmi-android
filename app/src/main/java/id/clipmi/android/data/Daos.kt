@@ -1,6 +1,7 @@
 package id.clipmi.android.data
 
 import androidx.room.Dao
+import androidx.room.Delete
 import androidx.room.Insert
 import androidx.room.OnConflictStrategy
 import androidx.room.Query
@@ -18,6 +19,14 @@ interface ProjectDao {
 
     @Query("SELECT * FROM projects WHERE id = :id")
     suspend fun find(id: Long): ProjectEntity?
+
+    /** Gambar kecil project terbaru: contoh frame untuk pratinjau gaya. */
+    @Query("SELECT thumbnail_path FROM projects WHERE thumbnail_path IS NOT NULL ORDER BY updated_at DESC LIMIT 5")
+    suspend fun recentThumbnails(): List<String>
+
+    /** Intro/outro bawaan project: dipasang ke klip baru di project ini. */
+    @Query("UPDATE projects SET intro_id = :introId, outro_id = :outroId, updated_at = :now WHERE id = :id")
+    suspend fun setBumpers(id: Long, introId: Long?, outroId: Long?, now: Long = System.currentTimeMillis())
 
     @Query("SELECT * FROM projects")
     suspend fun all(): List<ProjectEntity>
@@ -150,6 +159,45 @@ interface ClipDao {
 
     @Query("SELECT COUNT(*) FROM clips WHERE project_id = :projectId")
     suspend fun count(projectId: Long): Int
+
+    @Query("SELECT * FROM clips WHERE id = :id")
+    fun observeOne(id: Long): Flow<ClipEntity?>
+
+    /** Semua kolom tampilan dari editor; edited_at menandai hasil render lama. */
+    @Query(
+        """UPDATE clips SET start_time = :start, end_time = :end, cuts = :cuts, subtitle_lines = :subtitleLines,
+        subtitle_edited = :subtitleEdited, caption_style_id = :captionStyleId, frame_style_id = :frameStyleId,
+        crop_position = :cropPosition, crop_zoom = :cropZoom, crop_y = :cropY, hook = :hook,
+        show_hook_overlay = :showHookOverlay, hook_layout = :hookLayout, keywords = :keywords,
+        cover_time = :coverTime, cover_path = :coverPath, cover_title = :coverTitle, cover_in_video = :coverInVideo,
+        intro_id = :introId, outro_id = :outroId, edited_at = :now, updated_at = :now WHERE id = :id""",
+    )
+    suspend fun updateEditor(
+        id: Long, start: Double, end: Double, cuts: String?, subtitleLines: String?, subtitleEdited: Boolean,
+        captionStyleId: Long?, frameStyleId: Long?, cropPosition: Int?, cropZoom: Int?, cropY: Int?, hook: String?,
+        showHookOverlay: Boolean, hookLayout: String?, keywords: String?, coverTime: Double?, coverPath: String?,
+        coverTitle: Boolean, coverInVideo: Boolean, introId: Long?, outroId: Long?, now: Long = System.currentTimeMillis(),
+    )
+
+    /** Hanya kolom teks, supaya status render yang berubah di latar tidak tertimpa salinan lama. */
+    @Query(
+        """UPDATE clips SET title = :title, hook = :hook, caption = :caption, hashtags = :hashtags, keywords = :keywords,
+        edited_at = CASE WHEN :changesRender THEN :now ELSE edited_at END, updated_at = :now WHERE id = :id""",
+    )
+    suspend fun updateText(id: Long, title: String, hook: String?, caption: String?, hashtags: String?, keywords: String?, changesRender: Boolean, now: Long = System.currentTimeMillis())
+
+    /** Klip yang sudah atau sedang dirender, terbaru lebih dulu (layar Hasil). */
+    @Query("SELECT * FROM clips WHERE render_status != 'not_rendered' ORDER BY COALESCE(rendered_at, updated_at) DESC")
+    fun observeRendered(): Flow<List<ClipEntity>>
+
+    @Query("SELECT * FROM clips WHERE render_status IN ('queued', 'rendering')")
+    suspend fun busyRenders(): List<ClipEntity>
+
+    @Query("UPDATE clips SET render_status = :status, render_progress = :progress, render_error = :error, updated_at = :now WHERE id = :id")
+    suspend fun setRender(id: Long, status: String, progress: Int?, error: String?, now: Long = System.currentTimeMillis())
+
+    @Query("UPDATE clips SET render_status = 'done', render_progress = 100, render_error = NULL, output_path = :output, rendered_at = :now, updated_at = :now WHERE id = :id")
+    suspend fun renderDone(id: Long, output: String, now: Long = System.currentTimeMillis())
 }
 
 data class ProjectClipCount(
@@ -181,4 +229,104 @@ interface AiUsageDao {
 
     @Insert
     suspend fun insert(usage: AiUsageEntity)
+}
+
+@Dao
+interface StyleDao {
+    @Query("SELECT * FROM caption_styles ORDER BY is_default DESC, name")
+    fun observeCaptionStyles(): Flow<List<CaptionStyleEntity>>
+
+    @Query("SELECT * FROM frame_styles ORDER BY is_default DESC, name")
+    fun observeFrameStyles(): Flow<List<FrameStyleEntity>>
+
+    @Query("SELECT * FROM caption_styles WHERE id = :id")
+    suspend fun captionStyle(id: Long): CaptionStyleEntity?
+
+    @Query("SELECT * FROM frame_styles WHERE id = :id")
+    suspend fun frameStyle(id: Long): FrameStyleEntity?
+
+    /** `CaptionStyle::resolveDefault` desktop: gaya bawaan, atau gaya pertama. */
+    @Query("SELECT * FROM caption_styles ORDER BY is_default DESC, id LIMIT 1")
+    suspend fun defaultCaptionStyle(): CaptionStyleEntity?
+
+    @Query("SELECT * FROM frame_styles ORDER BY is_default DESC, id LIMIT 1")
+    suspend fun defaultFrameStyle(): FrameStyleEntity?
+
+    @Insert
+    suspend fun insert(style: CaptionStyleEntity): Long
+
+    @Insert
+    suspend fun insert(style: FrameStyleEntity): Long
+
+    @Update
+    suspend fun update(style: CaptionStyleEntity)
+
+    @Update
+    suspend fun update(style: FrameStyleEntity)
+
+    @Delete
+    suspend fun delete(style: CaptionStyleEntity)
+
+    @Delete
+    suspend fun delete(style: FrameStyleEntity)
+
+    @Query("SELECT COUNT(*) FROM caption_styles WHERE name = :name COLLATE NOCASE AND id != :except")
+    suspend fun captionNameTaken(name: String, except: Long): Int
+
+    @Query("SELECT COUNT(*) FROM frame_styles WHERE name = :name COLLATE NOCASE AND id != :except")
+    suspend fun frameNameTaken(name: String, except: Long): Int
+
+    /** Gaya bawaan dipakai klip tanpa pilihan gaya; hanya satu yang bawaan. */
+    @Transaction
+    suspend fun makeCaptionDefault(id: Long) {
+        clearCaptionDefault()
+        setCaptionDefault(id)
+    }
+
+    @Transaction
+    suspend fun makeFrameDefault(id: Long) {
+        clearFrameDefault()
+        setFrameDefault(id)
+    }
+
+    @Query("UPDATE caption_styles SET is_default = 0")
+    suspend fun clearCaptionDefault()
+
+    @Query("UPDATE caption_styles SET is_default = 1 WHERE id = :id")
+    suspend fun setCaptionDefault(id: Long)
+
+    @Query("UPDATE frame_styles SET is_default = 0")
+    suspend fun clearFrameDefault()
+
+    @Query("UPDATE frame_styles SET is_default = 1 WHERE id = :id")
+    suspend fun setFrameDefault(id: Long)
+
+    /** Klip yang memakai gaya ini, termasuk klip tanpa pilihan gaya bila ini gaya bawaan (`usage()` desktop). */
+    @Query("SELECT COUNT(*) FROM clips WHERE caption_style_id = :id OR (:isDefault AND caption_style_id IS NULL)")
+    suspend fun captionUsage(id: Long, isDefault: Boolean): Int
+
+    @Query("SELECT COUNT(*) FROM clips WHERE frame_style_id = :id OR (:isDefault AND frame_style_id IS NULL)")
+    suspend fun frameUsage(id: Long, isDefault: Boolean): Int
+}
+
+@Dao
+interface BumperDao {
+    /** Terakhir dipakai di atas, lalu terbaru. */
+    @Query("SELECT * FROM bumpers ORDER BY last_used_at IS NULL, last_used_at DESC, id DESC")
+    fun observeAll(): Flow<List<BumperEntity>>
+
+    @Query("SELECT * FROM bumpers WHERE id = :id")
+    suspend fun find(id: Long): BumperEntity?
+
+    @Insert
+    suspend fun insert(bumper: BumperEntity): Long
+
+    @Update
+    suspend fun update(bumper: BumperEntity)
+
+    @Delete
+    suspend fun delete(bumper: BumperEntity)
+
+    @Query("UPDATE bumpers SET last_used_at = :now WHERE id = :id")
+    suspend fun touchUsed(id: Long, now: Long = System.currentTimeMillis())
 }

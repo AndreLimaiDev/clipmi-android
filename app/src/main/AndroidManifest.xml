@@ -17,6 +17,14 @@
         Keystore tidak boleh ikut ke cadangan Google mana pun.
         extractNativeLibs="true": libpython.so (yt-dlp), libqjs.so, dan libffmpeg.so dijalankan sebagai executable.
     -->
+    <!-- Tombol bagikan langsung ke TikTok/Instagram/YouTube di layar Hasil (visibilitas paket Android 11+). -->
+    <queries>
+        <intent>
+            <action android:name="android.intent.action.SEND" />
+            <data android:mimeType="video/*" />
+        </intent>
+    </queries>
+
     <application
         android:name=".ClipMiApp"
         android:allowBackup="false"

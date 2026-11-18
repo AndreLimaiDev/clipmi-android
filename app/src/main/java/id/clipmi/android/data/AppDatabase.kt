@@ -15,9 +15,10 @@ import androidx.sqlite.db.SupportSQLiteDatabase
 @Database(
     entities = [
         ProjectEntity::class, TranscriptSegmentEntity::class, CorrectionEntryEntity::class, AppSettingEntity::class,
-        ClipSeriesEntity::class, ClipEntity::class, AiUsageEntity::class,
+        ClipSeriesEntity::class, ClipEntity::class, AiUsageEntity::class, CaptionStyleEntity::class, FrameStyleEntity::class,
+        BumperEntity::class,
     ],
-    version = 3,
+    version = 5,
     exportSchema = true,
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -28,6 +29,8 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun clips(): ClipDao
     abstract fun series(): SeriesDao
     abstract fun aiUsages(): AiUsageDao
+    abstract fun bumpers(): BumperDao
+    abstract fun styles(): StyleDao
 
     companion object {
         const val NAME = "clipmi.db"
@@ -35,6 +38,7 @@ abstract class AppDatabase : RoomDatabase() {
         fun build(context: Context): AppDatabase =
             Room.databaseBuilder(context, AppDatabase::class.java, NAME)
                 .addMigrations(*Migrations.ALL)
+                .addCallback(Seeds.onCreate)
                 .build()
     }
 }
@@ -126,5 +130,55 @@ object Migrations {
         }
     }
 
-    val ALL: Array<Migration> = arrayOf(MIGRATION_1_2, MIGRATION_2_3)
+
+    /**
+     * v3 → v4 (Fase 3): tabel caption_styles dan frame_styles (dengan gaya bawaan desktop), kolom editor dan render
+     * klip, serta posisi crop project. Tabel clips dibuat ulang karena kunci asing ke tabel gaya tidak bisa ditambah
+     * lewat ALTER TABLE.
+     */
+    val MIGRATION_3_4 = object : Migration(3, 4) {
+        override fun migrate(db: SupportSQLiteDatabase) {
+            db.execSQL("ALTER TABLE `projects` ADD COLUMN `crop_position` INTEGER NOT NULL DEFAULT 50")
+            Seeds.createStyleTables(db)
+            Seeds.insertStyles(db)
+
+            db.execSQL(Seeds.CLIPS_TABLE_V4.replace("`clips`", "`clips_new`"))
+            db.execSQL(
+                """INSERT INTO `clips_new` (`id`, `project_id`, `clip_series_id`, `part_number`, `title`, `start_time`, `end_time`,
+                `score`, `hook`, `caption`, `hashtags`, `keywords`, `reason`, `review_status`, `source`, `subtitle_edited`,
+                `show_hook_overlay`, `render_status`, `created_at`, `updated_at`)
+                SELECT `id`, `project_id`, `clip_series_id`, `part_number`, `title`, `start_time`, `end_time`, `score`, `hook`,
+                `caption`, `hashtags`, `keywords`, `reason`, `review_status`, `source`, 0, 1, 'not_rendered', `created_at`,
+                `updated_at` FROM `clips`""",
+            )
+            db.execSQL("DROP TABLE `clips`")
+            db.execSQL("ALTER TABLE `clips_new` RENAME TO `clips`")
+            Seeds.CLIPS_INDICES.forEach(db::execSQL)
+        }
+    }
+
+    /** Fase 3d: pustaka intro/outro (bumpers), sampul klip, intro/outro per klip dan bawaan project. */
+    val MIGRATION_4_5 = object : Migration(4, 5) {
+        override fun migrate(db: SupportSQLiteDatabase) {
+            db.execSQL(
+                "CREATE TABLE IF NOT EXISTS `bumpers` (`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `kind` TEXT NOT NULL, `name` TEXT NOT NULL, " +
+                    "`path` TEXT NOT NULL, `duration` REAL NOT NULL, `thumbnail_path` TEXT, `last_used_at` INTEGER, `created_at` INTEGER NOT NULL, " +
+                    "`updated_at` INTEGER NOT NULL)",
+            )
+            db.execSQL("CREATE INDEX IF NOT EXISTS `index_bumpers_kind_last_used_at` ON `bumpers` (`kind`, `last_used_at`)")
+            val bumper = "INTEGER REFERENCES `bumpers`(`id`) ON UPDATE NO ACTION ON DELETE SET NULL"
+            listOf(
+                "`cover_time` REAL", "`cover_path` TEXT", "`cover_title` INTEGER NOT NULL DEFAULT 0", "`cover_in_video` INTEGER NOT NULL DEFAULT 1",
+                "`intro_id` $bumper", "`outro_id` $bumper",
+            ).forEach { db.execSQL("ALTER TABLE `clips` ADD COLUMN $it") }
+            listOf("`intro_id` $bumper", "`outro_id` $bumper").forEach { db.execSQL("ALTER TABLE `projects` ADD COLUMN $it") }
+            for (table in listOf("clips", "projects")) {
+                for (column in listOf("intro_id", "outro_id")) {
+                    db.execSQL("CREATE INDEX IF NOT EXISTS `index_${table}_$column` ON `$table` (`$column`)")
+                }
+            }
+        }
+    }
+
+    val ALL: Array<Migration> = arrayOf(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5)
 }

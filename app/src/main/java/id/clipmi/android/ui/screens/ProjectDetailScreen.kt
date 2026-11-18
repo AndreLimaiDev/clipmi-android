@@ -2,36 +2,32 @@ package id.clipmi.android.ui.screens
 
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.Delete
-import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.HorizontalDivider
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
-import androidx.compose.material3.LinearProgressIndicator
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.Tab
-import androidx.compose.material3.TabRow
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
-import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -41,8 +37,11 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.SpanStyle
@@ -50,39 +49,61 @@ import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.media3.common.MediaItem
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.ui.PlayerView
 import id.clipmi.android.AppContainer
 import id.clipmi.android.data.ProjectEntity
+import id.clipmi.android.data.RenderStatus
+import id.clipmi.android.data.ReviewStatus
+import id.clipmi.android.work.RenderQueue
 import id.clipmi.android.data.TranscriptSegmentEntity
 import id.clipmi.android.data.TranscriptStatus
 import id.clipmi.android.data.VideoStatus
+import id.clipmi.android.ui.components.ChipRow
+import id.clipmi.android.ui.components.ClipMiCard
+import id.clipmi.android.ui.components.ConfirmDialog
 import id.clipmi.android.ui.components.FileImage
-import id.clipmi.android.ui.components.StatusChip
-import id.clipmi.android.ui.components.tone
+import id.clipmi.android.ui.components.FilterPill
+import id.clipmi.android.ui.components.GhostButton
+import id.clipmi.android.ui.components.IconBadge
+import id.clipmi.android.ui.components.IconCircle
+import id.clipmi.android.ui.components.LocalNotifier
+import id.clipmi.android.ui.components.PrimaryButton
+import id.clipmi.android.ui.components.ProgressBar
+import id.clipmi.android.ui.components.ScreenGutter
+import id.clipmi.android.ui.components.SearchField
+import id.clipmi.android.ui.components.SecondaryButton
+import id.clipmi.android.ui.components.SegmentedTabs
+import id.clipmi.android.ui.components.SnackbarInset
+import id.clipmi.android.ui.components.LightStatusIcons
+import id.clipmi.android.ui.components.StatusBarScrim
+import id.clipmi.android.ui.components.Tone
+import id.clipmi.android.ui.theme.ClipMi
+import id.clipmi.android.ui.theme.ClipMiIcons
 import id.clipmi.android.work.TranscribeWorker
 import id.clipmi.core.transcript.Timecode
 import id.clipmi.core.youtube.TranscriptSource
 import kotlinx.coroutines.launch
 
 /** Konfirmasi yang sedang ditampilkan: teks dan aksinya. */
-private data class Confirm(val title: String, val body: String, val action: suspend () -> Unit)
+private data class Confirm(val title: String, val body: String, val label: String, val danger: Boolean = false, val action: suspend () -> Unit)
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun ProjectDetailScreen(container: AppContainer, projectId: Long, onBack: () -> Unit) {
+fun ProjectDetailScreen(container: AppContainer, projectId: Long, onBack: () -> Unit, onOpenEditor: (Long) -> Unit = {}) {
     val project by container.database.projects().observe(projectId).collectAsState(initial = null)
     val segments by container.database.segments().observe(projectId).collectAsState(initial = emptyList())
+    val clips by container.database.clips().observe(projectId).collectAsState(initial = emptyList())
     val scope = rememberCoroutineScope()
+    val notifier = LocalNotifier.current
     var confirm by remember { mutableStateOf<Confirm?>(null) }
-    var notice by remember { mutableStateOf<String?>(null) }
-    var query by remember { mutableStateOf("") }
-    var tab by remember { mutableStateOf(0) }
+    var query by rememberSaveable { mutableStateOf("") }
+    var tab by rememberSaveable { mutableStateOf(0) }
     // Pilihan segmen untuk klip manual (seperti selectSegment desktop): tekan lama segmen awal, lalu ketuk segmen akhir.
-    var selectStart by remember { mutableStateOf<Int?>(null) }
-    var selectEnd by remember { mutableStateOf<Int?>(null) }
+    var selectStart by rememberSaveable { mutableStateOf<Int?>(null) }
+    var selectEnd by rememberSaveable { mutableStateOf<Int?>(null) }
     val transcriptionReady by produceState(false, project?.transcriptStatus) { value = container.settings.transcription() != null }
 
     val context = LocalContext.current
@@ -111,72 +132,103 @@ fun ProjectDetailScreen(container: AppContainer, projectId: Long, onBack: () -> 
             player.seekTo((start * 1000).toLong())
             player.play()
             stopAtMs = (end * 1000).toLong()
+        } else {
+            notifier.show("Video belum siap diputar.")
         }
     }
 
     val pickSubtitle = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         if (uri != null) scope.launch {
-            notice = runCatching { container.actions.importSubtitle(projectId, uri) }.fold(
-                { "Transkrip diimpor: ${it.segmentCount} segmen" + if (it.correctionCount > 0) ", ${it.correctionCount} kata dikoreksi kamus." else "." },
-                { it.message ?: "File subtitle tidak bisa dibaca." },
+            notifier.show(
+                runCatching { container.actions.importSubtitle(projectId, uri) }.fold(
+                    { "Transkrip diimpor: ${it.segmentCount} segmen" + if (it.correctionCount > 0) ", ${it.correctionCount} kata dikoreksi kamus." else "." },
+                    { it.message ?: "File subtitle tidak bisa dibaca." },
+                ),
             )
         }
     }
 
     val p = project ?: return
-    Column(Modifier.fillMaxSize()) {
-        TopAppBar(
-            title = { Text(p.title, maxLines = 1) },
-            navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Kembali") } },
-            actions = {
-                IconButton(onClick = {
-                    confirm = Confirm("Hapus project?", "Project, transkrip, dan video sumbernya di HP ini dihapus permanen.") {
-                        container.actions.delete(projectId)
-                        onBack()
-                    }
-                }) { Icon(Icons.Filled.Delete, contentDescription = "Hapus project") }
-            },
-        )
+    val c = ClipMi.colors
+    val selecting = selectStart != null
+    if (selecting) SnackbarInset(80.dp)
+    LightStatusIcons()
 
-        LazyColumn(Modifier.fillMaxSize(), contentPadding = androidx.compose.foundation.layout.PaddingValues(bottom = 24.dp)) {
+    Box(Modifier.fillMaxSize()) {
+        LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = if (selecting || tab == 1) 120.dp else 40.dp)) {
             item {
-                if (videoFile != null) {
-                    AndroidView(
-                        factory = { PlayerView(it).apply { this.player = player } },
-                        modifier = Modifier.fillMaxWidth().aspectRatio(16f / 9f),
+                Box(Modifier.fillMaxWidth().background(Color.Black).statusBarsPadding()) {
+                    if (videoFile != null) {
+                        AndroidView(
+                            factory = { PlayerView(it).apply { this.player = player } },
+                            modifier = Modifier.fillMaxWidth().aspectRatio(16f / 9f),
+                        )
+                    } else {
+                        FileImage(container.workspace.file(p.thumbnailPath), Modifier.fillMaxWidth().aspectRatio(16f / 9f))
+                    }
+                    IconCircle(
+                        ClipMiIcons.Back, "Kembali", onBack,
+                        modifier = Modifier.align(Alignment.TopStart).padding(12.dp),
+                        background = Color(0x990B0F0E), tint = Color.White, border = false,
                     )
-                } else {
-                    FileImage(container.workspace.file(p.thumbnailPath), Modifier.fillMaxWidth().aspectRatio(16f / 9f).padding(16.dp))
+                    IconCircle(
+                        ClipMiIcons.Trash, "Hapus project",
+                        onClick = {
+                            confirm = Confirm("Hapus project?", "Project, transkrip, klip, dan video sumbernya di HP ini dihapus permanen.", "Hapus", danger = true) {
+                                container.actions.delete(projectId)
+                                onBack()
+                            }
+                        },
+                        modifier = Modifier.align(Alignment.TopEnd).padding(12.dp),
+                        background = Color(0x990B0F0E), tint = Color.White, border = false,
+                    )
                 }
             }
-            item { StatusSection(p, segments.size, transcriptionReady, onRetry = { scope.launch { container.actions.retry(projectId) } }) }
             item {
-                TabRow(selectedTabIndex = tab) {
-                    Tab(selected = tab == 0, onClick = { tab = 0 }, text = { Text("Transkrip") })
-                    Tab(selected = tab == 1, onClick = { tab = 1 }, text = { Text("Klip") })
+                Column(Modifier.padding(start = ScreenGutter, end = ScreenGutter, top = 16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        Text(p.title, style = MaterialTheme.typography.titleLarge, color = c.text)
+                        val source = TranscriptSource.from(p.transcriptSource)
+                        Text(
+                            listOfNotNull(
+                                if (p.isYouTube) "YouTube" else "Galeri",
+                                p.durationSeconds?.let { Timecode.format(it) },
+                                segments.size.takeIf { it > 0 }?.let { "$it segmen" },
+                                source?.label?.takeIf { p.transcript == TranscriptStatus.Ready },
+                            ).joinToString(" · "),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = c.textMuted,
+                        )
+                    }
+                    StatusCard(p, transcriptionReady, onRetry = { scope.launch { container.actions.retry(projectId) } })
+                    val active = clips.count { it.review != ReviewStatus.Rejected }
+                    SegmentedTabs(listOf("Transkrip", if (active > 0) "Klip · $active" else "Klip"), tab, onSelect = { tab = it })
                 }
             }
+
             if (tab == 1) {
-                item { ClipsTab(container, p, segments.isNotEmpty(), playRange) }
+                item { ClipsTab(container, p, segments.isNotEmpty(), playRange, onOpenEditor) }
                 return@LazyColumn
             }
-            item {
-                FlowRow(Modifier.padding(start = 16.dp, end = 16.dp, top = 12.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    OutlinedButton(onClick = {
-                        val open = { pickSubtitle.launch(arrayOf("application/x-subrip", "text/vtt", "text/plain", "application/octet-stream", "*/*")) }
-                        if (segments.isEmpty()) open() else confirm = Confirm("Ganti transkrip?", "Transkrip sekarang (${segments.size} segmen) diganti isi file subtitle.") { open() }
-                    }) { Text("Impor SRT/VTT") }
 
+            item {
+                ChipRow(Modifier.padding(top = 12.dp)) {
+                    FilterPill("Impor SRT/VTT", selected = false, height = 32.dp, onClick = {
+                        val open = { pickSubtitle.launch(arrayOf("application/x-subrip", "text/vtt", "text/plain", "application/octet-stream", "*/*")) }
+                        if (segments.isEmpty()) open()
+                        else confirm = Confirm("Ganti transkrip?", "Transkrip sekarang (${segments.size} segmen) diganti isi file subtitle.", "Pilih file") { open() }
+                    })
                     // Transkripsi API sedang berjalan/menunggu (pengambilan subtitle YouTube tidak memakai pesan ini).
                     if (p.transcript == TranscriptStatus.Fetching && p.transcriptionMessage != null && p.video == VideoStatus.Ready) {
-                        OutlinedButton(onClick = {
+                        FilterPill("Batalkan transkripsi", selected = false, height = 32.dp, onClick = {
                             scope.launch {
                                 val restore = if (segments.isNotEmpty()) TranscriptStatus.Ready else TranscriptStatus.NeedsTranscript
                                 container.actions.cancelTranscription(projectId, restore)
                             }
-                        }) { Text("Batalkan transkripsi") }
+                        })
                     } else {
-                        OutlinedButton(
+                        FilterPill(
+                            "Transkripsi API", selected = false, height = 32.dp,
                             enabled = p.video == VideoStatus.Ready && transcriptionReady,
                             onClick = {
                                 val start: suspend () -> Unit = { container.actions.startTranscription(projectId) }
@@ -184,65 +236,36 @@ fun ProjectDetailScreen(container: AppContainer, projectId: Long, onBack: () -> 
                                 else confirm = Confirm(
                                     "Transkripsi ulang lewat API?",
                                     "Transkrip sekarang diganti hasil transkripsi API. Biaya API ditagih penyedia sesuai panjang audio.",
-                                    start,
+                                    "Transkripsi",
+                                    action = start,
                                 )
                             },
-                        ) { Text("Transkripsi API") }
+                        )
                     }
-
-                    OutlinedButton(enabled = segments.isNotEmpty(), onClick = {
+                    FilterPill("Terapkan kamus", selected = false, height = 32.dp, enabled = segments.isNotEmpty(), onClick = {
                         scope.launch {
                             val count = container.transcripts.applyCorrections(projectId)
-                            notice = if (count > 0) "$count kata dikoreksi kamus." else "Tidak ada kata yang perlu dikoreksi."
+                            notifier.show(if (count > 0) "$count kata dikoreksi kamus." else "Tidak ada kata yang perlu dikoreksi.")
                         }
-                    }) { Text("Terapkan kamus") }
+                    })
                 }
             }
             if (segments.isNotEmpty()) {
-                item {
-                    OutlinedTextField(
-                        value = query,
-                        onValueChange = { query = it },
-                        label = { Text("Cari di transkrip") },
-                        singleLine = true,
-                        modifier = Modifier.fillMaxWidth().padding(16.dp),
-                    )
-                }
                 val shown = if (query.isBlank()) segments else segments.filter { it.text.contains(query.trim(), ignoreCase = true) }
-                if (query.isNotBlank()) item {
-                    Text("${shown.size} segmen cocok", style = MaterialTheme.typography.labelMedium, modifier = Modifier.padding(horizontal = 16.dp))
-                }
                 item {
-                    val start = selectStart
-                    if (start == null) {
-                        Text(
-                            "Ketuk segmen untuk memutar. Tekan lama segmen untuk membuat klip sendiri.",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
+                    Column(Modifier.padding(start = ScreenGutter, end = ScreenGutter, top = 12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        SearchField(
+                            query, { query = it }, "Cari di transkrip",
+                            trailingText = if (query.isNotBlank()) "${shown.size} cocok" else null,
+                            onClear = { query = "" },
                         )
-                    } else {
-                        val end = selectEnd ?: start
-                        val first = segments.firstOrNull { it.sequence == start }
-                        val last = segments.firstOrNull { it.sequence == end }
-                        Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp), verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
+                        if (!selecting) {
                             Text(
-                                (if (selectEnd == null) "Ketuk segmen akhir. " else "") +
-                                    "S%04d–S%04d".format(start, end) +
-                                    (if (first != null && last != null) " · ${Timecode.format(last.endTime - first.startTime)}" else ""),
+                                "Ketuk segmen untuk memutar. Tekan lama untuk membuat klip sendiri.",
                                 style = MaterialTheme.typography.bodySmall,
-                                modifier = Modifier.weight(1f),
+                                color = c.textMuted,
+                                modifier = Modifier.padding(start = 4.dp),
                             )
-                            TextButton(onClick = { selectStart = null; selectEnd = null }) { Text("Batal") }
-                            TextButton(onClick = {
-                                scope.launch {
-                                    container.analysis.createManualClip(projectId, start, end)
-                                    selectStart = null
-                                    selectEnd = null
-                                    tab = 1
-                                    notice = "Klip manual dibuat dan langsung terpilih. Ubah judul, hook, dan caption-nya di tab Klip."
-                                }
-                            }) { Text("Buat klip") }
                         }
                     }
                 }
@@ -263,87 +286,191 @@ fun ProjectDetailScreen(container: AppContainer, projectId: Long, onBack: () -> 
                         },
                         onLongClick = { selectStart = segment.sequence; selectEnd = null },
                     )
-                    HorizontalDivider()
                 }
+            }
+        }
+
+        StatusBarScrim(Modifier.align(Alignment.TopCenter), color = Color.Black)
+
+        // Tab Klip: klip terpilih bisa dirender sekaligus (berurutan di antrean render).
+        val selected = clips.filter { it.review == ReviewStatus.Selected }
+        val pending = selected.filter { it.render == RenderStatus.NotRendered || it.render == RenderStatus.Failed || it.changedAfterRender }
+        val context = LocalContext.current
+        AnimatedVisibility(
+            visible = tab == 1 && !selecting && selected.isNotEmpty(),
+            enter = fadeIn() + slideInVertically { it },
+            exit = fadeOut() + slideOutVertically { it },
+            modifier = Modifier.align(Alignment.BottomCenter),
+        ) {
+            SnackbarInset(80.dp)
+            Row(
+                Modifier
+                    .navigationBarsPadding()
+                    .padding(start = 16.dp, end = 16.dp, bottom = 20.dp)
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(32.dp))
+                    .background(c.panel)
+                    .border(1.dp, c.lineStrong, RoundedCornerShape(32.dp))
+                    .padding(start = 20.dp, end = 8.dp, top = 8.dp, bottom = 8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                val busy = selected.count { it.render.isBusy }
+                Text(
+                    "${selected.size} klip terpilih" + if (busy > 0) " · $busy dirender" else "",
+                    style = MaterialTheme.typography.titleSmall.copy(fontSize = 13.sp),
+                    color = c.text,
+                    modifier = Modifier.weight(1f),
+                )
+                if (pending.isNotEmpty()) {
+                    PrimaryButton(if (pending.size == selected.size) "Render semua" else "Render ${pending.size} klip", height = 48.dp, onClick = {
+                        scope.launch { pending.forEach { RenderQueue.render(context, it) } }
+                    })
+                } else {
+                    Text(if (busy > 0) "Merender…" else "Semua sudah dirender", style = MaterialTheme.typography.bodySmall, color = c.textMuted, modifier = Modifier.padding(end = 12.dp))
+                }
+            }
+        }
+        AnimatedVisibility(
+            visible = selecting,
+            enter = fadeIn() + slideInVertically { it },
+            exit = fadeOut() + slideOutVertically { it },
+            modifier = Modifier.align(Alignment.BottomCenter),
+        ) {
+            val start = selectStart ?: 0
+            val end = selectEnd ?: start
+            val first = segments.firstOrNull { it.sequence == start }
+            val last = segments.firstOrNull { it.sequence == end }
+            Row(
+                Modifier
+                    .navigationBarsPadding()
+                    .padding(start = 16.dp, end = 16.dp, bottom = 20.dp)
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(28.dp))
+                    .background(c.panel)
+                    .border(1.dp, c.lineStrong, RoundedCornerShape(28.dp))
+                    .padding(start = 18.dp, end = 10.dp, top = 10.dp, bottom = 10.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+            ) {
+                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                    Text(
+                        if (selectEnd == null) "Ketuk segmen akhir" else "${end - start + 1} segmen dipilih",
+                        style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.ExtraBold, fontSize = 13.sp),
+                        color = c.text,
+                    )
+                    Text(
+                        "S%04d–S%04d".format(start, end) + (if (first != null && last != null) " · ${Timecode.format(last.endTime - first.startTime)}" else ""),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = c.textMuted,
+                    )
+                }
+                GhostButton("Batal", onClick = { selectStart = null; selectEnd = null })
+                PrimaryButton("Buat klip", height = 44.dp, onClick = {
+                    scope.launch {
+                        container.analysis.createManualClip(projectId, start, end)
+                        selectStart = null
+                        selectEnd = null
+                        tab = 1
+                        notifier.show("Klip manual dibuat dan langsung terpilih.")
+                    }
+                })
             }
         }
     }
 
-    confirm?.let { c ->
-        AlertDialog(
-            onDismissRequest = { confirm = null },
-            title = { Text(c.title) },
-            text = { Text(c.body) },
-            confirmButton = { TextButton(onClick = { confirm = null; scope.launch { c.action() } }) { Text("Lanjutkan") } },
-            dismissButton = { TextButton(onClick = { confirm = null }) { Text("Batal") } },
+    confirm?.let { cf ->
+        ConfirmDialog(
+            cf.title, cf.body, cf.label, danger = cf.danger,
+            onConfirm = { confirm = null; scope.launch { cf.action() } },
+            onDismiss = { confirm = null },
         )
-    }
-    notice?.let {
-        AlertDialog(onDismissRequest = { notice = null }, confirmButton = { TextButton(onClick = { notice = null }) { Text("OK") } }, text = { Text(it) })
     }
 }
 
+/** Kartu status unduhan/transkrip; tidak tampil bila semuanya siap tanpa pesan. */
 @Composable
-private fun StatusSection(p: ProjectEntity, segmentCount: Int, transcriptionReady: Boolean, onRetry: () -> Unit) {
-    Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            StatusChip("Video: ${p.video.label}", p.video.tone())
-            StatusChip("Transkrip: ${p.transcript.label}", p.transcript.tone())
+private fun StatusCard(p: ProjectEntity, transcriptionReady: Boolean, onRetry: () -> Unit) {
+    val c = ClipMi.colors
+    val message = p.transcriptionMessage
+    val needsTranscript = p.transcript == TranscriptStatus.NeedsTranscript
+    val busyVideo = p.video == VideoStatus.Downloading || p.video == VideoStatus.Processing || p.video == VideoStatus.Pending
+    val fetching = p.transcript == TranscriptStatus.Fetching
+    if (!busyVideo && !fetching && !needsTranscript && message == null && p.errorMessage == null) return
+
+    val (icon, tone, title) = when {
+        p.errorMessage != null && (p.video == VideoStatus.Failed || p.transcript == TranscriptStatus.Failed) -> Triple(ClipMiIcons.Alert, Tone.Bad, "Gagal")
+        p.video == VideoStatus.Downloading -> Triple(ClipMiIcons.Download, Tone.Busy, "Mengunduh video ${p.videoProgress ?: 0}%")
+        p.video == VideoStatus.Processing -> Triple(ClipMiIcons.Film, Tone.Busy, "Memproses video")
+        p.video == VideoStatus.Pending -> Triple(ClipMiIcons.Download, Tone.Idle, "Menunggu antrean")
+        fetching -> Triple(ClipMiIcons.Mic, Tone.Busy, if (message != null) "Transkripsi API" else "Mengambil transkrip")
+        needsTranscript -> Triple(ClipMiIcons.Alert, Tone.Warn, "Butuh transkrip")
+        message?.startsWith(TranscribeWorker.DONE_PREFIX) == true -> Triple(ClipMiIcons.Check, Tone.Good, "Transkripsi selesai")
+        else -> Triple(ClipMiIcons.Mic, Tone.Idle, "Transkripsi")
+    }
+
+    ClipMiCard {
+        Row(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically) {
+            IconBadge(icon, tone)
+            Text(title, style = MaterialTheme.typography.titleSmall, color = c.text, modifier = Modifier.weight(1f))
         }
-        if (p.video == VideoStatus.Downloading) {
-            LinearProgressIndicator(progress = { (p.videoProgress ?: 0) / 100f }, modifier = Modifier.fillMaxWidth())
-            Text("Mengunduh video ${p.videoProgress ?: 0}%", style = MaterialTheme.typography.bodySmall)
-        }
-        if (p.video == VideoStatus.Processing) LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
-        val source = TranscriptSource.from(p.transcriptSource)
-        if (p.transcript == TranscriptStatus.Ready) {
-            Text("$segmentCount segmen" + (source?.let { " · ${it.label}" } ?: ""), style = MaterialTheme.typography.bodySmall)
-        }
-        if (p.transcript == TranscriptStatus.NeedsTranscript) {
+        if (p.video == VideoStatus.Downloading) ProgressBar((p.videoProgress ?: 0) / 100f)
+        else if (busyVideo || fetching) ProgressBar(null, color = c.busy)
+        if (needsTranscript) {
             Text(
                 "Video ini tidak punya subtitle Indonesia. Impor SRT/VTT, atau jalankan Transkripsi API" +
                     (if (!transcriptionReady) " (atur dulu di Pengaturan)." else "."),
                 style = MaterialTheme.typography.bodySmall,
+                color = c.textBody,
             )
         }
-        p.transcriptionMessage?.let { message ->
+        message?.let {
             val color = when {
-                message.startsWith(TranscribeWorker.DONE_PREFIX) -> Color(0xFF15803D)
-                message.startsWith(TranscribeWorker.CANCELLED_PREFIX) -> MaterialTheme.colorScheme.onSurfaceVariant
-                p.transcript == TranscriptStatus.Fetching -> MaterialTheme.colorScheme.primary
-                else -> MaterialTheme.colorScheme.error
+                it.startsWith(TranscribeWorker.DONE_PREFIX) -> c.accent
+                it.startsWith(TranscribeWorker.CANCELLED_PREFIX) -> c.textMuted
+                fetching -> c.textBody
+                else -> c.bad
             }
-            Text(message, color = color, style = MaterialTheme.typography.bodySmall)
+            Text(it, color = color, style = MaterialTheme.typography.bodySmall)
         }
         p.errorMessage?.let {
-            Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
+            Text(it, color = c.bad, style = MaterialTheme.typography.bodySmall)
             if (p.isYouTube && (p.video == VideoStatus.Failed || p.transcript == TranscriptStatus.Failed)) {
-                TextButton(onClick = onRetry) { Text("Coba lagi") }
+                SecondaryButton("Coba lagi", onClick = onRetry, height = 40.dp, icon = ClipMiIcons.Refresh)
             }
         }
     }
 }
 
-@OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun SegmentRow(segment: TranscriptSegmentEntity, query: String, selected: Boolean, onClick: () -> Unit, onLongClick: () -> Unit) {
+    val c = ClipMi.colors
+    val shape = RoundedCornerShape(16.dp)
     Row(
-        Modifier.fillMaxWidth()
-            .background(if (selected) MaterialTheme.colorScheme.primaryContainer else Color.Transparent)
+        Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 12.dp, vertical = 2.dp)
+            .clip(shape)
+            .then(if (selected) Modifier.background(c.accent.copy(alpha = 0.12f)).border(1.dp, c.accent.copy(alpha = 0.35f), shape) else Modifier)
             .combinedClickable(onClick = onClick, onLongClick = onLongClick)
-            .padding(horizontal = 16.dp, vertical = 10.dp),
+            .padding(horizontal = 8.dp, vertical = 10.dp),
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         Text(
             Timecode.format(segment.startTime),
-            style = MaterialTheme.typography.labelMedium,
-            color = MaterialTheme.colorScheme.primary,
-            modifier = Modifier.width(64.dp),
+            style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold),
+            color = c.accent,
+            modifier = Modifier.width(48.dp).padding(top = 2.dp),
         )
-        Text(highlight(segment.text, query), style = MaterialTheme.typography.bodyMedium)
+        Text(
+            highlight(segment.text, query, c.highlight, c.onHighlight),
+            style = MaterialTheme.typography.bodyMedium.copy(lineHeight = 22.sp),
+            color = if (selected) c.text else c.textBody,
+        )
     }
 }
 
-private fun highlight(text: String, query: String) = buildAnnotatedString {
+private fun highlight(text: String, query: String, background: Color, color: Color) = buildAnnotatedString {
     if (query.isEmpty()) {
         append(text)
         return@buildAnnotatedString
@@ -353,7 +480,7 @@ private fun highlight(text: String, query: String) = buildAnnotatedString {
         val index = text.indexOf(query, start, ignoreCase = true)
         if (index < 0) break
         append(text.substring(start, index))
-        withStyle(SpanStyle(fontWeight = FontWeight.Bold, background = Color(0x55FFD400))) { append(text.substring(index, index + query.length)) }
+        withStyle(SpanStyle(fontWeight = FontWeight.Bold, background = background, color = color)) { append(text.substring(index, index + query.length)) }
         start = index + query.length
     }
     append(text.substring(start))

@@ -18,7 +18,7 @@ FILTERS=(
     hflip vflip transpose unsharp gblur avgblur
     # audio
     anull acopy highpass afftdn loudnorm aresample aformat atrim asetpts aselect anullsrc amix afade acrossfade
-    apad volume pan
+    apad volume pan volumedetect silencedetect
 )
 
 (

@@ -108,4 +108,29 @@ object Php {
 
     /** `mb_strtolower()` PHP 8.3 (pemetaan huruf kecil Unicode penuh). */
     fun mbStrtolower(s: String): String = s.lowercase(java.util.Locale.ROOT)
+
+    /** `mb_strtoupper()` PHP 8.3 (pemetaan huruf besar Unicode penuh, misalnya ß → SS). */
+    fun mbStrtoupper(s: String): String = s.uppercase(java.util.Locale.ROOT)
+
+    /** `(int) round($value)`. */
+    fun roundInt(value: Double): Int = round(value, 0).toInt()
+
+    /** `number_format($value, $decimals, '.', '')`: dibulatkan seperti round() PHP, tanpa pemisah ribuan. */
+    fun numberFormat(value: Double, decimals: Int): String {
+        val rounded = round(value, decimals)
+        val text = String.format(java.util.Locale.ROOT, "%.${decimals}f", rounded)
+        // PHP 8 tidak menulis "-0" untuk nilai yang dibulatkan menjadi nol.
+        return if (text.startsWith("-") && text.trimStart('-').all { it == '0' || it == '.' }) text.substring(1) else text
+    }
+
+    /** `substr($s, $start, $length)` untuk ASCII: indeks di luar panjang menghasilkan "" alih-alih galat. */
+    fun substr(s: String, start: Int, length: Int? = null): String {
+        val from = if (start < 0) maxOf(0, s.length + start) else minOf(start, s.length)
+        val to = when {
+            length == null -> s.length
+            length < 0 -> maxOf(from, s.length + length)
+            else -> minOf(s.length, from + length)
+        }
+        return s.substring(from, to)
+    }
 }

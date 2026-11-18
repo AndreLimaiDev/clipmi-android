@@ -7,6 +7,8 @@ import id.clipmi.android.data.AppDatabase
 import id.clipmi.android.domain.AiClient
 import id.clipmi.android.domain.Analysis
 import id.clipmi.android.domain.Ffmpeg
+import id.clipmi.android.domain.MediaLibrary
+import id.clipmi.android.domain.Renderer
 import id.clipmi.android.domain.ProjectActions
 import id.clipmi.android.domain.Settings
 import id.clipmi.android.domain.Transcriber
@@ -28,6 +30,8 @@ class AppContainer(app: Application) {
     val actions: ProjectActions by lazy { ProjectActions(app, database, workspace, transcripts) }
     val aiClient: AiClient by lazy { AiClient() }
     val analysis: Analysis by lazy { Analysis(app, database, settings, transcripts) }
+    val renderer: Renderer by lazy { Renderer(app, database, workspace, transcripts, settings, ffmpeg) }
+    val media: MediaLibrary by lazy { MediaLibrary(app, database, workspace, ffmpeg) }
 }
 
 class ClipMiApp : Application() {

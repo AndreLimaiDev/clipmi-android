@@ -75,6 +75,8 @@ class Analysis(private val context: Context, private val db: AppDatabase, privat
         var skipped = 0
         db.withTransaction {
             val existing = db.clips().forProject(projectId).toMutableList()
+            // Klip baru ikut intro/outro bawaan project-nya.
+            val project = db.projects().find(projectId)
             for (draft in parsed.drafts) {
                 val t = ClipImporter.DUPLICATE_TOLERANCE
                 if (existing.any { it.startTime in draft.startTime - t..draft.startTime + t && it.endTime in draft.endTime - t..draft.endTime + t }) {
@@ -97,6 +99,8 @@ class Analysis(private val context: Context, private val db: AppDatabase, privat
                     reason = draft.reason,
                     reviewStatus = ReviewStatus.Candidate.value,
                     source = ClipSource.AI,
+                    introId = project?.introId,
+                    outroId = project?.outroId,
                 )
                 db.clips().insert(clip)
                 existing += clip
@@ -113,6 +117,7 @@ class Analysis(private val context: Context, private val db: AppDatabase, privat
         val last = maxOf(startSequence, endSequence)
         val start = segments.getValue(first)
         val end = segments.getValue(last)
+        val project = db.projects().find(projectId)
         val (startTime, endTime) = ClipImporter.rangeTimes(
             ImportSegment(start.sequence, start.startTime, start.endTime, transcripts.decodeWords(start.words).ifEmpty { null }),
             ImportSegment(end.sequence, end.startTime, end.endTime, transcripts.decodeWords(end.words).ifEmpty { null }),
@@ -125,6 +130,8 @@ class Analysis(private val context: Context, private val db: AppDatabase, privat
                 endTime = endTime,
                 reviewStatus = ReviewStatus.Selected.value,
                 source = ClipSource.MANUAL,
+                introId = project?.introId,
+                outroId = project?.outroId,
             ),
         )
     }

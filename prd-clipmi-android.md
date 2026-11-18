@@ -64,6 +64,7 @@ Urutan pengembangan disusun agar risiko teknis terbesar dibuktikan lebih dulu, l
     *   *Klip Berseri:* Pengelompokan seri dengan nomor bagian dan label "Bagian N" otomatis.
 
 ### Fase 3: Editor & Render
+*Berjalan (17 November 2026): 3a selesai — komposisi, filtergraph FFmpeg, subtitle ASS, hook, subtitle klip, dan potongan diport ke core dan identik dengan desktop (2.900+ kasus uji). 3b selesai — render FFmpeg di HP (encoder hardware, simpan ke galeri, bagikan) diuji pada tiga gaya bingkai. 3c selesai — editor sentuh diuji di HP. 3d selesai — pengelola gaya, template, intro/outro, sampul, layar Hasil, render aman baterai/suhu, diuji di HP. Sistem desain baru (mockup) sudah diterapkan ke layar Fase 1–2. Catatan di `docs/fase3-catatan.md`.*
 *   **Editor Klip Sentuh** [high] — Editor yang dirancang untuk layar HP, bukan salinan editor desktop.
     *   *Pratinjau Hidup:* ExoPlayer memutar video dengan subtitle dan hook digambar libass dari file ASS yang sama dengan render, sehingga yang terlihat sama dengan hasilnya (warna ASS ditafsirkan BT.601 TV range seperti filter `ass` FFmpeg).
     *   *Timeline Sentuh:* Tarik ujung klip, geser, cubit untuk zoom, dengan getaran halus saat menempel ke batas kata.

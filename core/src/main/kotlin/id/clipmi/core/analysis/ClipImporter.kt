@@ -231,6 +231,41 @@ object Keywords {
             .take(MAX_KEYWORDS)
     }
 
+    /**
+     * Tandai atau lepas kata kunci dari kata yang dipilih di editor: bila pilihan sudah (bagian dari) kata kunci,
+     * kata kunci itu dilepas; selain itu pilihan ditambahkan.
+     */
+    fun toggle(keywords: List<String>, phrase: String): List<String> {
+        val chosen = words(phrase)
+        if (chosen.isEmpty() || chosen.size > MAX_WORDS) return keywords
+        val kept = keywords.filter { !contains(words(it), chosen) }
+        return if (kept.size < keywords.size) kept else clean(keywords + phrase)
+    }
+
+    /** Indeks kata (di baris subtitle) yang termasuk kata kunci; frasa yang lebih panjang dicocokkan lebih dulu. */
+    fun mark(texts: List<String>, keywords: List<String>): Set<Int> {
+        if (keywords.isEmpty() || texts.isEmpty()) return emptySet()
+        val normalized = texts.map(::normalize)
+        val marked = sortedSetOf<Int>()
+        for (phrase in keywords.map(::words).filter { it.isNotEmpty() }.sortedByDescending { it.size }) {
+            var i = 0
+            while (i + phrase.size <= normalized.size) {
+                if (normalized.subList(i, i + phrase.size) == phrase) for (j in i until i + phrase.size) marked += j
+                i++
+            }
+        }
+        return marked
+    }
+
+    private fun contains(haystack: List<String>, needle: List<String>): Boolean {
+        var i = 0
+        while (i + needle.size <= haystack.size) {
+            if (haystack.subList(i, i + needle.size) == needle) return true
+            i++
+        }
+        return false
+    }
+
     /** Kata dalam bentuk pembanding: huruf kecil tanpa tanda baca. */
     fun normalize(word: String): String = Php.mbStrtolower(NON_ALNUM.replace(word, ""))
 

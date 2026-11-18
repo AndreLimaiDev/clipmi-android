@@ -34,7 +34,10 @@ class MainActivity : ComponentActivity() {
         }
         if (savedInstanceState == null) {
             handleIntent(intent)
-            lifecycleScope.launch { container.actions.resumeInterrupted() }
+            lifecycleScope.launch {
+                container.actions.resumeInterrupted()
+                id.clipmi.android.work.RenderQueue.resumeInterrupted(this@MainActivity)
+            }
         }
     }
 
@@ -65,6 +68,12 @@ class MainActivity : ComponentActivity() {
         if (intent.action == Intent.ACTION_SEND && intent.type?.startsWith("text/") == true) {
             handleSharedText(intent.getStringExtra(Intent.EXTRA_TEXT).orEmpty())
             intent.action = null
+            return
+        }
+        // Uji dari PC: adb shell am start -n id.clipmi.android/.MainActivity --el editor_clip <id>
+        if (intent.hasExtra("editor_clip")) {
+            shared = SharedResult(openEditor = intent.getLongExtra("editor_clip", 0))
+            intent.removeExtra("editor_clip")
             return
         }
         handleLabIntent(intent)

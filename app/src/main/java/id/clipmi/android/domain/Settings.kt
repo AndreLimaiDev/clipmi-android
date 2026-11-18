@@ -114,6 +114,11 @@ class Settings(private val dao: SettingDao, private val secrets: SecretStore) {
 
     suspend fun autoAnalyze(): Boolean = dao.get(KEY_AI_AUTO) == "1"
 
+    /** "Rapikan audio saat render" (kunci desktop render.enhance_audio); bawaan aktif. */
+    suspend fun enhanceAudio(): Boolean = dao.get(KEY_ENHANCE_AUDIO) != "0"
+
+    suspend fun setEnhanceAudio(enabled: Boolean) = dao.put(KEY_ENHANCE_AUDIO, if (enabled) "1" else "0")
+
     suspend fun setAutoAnalyze(enabled: Boolean) = dao.put(KEY_AI_AUTO, if (enabled) "1" else "0")
 
     /** Template prompt (null = bawaan desktop) dan batas panjang prompt per bagian (token). */
@@ -144,6 +149,7 @@ class Settings(private val dao: SettingDao, private val secrets: SecretStore) {
         const val KEY_AI_PRICE_OUTPUT = "ai.analysis.price_output"
         /** "Mulai analisis otomatis setelah transkrip siap", sama dengan `AnalyzeWithAi::AUTO_SETTING`. */
         const val KEY_AI_AUTO = "ai.analysis.auto"
+        const val KEY_ENHANCE_AUDIO = "render.enhance_audio"
         const val KEY_PROMPT_TEMPLATE = "prompt_template"
         const val KEY_PROMPT_MAX_TOKENS = "prompt_max_tokens"
 
