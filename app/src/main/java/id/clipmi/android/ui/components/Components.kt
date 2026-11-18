@@ -1,5 +1,6 @@
 package id.clipmi.android.ui.components
 
+import androidx.compose.ui.draw.shadow
 import android.graphics.BitmapFactory
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Image
@@ -70,6 +71,9 @@ import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.layout.layout
+import androidx.compose.ui.unit.offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.SolidColor
@@ -468,22 +472,34 @@ fun StatusBadge(label: String, tone: Tone, modifier: Modifier = Modifier) {
 
 /** Tombol aksi kecil (impor, salin, terapkan): kotak membulat berlatar, berbeda dari pil filter. */
 @Composable
-fun ActionChip(label: String, onClick: () -> Unit, modifier: Modifier = Modifier, height: Dp = 36.dp, enabled: Boolean = true, icon: ImageVector? = null) {
+fun ActionChip(
+    label: String,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    height: Dp = 36.dp,
+    enabled: Boolean = true,
+    icon: ImageVector? = null,
+    primary: Boolean = false,
+) {
     val c = ClipMi.colors
     val shape = RoundedCornerShape(12.dp)
     Row(
         modifier
             .height(height)
             .clip(shape)
-            .background(c.panel)
-            .clickable(enabled = enabled, role = Role.Button, onClick = onClick)
-            .padding(horizontal = 12.dp),
+            .background(if (primary && enabled) c.accent else c.panel)
+            .clickable(enabled = enabled, role = Role.Button, onClickLabel = label.ifEmpty { null }, onClick = onClick)
+            .padding(horizontal = if (label.isEmpty()) 10.dp else 12.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(6.dp, Alignment.CenterHorizontally),
     ) {
-        val color = if (enabled) c.text else c.textMuted.copy(alpha = 0.6f)
-        icon?.let { Icon(it, null, tint = color, modifier = Modifier.size(16.dp)) }
-        Text(label, style = MaterialTheme.typography.labelLarge.copy(fontSize = 13.sp), color = color, maxLines = 1)
+        val color = when {
+            !enabled -> c.textMuted.copy(alpha = 0.6f)
+            primary -> c.onAccent
+            else -> c.text
+        }
+        icon?.let { Icon(it, null, tint = color, modifier = Modifier.size(if (label.isEmpty()) 20.dp else 16.dp)) }
+        if (label.isNotEmpty()) Text(label, style = MaterialTheme.typography.labelLarge.copy(fontSize = 13.sp), color = color, maxLines = 1)
     }
 }
 
@@ -516,6 +532,45 @@ fun FilterPill(label: String, selected: Boolean, onClick: () -> Unit, modifier: 
             maxLines = 1,
         )
     }
+}
+
+/**
+ * Melebarkan isi sejauh [gutter] ke kiri dan kanan, keluar dari padding daftar. Dipakai untuk baris yang digeser
+ * ke samping supaya chip terpotong di tepi layar (tanda bisa digeser), bukan 16dp sebelum tepi.
+ */
+fun Modifier.bleed(gutter: Dp = ScreenGutter): Modifier = this.layout { measurable, constraints ->
+    val extra = gutter.roundToPx()
+    val placeable = measurable.measure(constraints.offset(horizontal = extra * 2))
+    layout(placeable.width - extra * 2, placeable.height) { placeable.place(-extra, 0) }
+}
+
+/** Kotak kosong yang lembut dengan garis putus-putus: tempat yang belum diisi (misalnya hari tanpa jadwal). */
+@Composable
+fun DashedCard(modifier: Modifier = Modifier, onClick: (() -> Unit)? = null, content: @Composable ColumnScope.() -> Unit) {
+    val c = ClipMi.colors
+    val shape = MaterialTheme.shapes.large
+    Column(
+        modifier.fillMaxWidth().clip(shape).background(c.accentSoft.copy(alpha = 0.35f))
+            .then(if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier)
+            .drawBehind {
+                val stroke = 1.dp.toPx()
+                val radius = 24.dp.toPx()
+                drawRoundRect(
+                    color = c.accent.copy(alpha = 0.4f),
+                    topLeft = androidx.compose.ui.geometry.Offset(stroke / 2, stroke / 2),
+                    size = androidx.compose.ui.geometry.Size(size.width - stroke, size.height - stroke),
+                    cornerRadius = androidx.compose.ui.geometry.CornerRadius(radius, radius),
+                    style = androidx.compose.ui.graphics.drawscope.Stroke(
+                        width = stroke,
+                        pathEffect = androidx.compose.ui.graphics.PathEffect.dashPathEffect(floatArrayOf(6.dp.toPx(), 5.dp.toPx())),
+                    ),
+                )
+            }
+            .padding(horizontal = 16.dp, vertical = 14.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+        content = content,
+    )
 }
 
 /** Baris chip yang digeser kiri–kanan tanpa scrollbar; isi mepet ke tepi layar. */
@@ -856,4 +911,64 @@ fun formatBytes(bytes: Long): String = when {
     bytes >= 1L shl 30 -> "%.1f GB".format(Locale.forLanguageTag("id"), bytes / (1L shl 30).toDouble())
     bytes >= 1L shl 20 -> "%.0f MB".format(Locale.ROOT, bytes / (1L shl 20).toDouble())
     else -> "%.0f KB".format(Locale.ROOT, bytes / 1024.0)
+}
+
+/**
+ * Slider aplikasi: jalur tipis (4 dp) dan bulatan putih, tanpa garis tegak dan titik ujung. Dipakai di semua layar
+ * (editor, gaya subtitle, gaya bingkai) supaya seragam.
+ */
+@OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
+@Composable
+fun ClipMiSlider(
+    value: Float,
+    onValueChange: (Float) -> Unit,
+    valueRange: ClosedFloatingPointRange<Float>,
+    modifier: Modifier = Modifier,
+    onValueChangeFinished: (() -> Unit)? = null,
+) {
+    val colors = clipMiSliderColors()
+    androidx.compose.material3.Slider(
+        value = value.coerceIn(valueRange),
+        onValueChange = onValueChange,
+        valueRange = valueRange,
+        onValueChangeFinished = onValueChangeFinished,
+        modifier = modifier,
+        colors = colors,
+        thumb = { ClipMiSliderThumb() },
+        track = { androidx.compose.material3.SliderDefaults.Track(sliderState = it, modifier = Modifier.height(4.dp), colors = colors, drawStopIndicator = null, thumbTrackGapSize = 0.dp) },
+    )
+}
+
+/** Slider rentang dengan tampilan yang sama dengan [ClipMiSlider]. */
+@OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
+@Composable
+fun ClipMiRangeSlider(
+    value: ClosedFloatingPointRange<Float>,
+    onValueChange: (ClosedFloatingPointRange<Float>) -> Unit,
+    valueRange: ClosedFloatingPointRange<Float>,
+    modifier: Modifier = Modifier,
+    onValueChangeFinished: (() -> Unit)? = null,
+) {
+    val colors = clipMiSliderColors()
+    androidx.compose.material3.RangeSlider(
+        value = value,
+        onValueChange = onValueChange,
+        valueRange = valueRange,
+        onValueChangeFinished = onValueChangeFinished,
+        modifier = modifier,
+        colors = colors,
+        startThumb = { ClipMiSliderThumb() },
+        endThumb = { ClipMiSliderThumb() },
+        track = { androidx.compose.material3.SliderDefaults.Track(rangeSliderState = it, modifier = Modifier.height(4.dp), colors = colors, drawStopIndicator = null, thumbTrackGapSize = 0.dp) },
+    )
+}
+
+@Composable
+private fun clipMiSliderColors() = ClipMi.colors.let { c ->
+    androidx.compose.material3.SliderDefaults.colors(thumbColor = Color.White, activeTrackColor = c.accent, inactiveTrackColor = c.line)
+}
+
+@Composable
+private fun ClipMiSliderThumb() {
+    Box(Modifier.size(20.dp).shadow(2.dp, CircleShape).clip(CircleShape).background(Color.White).border(1.dp, Color.Black.copy(alpha = 0.08f), CircleShape))
 }

@@ -1,5 +1,6 @@
 package id.clipmi.android.ui.schedule
 
+import id.clipmi.android.ui.components.bleed
 import androidx.compose.ui.draw.clip
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.border
@@ -162,7 +163,7 @@ fun StatsScreen(container: AppContainer, onOpenSchedule: (Long) -> Unit, onOpenP
             }
             if (d.accounts.size > 1) {
                 item(key = "filter") {
-                    ChipRow(gutter = 0.dp) {
+                    ChipRow(Modifier.bleed()) {
                         d.accounts.forEach { account ->
                             FilterPill(account.name, selected = account.id !in hidden, onClick = { hidden = if (account.id in hidden) hidden - account.id else hidden + account.id })
                         }

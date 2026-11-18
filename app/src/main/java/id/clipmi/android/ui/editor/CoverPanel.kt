@@ -1,5 +1,17 @@
 package id.clipmi.android.ui.editor
 
+import id.clipmi.android.ui.components.ClipMiRangeSlider
+import id.clipmi.android.ui.components.ClipMiSlider
+import androidx.compose.foundation.layout.height
+import androidx.compose.ui.graphics.Color
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.border
+import id.clipmi.android.ui.components.bleed
+import id.clipmi.android.ui.components.ActionChip
+import id.clipmi.android.ui.components.Field
+import id.clipmi.core.analysis.ClipText
+import id.clipmi.core.render.CoverTitleLayout
+import id.clipmi.core.render.CoverTitle
 import android.graphics.BitmapFactory
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
@@ -68,7 +80,7 @@ fun CoverPanel(state: EditorState, position: Double) {
     var importing by remember { mutableStateOf(false) }
 
     // Pratinjau sampul: dibuat FFmpeg seperti saat render, sesaat setelah pengaturannya berhenti berubah.
-    val coverKey = listOf(s.coverTime, s.coverPath, s.coverTitle, s.captionStyleId, s.frameStyleId, s.cropPosition, s.cropZoom, s.cropY, s.clip.startTime)
+    val coverKey = listOf(s.coverTime, s.coverPath, s.coverTitle, s.coverLayout, s.keywords, s.captionStyleId, s.frameStyleId, s.cropPosition, s.cropZoom, s.cropY, s.clip.startTime)
     LaunchedEffect(coverKey, state.captionStyles, state.frameStyles) {
         if (!s.hasCover) {
             preview = null
@@ -113,70 +125,107 @@ fun CoverPanel(state: EditorState, position: Double) {
                 if (rendering || importing) CircularProgressIndicator(Modifier.size(22.dp), strokeWidth = 2.dp, color = c.accent)
             }
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                SecondaryButton("Frame saat ini", icon = ClipMiIcons.Film, height = 40.dp, modifier = Modifier.fillMaxWidth(), onClick = {
+                ActionChip("Frame saat ini", height = 40.dp, icon = ClipMiIcons.Film, modifier = Modifier.fillMaxWidth(), onClick = {
                     val time = Math.round(position.coerceIn(s.clip.startTime, s.clip.endTime) * 1000) / 1000.0
                     state.apply { it.copy(coverTime = time, coverPath = null) }
                 })
-                SecondaryButton("Dari galeri", icon = ClipMiIcons.Image, height = 40.dp, modifier = Modifier.fillMaxWidth(), enabled = !importing, onClick = {
+                ActionChip("Dari galeri", height = 40.dp, icon = ClipMiIcons.Image, modifier = Modifier.fillMaxWidth(), enabled = !importing, onClick = {
                     picker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
                 })
                 if (s.hasCover) GhostButton("Tanpa sampul", danger = true, onClick = { state.apply { it.copy(coverTime = null, coverPath = null) } })
             }
         }
-        Text("Putar atau geser video ke momen yang pas, lalu ketuk Frame saat ini.", style = MaterialTheme.typography.bodySmall, color = c.textMuted)
         if (s.hasCover) {
-            Toggle("Judul di sampul", "Judul klip ditulis besar di atas sampul.", s.coverTitle) { on -> state.apply { it.copy(coverTitle = on) } }
-            Toggle("Tempel di awal video", "0,1 detik pertama, supaya jadi cover di platform yang memakai frame pertama.", s.coverInVideo) { on ->
+            Toggle("Judul di sampul", null, s.coverTitle) { on -> state.apply { it.copy(coverTitle = on) } }
+            if (s.coverTitle) CoverTitleSection(state)
+            Toggle("Tempel di awal video", "Untuk platform yang memakai frame pertama.", s.coverInVideo) { on ->
                 state.apply { it.copy(coverInVideo = on) }
             }
         }
 
-        PanelTitle("Intro & outro")
-        BumperChoice("Intro", state.bumpers.filter { it.kind == "intro" }, s.introId) { id -> state.apply { it.copy(introId = id) } }
-        if (s.introId != null && state.spec().leadKind() == "intro" && state.hookLayout().opener) {
-            Text("Dengan intro, kartu pembuka hook tidak dipakai; hook tampil di atas intro.", style = MaterialTheme.typography.bodySmall, color = c.textMuted)
-        }
-        BumperChoice("Outro", state.bumpers.filter { it.kind == "outro" }, s.outroId) { id -> state.apply { it.copy(outroId = id) } }
-        if (state.bumpers.isEmpty()) {
-            Text("Belum ada video di pustaka. Tambahkan di Pengaturan › Intro & outro.", style = MaterialTheme.typography.bodySmall, color = c.textMuted)
-        } else {
-            val isProjectDefault = state.project.introId == s.introId && state.project.outroId == s.outroId
-            GhostButton(
-                if (isProjectDefault) "Sudah jadi bawaan project" else "Jadikan bawaan project ini",
-                enabled = !isProjectDefault,
-                onClick = {
-                    scope.launch {
-                        state.container.database.projects().setBumpers(state.project.id, s.introId, s.outroId)
-                        state.project = state.project.copy(introId = s.introId, outroId = s.outroId)
-                        notifier.show("Klip baru di project ini memakai intro/outro yang sama.")
-                    }
-                },
-            )
-        }
+        // Intro & outro dipilih di panel Potong (kartu di awal dan akhir teks klip).
     }
 }
 
 @Composable
-private fun BumperChoice(label: String, options: List<BumperEntity>, selected: Long?, onSelect: (Long?) -> Unit) {
-    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        Text(label, style = MaterialTheme.typography.labelMedium, color = ClipMi.colors.textBody)
-        ChipRow(gutter = 0.dp) {
-            FilterPill("Tanpa ${label.lowercase()}", selected = selected == null, height = 34.dp, onClick = { onSelect(null) })
-            options.forEach { b ->
-                FilterPill("${b.name} · ${Math.round(b.duration)} dtk", selected = selected == b.id, height = 34.dp, onClick = { onSelect(b.id) })
-            }
-        }
-    }
-}
-
-@Composable
-private fun Toggle(title: String, subtitle: String, checked: Boolean, onChange: (Boolean) -> Unit) {
+private fun Toggle(title: String, subtitle: String?, checked: Boolean, onChange: (Boolean) -> Unit) {
     val c = ClipMi.colors
     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
         Column(Modifier.weight(1f)) {
             Text(title, style = MaterialTheme.typography.titleSmall, color = c.text)
-            Text(subtitle, style = MaterialTheme.typography.bodySmall, color = c.textMuted)
+            subtitle?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = c.textMuted) }
         }
         ClipMiSwitch(checked, onChange)
     }
+}
+
+/**
+ * Model judul sampul (khusus Android): Klasik (sama dengan desktop) atau model tipografi, teks sampul dengan `*kata*`
+ * sebagai sorotan, warna sorotan, posisi, dan ukuran.
+ */
+@Composable
+private fun CoverTitleSection(state: EditorState) {
+    val c = ClipMi.colors
+    val layout = CoverTitle.parse(state.snapshot.coverLayout)
+    fun update(change: (CoverTitleLayout) -> CoverTitleLayout) = state.apply { it.copy(coverLayout = CoverTitle.encode(change(CoverTitle.parse(it.coverLayout)))) }
+
+    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        ChipRow(gutter = 16.dp, modifier = Modifier.bleed()) {
+            CoverTitle.MODELS.forEach { (key, label) -> FilterPill(label, selected = layout.model == key, height = 34.dp, onClick = { update { it.copy(model = key) } }) }
+        }
+        if (layout.classic) return@Column
+
+        // Teks sampul: tersimpan sendiri setelah berhenti mengetik (centang hijau sebagai tanda).
+        var text by remember(state.entity.id) { mutableStateOf(layout.text ?: ClipText.displayTitle(state.entity.title, state.entity.partNumber)) }
+        var saved by remember { mutableStateOf(false) }
+        LaunchedEffect(text) {
+            val current = CoverTitle.parse(state.snapshot.coverLayout).text ?: ClipText.displayTitle(state.entity.title, state.entity.partNumber)
+            if (text == current) return@LaunchedEffect
+            delay(800)
+            update { it.copy(text = text.takeIf { t -> t.isNotBlank() }) }
+            saved = true
+            delay(2000)
+            saved = false
+        }
+        Field(
+            text, { text = it }, label = "Teks sampul", minLines = 2, maxLines = 4,
+            supporting = "Enter = baris baru · *kata* = sorotan",
+            trailing = if (saved) ({ Icon(ClipMiIcons.Check, contentDescription = "Tersimpan", tint = c.accent, modifier = Modifier.size(20.dp)) }) else null,
+        )
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+            Text("Sorotan", style = MaterialTheme.typography.labelMedium, color = c.textBody, modifier = Modifier.width(64.dp))
+            val accent = layout.accent ?: CoverTitle.ACCENTS[layout.model]
+            CoverTitle.PALETTE.forEach { hex ->
+                val color = Color(android.graphics.Color.parseColor(hex))
+                Box(
+                    Modifier.size(28.dp).clip(RoundedCornerShape(8.dp)).background(color)
+                        .border(2.dp, if (hex.equals(accent, ignoreCase = true)) c.accent else Color.Transparent, RoundedCornerShape(8.dp))
+                        .clickable(onClickLabel = "Warna $hex") { update { it.copy(accent = hex) } },
+                )
+            }
+        }
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+            Text("Posisi", style = MaterialTheme.typography.labelMedium, color = c.textBody, modifier = Modifier.width(64.dp))
+            listOf("top" to "Atas", "center" to "Tengah", "bottom" to "Bawah").forEach { (key, label) ->
+                FilterPill(label, selected = layout.position == key, height = 32.dp, onClick = { update { it.copy(position = if (it.position == key) null else key) } })
+            }
+        }
+        Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+            Row {
+                Text("Ukuran", style = MaterialTheme.typography.labelMedium, color = c.textBody, modifier = Modifier.weight(1f))
+                Text("${layout.size}%", style = MaterialTheme.typography.labelMedium, color = c.text)
+            }
+            CoverSizeSlider(layout.size, onChange = { v -> state.drag { it.copy(coverLayout = CoverTitle.encode(CoverTitle.parse(it.coverLayout).copy(size = v))) } }, onDone = { state.endDrag() })
+        }
+    }
+}
+
+@Composable
+private fun CoverSizeSlider(size: Int, onChange: (Int) -> Unit, onDone: () -> Unit) {
+    ClipMiSlider(
+        value = size.toFloat(),
+        onValueChange = { onChange(Math.round(it)) },
+        valueRange = CoverTitle.SIZE_MIN.toFloat()..CoverTitle.SIZE_MAX.toFloat(),
+        onValueChangeFinished = onDone,
+    )
 }

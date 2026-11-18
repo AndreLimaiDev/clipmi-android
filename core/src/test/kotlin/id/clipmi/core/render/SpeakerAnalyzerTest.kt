@@ -91,4 +91,31 @@ class SpeakerAnalyzerTest {
         assertNull(shorter.withManual(shorter.shots()[1], null).shots()[1].manual)
         assertTrue(!manual.covers(95.0, 118.0))
     }
+
+    @Test
+    fun speakerSwitchGlidesButCameraCutJumps() {
+        // Sampel tiap detik: 0,3 sampai detik 5, lalu 0,7. Potongan di detik 5.
+        val samples = (0..10).map { if (it < 5) 0.3 else 0.7 }
+        val jump = SpeakerTrack.build(samples, 1.0, 10.0, listOf(5.0))
+        assertEquals(0.3, SpeakerTrack.positionAt(jump, 4.99), 1e-9)
+        assertEquals(0.7, SpeakerTrack.positionAt(jump, 5.0), 1e-9)
+
+        val glide = SpeakerTrack.build(samples, 1.0, 10.0, listOf(5.0), switches = listOf(5.0))
+        val middle = SpeakerTrack.positionAt(glide, 5.0 + SpeakerTrack.SWITCH_GLIDE / 2)
+        assertTrue("di tengah pergeseran: $middle", middle > 0.4 && middle < 0.6)
+        assertEquals(0.3, SpeakerTrack.positionAt(glide, 5.0), 1e-9)
+        assertEquals(0.7, SpeakerTrack.positionAt(glide, 5.0 + SpeakerTrack.SWITCH_GLIDE), 1e-6)
+        // Awal pergeseran pelan (smoothstep): sepersepuluh waktu pertama bergeser jauh kurang dari sepersepuluh jarak.
+        val early = SpeakerTrack.positionAt(glide, 5.0 + SpeakerTrack.SWITCH_GLIDE / 6)
+        assertTrue("awal pelan: $early", early - 0.3 < 0.04)
+    }
+
+    @Test
+    fun cameraCutsAtThirtyFpsUseSameSeconds() {
+        // 3 detik pada 30 fps, gambar berganti tepat di frame 45 (detik 1,5).
+        val frames = (0 until 90).map { k -> IntArray(16) { if (k < 45) 20 else 200 } }
+        val cuts = SpeakerAnalyzer.cameraCuts(frames, 30.0)
+        assertEquals(1, cuts.size)
+        assertEquals(44.5 / 30, cuts[0], 1e-9)
+    }
 }

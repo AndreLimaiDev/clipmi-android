@@ -1,5 +1,11 @@
 package id.clipmi.android.ui.screens
 
+import id.clipmi.android.ui.components.Field
+import id.clipmi.android.ui.components.ClipMiSheet
+import androidx.compose.foundation.layout.size
+import androidx.compose.material3.Icon
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.DropdownMenu
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
@@ -105,6 +111,7 @@ fun ProjectDetailScreen(container: AppContainer, projectId: Long, onBack: () -> 
     // Pilihan segmen untuk klip manual (seperti selectSegment desktop): tekan lama segmen awal, lalu ketuk segmen akhir.
     var selectStart by rememberSaveable { mutableStateOf<Int?>(null) }
     var selectEnd by rememberSaveable { mutableStateOf<Int?>(null) }
+    var editingSegment by remember { mutableStateOf<TranscriptSegmentEntity?>(null) }
     val transcriptionReady by produceState(false, project?.transcriptStatus) { value = container.settings.transcription() != null }
 
     val context = LocalContext.current
@@ -185,34 +192,64 @@ fun ProjectDetailScreen(container: AppContainer, projectId: Long, onBack: () -> 
                 modifier = Modifier.align(Alignment.TopStart).padding(12.dp),
                 background = Color(0x990B0F0E), tint = Color.White, border = false,
             )
-            IconCircle(
-                ClipMiIcons.Trash, "Hapus project",
-                onClick = {
-                    confirm = Confirm("Hapus project?", "Project, transkrip, klip, dan video sumbernya di HP ini dihapus permanen.", "Hapus", danger = true) {
-                        container.actions.delete(projectId)
-                        onBack()
-                    }
-                },
-                modifier = Modifier.align(Alignment.TopEnd).padding(12.dp),
-                background = Color(0x990B0F0E), tint = Color.White, border = false,
+            // Aksi berisiko (hapus) di menu, bukan tombol yang menonjol di atas video.
+            Box(Modifier.align(Alignment.TopEnd).padding(12.dp)) {
+                var menu by remember { mutableStateOf(false) }
+                IconCircle(ClipMiIcons.More, "Lainnya", { menu = true }, background = Color(0x990B0F0E), tint = Color.White, border = false)
+                DropdownMenu(menu, onDismissRequest = { menu = false }, containerColor = c.card) {
+                    DropdownMenuItem(
+                        text = { Text("Hapus project", color = c.bad) },
+                        leadingIcon = { Icon(ClipMiIcons.Trash, null, Modifier.size(18.dp), tint = c.bad) },
+                        onClick = {
+                            menu = false
+                            confirm = Confirm("Hapus project?", "Project, transkrip, klip, dan video sumbernya di HP ini dihapus permanen.", "Hapus", danger = true) {
+                                container.actions.delete(projectId)
+                                onBack()
+                            }
+                        },
+                    )
+                }
+            }
+        }
+        val importSubtitle = {
+            val open = { pickSubtitle.launch(arrayOf("application/x-subrip", "text/vtt", "text/plain", "application/octet-stream", "*/*")) }
+            if (segments.isEmpty()) open()
+            else confirm = Confirm("Ganti transkrip?", "Transkrip sekarang (${segments.size} segmen) diganti isi file subtitle.", "Pilih file") { open() }
+        }
+        val transcribeApi = {
+            val start: suspend () -> Unit = { container.actions.startTranscription(projectId) }
+            if (segments.isEmpty()) scope.launch { start() }
+            else confirm = Confirm(
+                "Transkripsi ulang lewat API?",
+                "Transkrip sekarang diganti hasil transkripsi API. Biaya API ditagih penyedia sesuai panjang audio.",
+                "Transkripsi",
+                action = start,
             )
         }
+        val applyDictionary = {
+            scope.launch {
+                val count = container.transcripts.applyCorrections(projectId)
+                notifier.show(if (count > 0) "$count kata dikoreksi kamus." else "Tidak ada kata yang perlu dikoreksi.")
+            }
+        }
+        // Transkripsi API sedang berjalan/menunggu (pengambilan subtitle YouTube tidak memakai pesan ini).
+        val transcribing = p.transcript == TranscriptStatus.Fetching && p.transcriptionMessage != null && p.video == VideoStatus.Ready
+        val canTranscribe = p.video == VideoStatus.Ready && transcriptionReady
         LazyColumn(Modifier.fillMaxWidth().weight(1f), contentPadding = PaddingValues(bottom = if (selecting || tab == 1) 120.dp else 40.dp)) {
             item {
                 Column(Modifier.padding(start = ScreenGutter, end = ScreenGutter, top = 16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                         Text(p.title, style = MaterialTheme.typography.titleMedium, color = c.text, maxLines = 3, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
-                        val source = TranscriptSource.from(p.transcriptSource)
-                        Text(
-                            listOfNotNull(
-                                if (p.isYouTube) "YouTube" else "Galeri",
-                                p.durationSeconds?.let { Timecode.format(it) },
-                                segments.size.takeIf { it > 0 }?.let { "$it segmen" },
-                                source?.label?.takeIf { p.transcript == TranscriptStatus.Ready },
-                            ).joinToString(" · "),
-                            style = MaterialTheme.typography.bodySmall,
-                            color = c.textMuted,
-                        )
+                        val source = TranscriptSource.from(p.transcriptSource)?.takeIf { p.transcript == TranscriptStatus.Ready }
+                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Text(
+                                listOfNotNull(if (p.isYouTube) "YouTube" else "Galeri", p.durationSeconds?.let { Timecode.format(it) }).joinToString(" · "),
+                                style = MaterialTheme.typography.bodySmall,
+                                color = c.textMuted,
+                            )
+                            // Asal transkrip sebagai lencana kecil (Otomatis, Manual, SRT, VTT, Whisper, API).
+                            source?.let { SourceBadge(it) }
+                        }
                     }
                     StatusCard(p, transcriptionReady, onRetry = { scope.launch { container.actions.retry(projectId) } }, onRecover = {
                         if (p.isYouTube) scope.launch { container.actions.recoverVideo(projectId); notifier.show("Video diunduh ulang di latar.") }
@@ -228,61 +265,46 @@ fun ProjectDetailScreen(container: AppContainer, projectId: Long, onBack: () -> 
                 return@LazyColumn
             }
 
-            item {
-                ChipRow(Modifier.padding(top = 12.dp)) {
-                    ActionChip("Impor SRT/VTT", height = 32.dp, onClick = {
-                        val open = { pickSubtitle.launch(arrayOf("application/x-subrip", "text/vtt", "text/plain", "application/octet-stream", "*/*")) }
-                        if (segments.isEmpty()) open()
-                        else confirm = Confirm("Ganti transkrip?", "Transkrip sekarang (${segments.size} segmen) diganti isi file subtitle.", "Pilih file") { open() }
-                    })
-                    // Transkripsi API sedang berjalan/menunggu (pengambilan subtitle YouTube tidak memakai pesan ini).
-                    if (p.transcript == TranscriptStatus.Fetching && p.transcriptionMessage != null && p.video == VideoStatus.Ready) {
-                        ActionChip("Batalkan transkripsi", height = 32.dp, onClick = {
-                            scope.launch {
-                                val restore = if (segments.isNotEmpty()) TranscriptStatus.Ready else TranscriptStatus.NeedsTranscript
-                                container.actions.cancelTranscription(projectId, restore)
-                            }
-                        })
-                    } else {
-                        ActionChip(
-                            "Transkripsi API", height = 32.dp,
-                            enabled = p.video == VideoStatus.Ready && transcriptionReady,
-                            onClick = {
-                                val start: suspend () -> Unit = { container.actions.startTranscription(projectId) }
-                                if (segments.isEmpty()) scope.launch { start() }
-                                else confirm = Confirm(
-                                    "Transkripsi ulang lewat API?",
-                                    "Transkrip sekarang diganti hasil transkripsi API. Biaya API ditagih penyedia sesuai panjang audio.",
-                                    "Transkripsi",
-                                    action = start,
-                                )
-                            },
-                        )
-                    }
-                    ActionChip("Terapkan kamus", height = 32.dp, enabled = segments.isNotEmpty(), onClick = {
-                        scope.launch {
-                            val count = container.transcripts.applyCorrections(projectId)
-                            notifier.show(if (count > 0) "$count kata dikoreksi kamus." else "Tidak ada kata yang perlu dikoreksi.")
+            // Belum ada transkrip (atau transkripsi berjalan): alatnya tampil langsung. Sudah ada: di menu ⋯ samping cari.
+            if (segments.isEmpty() || transcribing) {
+                item {
+                    ChipRow(Modifier.padding(top = 12.dp)) {
+                        if (transcribing) {
+                            ActionChip("Batalkan transkripsi", height = 32.dp, onClick = {
+                                scope.launch {
+                                    val restore = if (segments.isNotEmpty()) TranscriptStatus.Ready else TranscriptStatus.NeedsTranscript
+                                    container.actions.cancelTranscription(projectId, restore)
+                                }
+                            })
+                        } else {
+                            ActionChip("Impor SRT/VTT", importSubtitle, height = 32.dp)
+                            ActionChip("Transkripsi API", { transcribeApi() }, height = 32.dp, enabled = canTranscribe)
                         }
-                    })
+                    }
                 }
             }
             if (segments.isNotEmpty()) {
                 val shown = if (query.isBlank()) segments else segments.filter { it.text.contains(query.trim(), ignoreCase = true) }
                 item {
-                    Column(Modifier.padding(start = ScreenGutter, end = ScreenGutter, top = 12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Row(
+                        Modifier.padding(start = ScreenGutter, end = ScreenGutter, top = 12.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
                         SearchField(
                             query, { query = it }, "Cari di transkrip",
+                            modifier = Modifier.weight(1f),
                             trailingText = if (query.isNotBlank()) "${shown.size} cocok" else null,
                             onClear = { query = "" },
                         )
-                        if (!selecting) {
-                            Text(
-                                "Ketuk segmen untuk memutar. Tekan lama untuk membuat klip sendiri.",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = c.textMuted,
-                                modifier = Modifier.padding(start = 4.dp),
-                            )
+                        Box {
+                            var menu by remember { mutableStateOf(false) }
+                            ActionChip("", { menu = true }, height = 48.dp, icon = ClipMiIcons.More)
+                            DropdownMenu(menu, onDismissRequest = { menu = false }, containerColor = c.card) {
+                                DropdownMenuItem(text = { Text("Terapkan kamus") }, onClick = { menu = false; applyDictionary() })
+                                DropdownMenuItem(text = { Text("Impor SRT/VTT") }, onClick = { menu = false; importSubtitle() })
+                                if (!transcribing) DropdownMenuItem(text = { Text("Transkripsi ulang lewat API") }, enabled = canTranscribe, onClick = { menu = false; transcribeApi() })
+                            }
                         }
                     }
                 }
@@ -383,6 +405,10 @@ fun ProjectDetailScreen(container: AppContainer, projectId: Long, onBack: () -> 
                     )
                 }
                 GhostButton("Batal", onClick = { selectStart = null; selectEnd = null })
+                // Satu segmen dipilih: teksnya bisa disunting (subtitle klip di bagian ini ikut berubah).
+                if (end == start && first != null) {
+                    ActionChip("", { editingSegment = first; selectStart = null; selectEnd = null }, height = 44.dp, icon = ClipMiIcons.Edit)
+                }
                 PrimaryButton("Buat klip", height = 44.dp, onClick = {
                     scope.launch {
                         container.analysis.createManualClip(projectId, start, end)
@@ -392,6 +418,17 @@ fun ProjectDetailScreen(container: AppContainer, projectId: Long, onBack: () -> 
                         notifier.show("Klip manual dibuat dan langsung terpilih.")
                     }
                 })
+            }
+        }
+    }
+
+    editingSegment?.let { segment ->
+        SegmentEditSheet(segment, onDone = { editingSegment = null }) { text ->
+            scope.launch {
+                if (container.transcripts.editSegment(segment.id, text)) {
+                    editingSegment = null
+                    notifier.show("Teks disimpan.")
+                }
             }
         }
     }
@@ -522,4 +559,42 @@ private fun highlight(text: String, query: String, background: Color, color: Col
         start = index + query.length
     }
     append(text.substring(start))
+}
+
+/** Asal transkrip sebagai lencana kecil di samping durasi. */
+@Composable
+private fun SourceBadge(source: TranscriptSource) {
+    val c = ClipMi.colors
+    val label = when (source) {
+        TranscriptSource.YouTubeAuto -> "Otomatis"
+        TranscriptSource.YouTubeManual -> "Manual"
+        TranscriptSource.ImportSrt -> "SRT"
+        TranscriptSource.ImportVtt -> "VTT"
+        TranscriptSource.Groq -> "Whisper"
+        TranscriptSource.Api -> "API"
+    }
+    Row(
+        Modifier.clip(RoundedCornerShape(6.dp)).background(c.panel).padding(horizontal = 6.dp, vertical = 2.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(4.dp),
+    ) {
+        val icon = when (source) {
+            TranscriptSource.YouTubeAuto -> ClipMiIcons.Sparkle
+            TranscriptSource.YouTubeManual -> ClipMiIcons.Edit
+            TranscriptSource.ImportSrt, TranscriptSource.ImportVtt -> ClipMiIcons.Download
+            else -> ClipMiIcons.Mic
+        }
+        Icon(icon, null, tint = c.textMuted, modifier = Modifier.size(12.dp))
+        Text(label, style = MaterialTheme.typography.labelSmall, color = c.textBody)
+    }
+}
+
+/** Sunting teks satu segmen transkrip. */
+@Composable
+private fun SegmentEditSheet(segment: TranscriptSegmentEntity, onDone: () -> Unit, onSave: (String) -> Unit) {
+    var text by remember(segment.id) { mutableStateOf(segment.text) }
+    ClipMiSheet(onDone, title = "Edit teks", subtitle = "${Timecode.format(segment.startTime)} – ${Timecode.format(segment.endTime)}") {
+        Field(text, { text = it }, minLines = 3, maxLines = 8)
+        PrimaryButton("Simpan", { onSave(text) }, enabled = text.isNotBlank() && text.trim() != segment.text, modifier = Modifier.fillMaxWidth())
+    }
 }

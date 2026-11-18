@@ -1,5 +1,7 @@
 package id.clipmi.android.ui.editor
 
+import kotlin.math.abs
+import androidx.compose.runtime.DisposableEffect
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.view.TextureView
@@ -123,6 +125,7 @@ fun EditorPreview(
         ) {
             Background(state, composition, Modifier.fillMaxSize())
             VideoLayer(player, composition, sourceSize, scale, state.snapshot.clip.startTime)
+            LogoLayer(state, composition, scale)
             AssOverlay(state, player, composition, hookTime, Modifier.fillMaxSize())
         }
     }
@@ -176,10 +179,16 @@ private fun VideoLayer(player: ExoPlayer, composition: Composition, sourceSize: 
     val keyframes = video.keyframes
     var center by remember { mutableFloatStateOf(-1f) }
     if (keyframes != null) {
+        // Waktu gambar yang sedang tampil (bukan jam pemutar), supaya crop pindah di frame yang sama dengan render.
+        val clock = remember(player) { ShownFrameClock(player) }
+        DisposableEffect(clock) {
+            clock.attach()
+            onDispose { clock.detach() }
+        }
         LaunchedEffect(keyframes, clipStart) {
             while (true) {
                 awaitFrame()
-                center = SpeakerTrack.positionAt(keyframes, player.currentPosition / 1000.0 - clipStart).toFloat()
+                center = SpeakerTrack.positionAt(keyframes, clock.seconds() - clipStart).toFloat()
             }
         }
     }
@@ -275,4 +284,67 @@ private fun overflow(composition: Composition, sourceSize: Pair<Int, Int>?): Off
         maxOf(0f, sw * shown - areaW) / composition.canvas.width,
         maxOf(0f, sh * shown - areaH) / composition.canvas.height,
     )
+}
+
+/** Logo gaya bingkai di posisi yang sama dengan render (overlay FFmpeg), supaya bisa dilihat dan digeser di editor. */
+@Composable
+private fun LogoLayer(state: EditorState, composition: Composition, scale: Float) {
+    val path = (state.frameDraft ?: state.frameEntity())?.logoPath ?: return
+    val file = state.container.workspace.file(path)?.takeIf { it.isFile } ?: return
+    val bitmap by produceState<Bitmap?>(null, file.path) { value = withContext(Dispatchers.IO) { BitmapFactory.decodeFile(file.path) } }
+    val image = bitmap ?: return
+    val density = LocalDensity.current
+    val (left, top, height) = logoRect(composition, image.width, image.height)
+    val logo = composition.logo
+    Image(
+        image.asImageBitmap(), contentDescription = null, alpha = logo.opacity.toFloat(),
+        modifier = Modifier
+            .offset { IntOffset((left * scale).roundToInt(), (top * scale).roundToInt()) }
+            .requiredSize(with(density) { (logo.width * scale).toDp() }, with(density) { (height * scale).toDp() }),
+    )
+}
+
+/** Kiri, atas, dan tinggi logo di layar hasil (sama dengan `anchorExpression` render). */
+internal fun logoRect(composition: Composition, imageWidth: Int, imageHeight: Int): Triple<Float, Float, Float> {
+    val logo = composition.logo
+    val area = composition.anchorArea
+    val canvas = composition.canvas
+    val height = logo.width.toFloat() * imageHeight / maxOf(1, imageWidth)
+    val left = area.left + (canvas.width - logo.width - area.left - area.right) * logo.x.toFloat()
+    val top = area.top + (canvas.height - height - area.top - area.bottom) * logo.y.toFloat()
+    return Triple(left, top, height)
+}
+
+/**
+ * Waktu video (detik) dari gambar yang sedang tampil di layar: dari [VideoFrameMetadataListener] (waktu presentasi
+ * dan waktu tampil tiap frame), bukan dari jam pemutar yang bisa mendahului gambar 1–2 frame. Bila data frame tidak
+ * cocok dengan jam pemutar (selisih > 1 detik, misalnya ada offset internal), jam pemutar yang dipakai.
+ */
+private class ShownFrameClock(private val player: ExoPlayer) {
+    private val frames = ArrayDeque<Pair<Long, Long>>()
+    private val listener = androidx.media3.exoplayer.video.VideoFrameMetadataListener { presentationTimeUs, releaseTimeNs, _, _ ->
+        synchronized(frames) {
+            frames.addLast(releaseTimeNs to presentationTimeUs)
+            while (frames.size > 12) frames.removeFirst()
+        }
+    }
+
+    fun attach() = player.setVideoFrameMetadataListener(listener)
+
+    fun detach() = player.clearVideoFrameMetadataListener(listener)
+
+    fun seconds(): Double {
+        val fallback = player.currentPosition / 1000.0
+        // TextureView menampilkan frame pada gambar layar berikutnya setelah dirilis: mundur satu vsync.
+        val now = System.nanoTime() - 16_000_000L
+        val shown = synchronized(frames) { frames.lastOrNull { it.first <= now } ?: frames.firstOrNull() } ?: return fallback
+        var media = shown.second / 1_000_000.0
+        if (abs(media - fallback) > 1.0 && media > OFFSET_US / 1_000_000.0) media -= OFFSET_US / 1_000_000.0
+        return if (abs(media - fallback) <= 1.0) media else fallback
+    }
+
+    private companion object {
+        /** Offset waktu renderer ExoPlayer (1e12 µs) yang mungkin ikut di waktu presentasi frame. */
+        const val OFFSET_US = 1_000_000_000_000L
+    }
 }

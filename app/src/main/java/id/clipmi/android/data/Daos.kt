@@ -71,6 +71,12 @@ interface SegmentDao {
     @Update
     suspend fun updateAll(segments: List<TranscriptSegmentEntity>)
 
+    @Query("SELECT * FROM transcript_segments WHERE id = :id")
+    suspend fun find(id: Long): TranscriptSegmentEntity?
+
+    @Update
+    suspend fun update(segment: TranscriptSegmentEntity)
+
     /** Transkrip baru menggantikan yang lama dalam satu transaksi (seperti TranscriptImporter desktop). */
     @Transaction
     suspend fun replace(projectId: Long, segments: List<TranscriptSegmentEntity>) {
@@ -153,6 +159,10 @@ interface ClipDao {
     @Query("UPDATE clips SET review_status = :status, updated_at = :now WHERE id = :id")
     suspend fun setReview(id: Long, status: String, now: Long = System.currentTimeMillis())
 
+    /** Teks transkrip di rentang ini berubah: subtitle klip yang tumpang tindih ikut berubah (hasil render jadi lama). */
+    @Query("UPDATE clips SET edited_at = :now, updated_at = :now WHERE project_id = :projectId AND start_time < :end AND end_time > :start")
+    suspend fun touchRange(projectId: Long, start: Double, end: Double, now: Long = System.currentTimeMillis()): Int
+
     @Query("DELETE FROM clips WHERE id = :id")
     suspend fun delete(id: Long)
 
@@ -172,14 +182,14 @@ interface ClipDao {
         subtitle_edited = :subtitleEdited, caption_style_id = :captionStyleId, frame_style_id = :frameStyleId,
         crop_position = :cropPosition, crop_zoom = :cropZoom, crop_y = :cropY, hook = :hook,
         show_hook_overlay = :showHookOverlay, hook_layout = :hookLayout, keywords = :keywords,
-        cover_time = :coverTime, cover_path = :coverPath, cover_title = :coverTitle, cover_in_video = :coverInVideo,
+        cover_time = :coverTime, cover_path = :coverPath, cover_title = :coverTitle, cover_in_video = :coverInVideo, cover_layout = :coverLayout,
         intro_id = :introId, outro_id = :outroId, edited_at = :now, updated_at = :now WHERE id = :id""",
     )
     suspend fun updateEditor(
         id: Long, start: Double, end: Double, cuts: String?, subtitleLines: String?, subtitleEdited: Boolean,
         captionStyleId: Long?, frameStyleId: Long?, cropPosition: Int?, cropZoom: Int?, cropY: Int?, hook: String?,
         showHookOverlay: Boolean, hookLayout: String?, keywords: String?, coverTime: Double?, coverPath: String?,
-        coverTitle: Boolean, coverInVideo: Boolean, introId: Long?, outroId: Long?, now: Long = System.currentTimeMillis(),
+        coverTitle: Boolean, coverInVideo: Boolean, coverLayout: String?, introId: Long?, outroId: Long?, now: Long = System.currentTimeMillis(),
     )
 
     /** Jalur "ikuti pembicara" (JSON [id.clipmi.core.render.SpeakerTrackData]); null = belum dideteksi. */

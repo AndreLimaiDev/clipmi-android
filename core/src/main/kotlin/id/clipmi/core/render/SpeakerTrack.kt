@@ -30,7 +30,7 @@ object SpeakerTrack {
      * @param cuts detik potongan kamera sejak awal klip.
      * @return keyframe; kosong bila penceramah tidak terdeteksi sama sekali.
      */
-    fun build(samples: List<Double?>, interval: Double, duration: Double, cuts: List<Double> = emptyList()): List<List<Double>> {
+    fun build(samples: List<Double?>, interval: Double, duration: Double, cuts: List<Double> = emptyList(), switches: List<Double> = emptyList()): List<List<Double>> {
         val inner = cuts.filter { it > interval / 2 && it < duration - interval / 2 }.sorted()
         val bounds = listOf(0.0) + inner + duration
 
@@ -63,10 +63,32 @@ object SpeakerTrack {
                 continue
             }
             val (last, points) = segment(shot.from, shot.to, shot.values)
+            val previous = hold
             hold = last
+            if (previous != null && switches.any { abs(it - shot.from) < 0.01 }) {
+                // Pergantian pembicara di gambar kamera yang sama: crop menoleh halus (pelan-cepat-pelan), bukan loncat.
+                val length = minOf(SWITCH_GLIDE, (shot.to - shot.from) / 2)
+                val end = shot.from + length
+                keyframes += eased(shot.from, previous, end, points[0][1])
+                keyframes += points.drop(1).filter { it[0] > end }
+                continue
+            }
             keyframes += points
         }
         return compact(keyframes, duration)
+    }
+
+    /** Lama crop menoleh ke pembicara baru di gambar kamera yang sama (detik). Khusus Android. */
+    const val SWITCH_GLIDE = 0.45
+
+    /** Pergeseran dari [from] ke [to] dengan percepatan halus (smoothstep), sebagai beberapa keyframe lurus. */
+    private fun eased(start: Double, from: Double, end: Double, to: Double): List<List<Double>> {
+        val steps = 6
+        return (1..steps).map { k ->
+            val p = k.toDouble() / steps
+            val s = p * p * (3 - 2 * p)
+            listOf(start + (end - start) * p, from + (to - from) * s)
+        }
     }
 
     /** Posisi tengah crop pada detik tertentu sejak awal klip. */

@@ -1,5 +1,15 @@
 package id.clipmi.android.ui.schedule
 
+import androidx.compose.foundation.layout.offset
+import androidx.compose.ui.layout.positionInRoot
+import androidx.compose.ui.layout.boundsInRoot
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import id.clipmi.android.ui.components.bleed
+import id.clipmi.android.ui.components.DashedCard
+import androidx.compose.ui.unit.IntOffset
+import androidx.compose.ui.draw.shadow
 import id.clipmi.android.ui.components.ActionChip
 import androidx.compose.ui.draw.rotate
 import android.content.Intent
@@ -105,7 +115,11 @@ fun ScheduleScreen(
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val notifier = LocalNotifier.current
-    var monthOpen by rememberSaveable { mutableStateOf(false) }
+    var monthOpen by remember { mutableStateOf(false) }
+    var queueOpen by rememberSaveable { mutableStateOf(false) }
+    // Posisi bawah navigasi minggu dan atas daftar (koordinat layar) untuk menaruh kalender bulan yang melayang.
+    var navBottom by remember { mutableFloatStateOf(0f) }
+    var listTop by remember { mutableFloatStateOf(0f) }
     var selectedDay by rememberSaveable { mutableStateOf(LocalDate.now().toEpochDay()) }
     var hidden by rememberSaveable { mutableStateOf(listOf<Long>()) }
     var banner by rememberSaveable { mutableStateOf<String?>(null) }
@@ -137,6 +151,7 @@ fun ScheduleScreen(
         // Pesan hasil (Isi otomatis, jadwal ulang) ada di paling atas: gulir ke sana supaya terbaca.
         LaunchedEffect(banner) { if (banner != null) listState.animateScrollToItem(0) }
 
+        Box(Modifier.fillMaxSize().onGloballyPositioned { listTop = it.positionInRoot().y }) {
         LazyColumn(
             Modifier.fillMaxSize(),
             state = listState,
@@ -176,20 +191,18 @@ fun ScheduleScreen(
             }
             item(key = "calendar") {
                 Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    if (monthOpen) {
-                        PeriodNav(IdDate.monthYear(selected), true, { monthOpen = false }, onShift = { selectedDay = selected.plusMonths(it.toLong()).toEpochDay() }, onToday = { selectedDay = LocalDate.now().toEpochDay() })
-                        MonthGrid(selected, selected, byDay) { selectedDay = it.toEpochDay(); monthOpen = false }
-                    } else {
-                        val (start, end) = Schedules.weekRange(selected)
-                        val label = if (start.month == end.month) "${start.dayOfMonth} – ${IdDate.dayMonth(end)}" else "${IdDate.dayMonth(start)} – ${IdDate.dayMonth(end)}"
-                        PeriodNav(label, false, { monthOpen = true }, onShift = { selectedDay = selected.plusWeeks(it.toLong()).toEpochDay() }, onToday = { selectedDay = LocalDate.now().toEpochDay() })
-                        WeekStrip(start, selected, byDay) { selectedDay = it.toEpochDay() }
+                    val (start, end) = Schedules.weekRange(selected)
+                    val label = if (start.month == end.month) "${start.dayOfMonth} – ${IdDate.dayMonth(end)}" else "${IdDate.dayMonth(start)} – ${IdDate.dayMonth(end)}"
+                    // Kalender bulan melayang di bawah label (lapisan di atas daftar, lihat bawah), tidak menggeser agenda.
+                    Box(Modifier.onGloballyPositioned { navBottom = it.boundsInRoot().bottom }) {
+                        PeriodNav(label, monthOpen, { monthOpen = !monthOpen }, onShift = { selectedDay = selected.plusWeeks(it.toLong()).toEpochDay() }, onToday = { selectedDay = LocalDate.now().toEpochDay() })
                     }
+                    WeekStrip(start, selected, byDay) { selectedDay = it.toEpochDay() }
                 }
             }
             if (d.accounts.size > 1) {
                 item(key = "filter") {
-                    ChipRow(gutter = 0.dp) {
+                    ChipRow(Modifier.bleed()) {
                         d.accounts.forEach { account ->
                             val off = account.id in hidden
                             AccountChip(account.name, account.color, off) { hidden = if (off) hidden - account.id else hidden + account.id }
@@ -198,7 +211,7 @@ fun ScheduleScreen(
                 }
             }
             item(key = "agenda-$selected") { DaySection(selected, byDay[selected].orEmpty(), now, onOpenSchedule) { pickFor = it.toEpochDay() } }
-            queueView(container, d, onSchedule = { onNewSchedule(it, null) }, onAutoFill = {
+            queueView(container, d, open = queueOpen, onToggle = { queueOpen = !queueOpen }, onSchedule = { onNewSchedule(it, null) }, onAutoFill = {
                 scope.launch {
                     val outcome = container.scheduler.autoFill()
                     banner = outcome.banner
@@ -207,6 +220,16 @@ fun ScheduleScreen(
             }, onOpenAccounts = onOpenAccounts, onRender = { clip ->
                 scope.launch { RenderQueue.render(context, clip); notifier.show("Klip masuk antrean render.") }
             })
+        }
+        // Lapisan biasa di pohon yang sama (bukan Popup yang membuat jendela baru), jadi terbuka seketika di HP lama.
+        // Ketuk di luar kartu untuk menutup.
+        if (monthOpen) {
+            Box(Modifier.matchParentSize().clickable(interactionSource = remember { MutableInteractionSource() }, indication = null) { monthOpen = false })
+            MonthCard(
+                selected, byDay,
+                Modifier.offset { IntOffset(0, (navBottom - listTop).toInt() + 4.dp.roundToPx()) }.padding(horizontal = ScreenGutter),
+            ) { selectedDay = it.toEpochDay(); monthOpen = false }
+        }
         }
     }
 
@@ -254,13 +277,13 @@ private fun OverdueCard(overdue: List<ScheduleView>, onOpen: (Long) -> Unit, onR
     }
 }
 
-/** Navigasi periode: ‹ label › dan Hari ini; ketuk label untuk membuka/menutup kalender bulan. */
+/** Navigasi minggu: label minggu (ketuk untuk kalender bulan melayang), ‹ ›, dan Hari ini. */
 @Composable
 private fun PeriodNav(label: String, monthOpen: Boolean, onToggle: () -> Unit, onShift: (Int) -> Unit, onToday: () -> Unit) {
     val c = ClipMi.colors
     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
         Row(
-            Modifier.weight(1f).clip(RoundedCornerShape(12.dp)).clickable(onClickLabel = if (monthOpen) "Tampilkan minggu" else "Tampilkan bulan", onClick = onToggle).padding(horizontal = 4.dp, vertical = 8.dp),
+            Modifier.weight(1f).clip(RoundedCornerShape(12.dp)).clickable(onClickLabel = if (monthOpen) "Tutup kalender" else "Buka kalender bulan", onClick = onToggle).padding(horizontal = 4.dp, vertical = 8.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(6.dp),
         ) {
@@ -315,18 +338,31 @@ private fun WeekStrip(start: LocalDate, selected: LocalDate, byDay: Map<LocalDat
 private fun DaySection(day: LocalDate, schedules: List<ScheduleView>, now: java.time.LocalDateTime, onOpen: (Long) -> Unit, onAdd: (LocalDate) -> Unit) {
     val c = ClipMi.colors
     val today = day == LocalDate.now()
+    val canAdd = !day.isBefore(LocalDate.now())
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        // Tinggi baris tetap supaya agenda tidak melompat saat tombol Jadwalkan muncul/hilang.
+        Row(Modifier.height(34.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             Text(
                 (if (today) "Hari ini · " else "") + "${IdDate.WEEKDAYS[day.dayOfWeek.value - 1]}, ${IdDate.dayMonth(day)}",
                 style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
                 color = if (today) c.accent else c.textBody,
                 modifier = Modifier.weight(1f),
             )
-            if (!day.isBefore(LocalDate.now())) ActionChip("Jadwalkan", { onAdd(day) }, icon = ClipMiIcons.Plus, height = 34.dp)
+            // Hari kosong punya tombolnya sendiri di dalam kartu, jadi di judul hanya bila sudah ada jadwal.
+            if (canAdd && schedules.isNotEmpty()) ActionChip("Jadwalkan", { onAdd(day) }, icon = ClipMiIcons.Plus, height = 34.dp)
         }
         if (schedules.isEmpty()) {
-            Text("Belum ada jadwal di hari ini.", style = MaterialTheme.typography.bodySmall, color = c.textMuted, modifier = Modifier.padding(start = 2.dp, bottom = 4.dp))
+            // Cukup aksinya: kartu kosong sudah menunjukkan belum ada jadwal. Seluruh kartu bisa diketuk.
+            DashedCard(onClick = if (canAdd) ({ onAdd(day) }) else null) {
+                if (canAdd) {
+                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        Icon(ClipMiIcons.Plus, null, tint = c.accent, modifier = Modifier.size(18.dp))
+                        Text("Jadwalkan klip", style = MaterialTheme.typography.labelLarge, color = c.accent)
+                    }
+                } else {
+                    Text("Tidak ada jadwal", style = MaterialTheme.typography.bodyMedium, color = c.textMuted, textAlign = TextAlign.Center)
+                }
+            }
         }
         schedules.sortedBy { it.at }.forEach { ScheduleRow(it, now) { onOpen(it.id) } }
     }
@@ -360,12 +396,38 @@ fun ScheduleRow(s: ScheduleView, now: java.time.LocalDateTime, onClick: () -> Un
     }
 }
 
+/**
+ * Kalender bulan yang melayang di bawah navigasi minggu (lebar layar dikurangi gutter). Bulan bisa digeser tanpa
+ * mengubah hari terpilih; ketuk tanggal untuk memilih, ketuk di luar untuk menutup.
+ */
+@Composable
+private fun MonthCard(selected: LocalDate, byDay: Map<LocalDate, List<ScheduleView>>, modifier: Modifier, onSelect: (LocalDate) -> Unit) {
+    val c = ClipMi.colors
+    var month by remember { mutableStateOf(selected.withDayOfMonth(1)) }
+    val shape = RoundedCornerShape(24.dp)
+    Column(
+        modifier.fillMaxWidth()
+            .shadow(6.dp, shape).clip(shape).background(c.card).border(1.dp, c.line, shape)
+            // Ketukan di dalam kartu (di luar tanggal) tidak menutup kalender.
+            .clickable(interactionSource = remember { MutableInteractionSource() }, indication = null) {}
+            .padding(horizontal = 10.dp, vertical = 10.dp),
+        verticalArrangement = Arrangement.spacedBy(4.dp),
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(IdDate.monthYear(month), style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold), color = c.text, modifier = Modifier.weight(1f).padding(start = 6.dp))
+            IconCircle(ClipMiIcons.Back, "Bulan sebelumnya", { month = month.minusMonths(1) }, size = 36.dp, background = Color.Transparent, border = false)
+            IconCircle(ClipMiIcons.Chevron, "Bulan berikutnya", { month = month.plusMonths(1) }, size = 36.dp, background = Color.Transparent, border = false)
+        }
+        MonthGrid(month, selected, byDay, onSelect)
+    }
+}
+
 @Composable
 private fun MonthGrid(anchor: LocalDate, selected: LocalDate, byDay: Map<LocalDate, List<ScheduleView>>, onSelect: (LocalDate) -> Unit) {
     val c = ClipMi.colors
     val (start, end) = Schedules.monthRange(anchor)
     val today = LocalDate.now()
-    ClipMiCard(padding = PaddingValues(10.dp), spacing = 4.dp) {
+    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
         Row(Modifier.fillMaxWidth()) {
             IdDate.WEEKDAYS_SHORT.forEach { Text(it, style = MaterialTheme.typography.labelSmall, color = c.textMuted, textAlign = TextAlign.Center, modifier = Modifier.weight(1f)) }
         }
@@ -378,7 +440,7 @@ private fun MonthGrid(anchor: LocalDate, selected: LocalDate, byDay: Map<LocalDa
                     val isSelected = day == selected
                     val dots = byDay[day].orEmpty().flatMap { s -> s.targets.map { it.account.color } }.distinct().take(3)
                     Column(
-                        Modifier.weight(1f).aspectRatio(0.9f).padding(2.dp).clip(RoundedCornerShape(12.dp))
+                        Modifier.weight(1f).aspectRatio(1.05f).padding(2.dp).clip(RoundedCornerShape(12.dp))
                             .background(if (isSelected) c.accentSoft else Color.Transparent)
                             .clickable { onSelect(day) },
                         horizontalAlignment = Alignment.CenterHorizontally,
@@ -408,6 +470,8 @@ private fun MonthGrid(anchor: LocalDate, selected: LocalDate, byDay: Map<LocalDa
 private fun LazyListScope.queueView(
     container: AppContainer,
     d: ScheduleData,
+    open: Boolean,
+    onToggle: () -> Unit,
     onSchedule: (Long) -> Unit,
     onAutoFill: () -> Unit,
     onOpenAccounts: () -> Unit,
@@ -416,14 +480,34 @@ private fun LazyListScope.queueView(
     val queue = d.clips.filter { it.render == RenderStatus.Done && it.outputPath != null && it.id !in d.scheduledClipIds }
         .sortedByDescending { it.renderedAt ?: 0 }
     val waiting = d.clips.filter { it.review == ReviewStatus.Selected && it.render != RenderStatus.Done }.sortedByDescending { it.updatedAt }
-    // Antrean di bawah agenda (bukan tab terpisah): klip siap unggah yang belum dijadwalkan, dengan Isi otomatis.
+    // Antrean di bawah agenda (bukan tab terpisah), tertutup secara bawaan: judulnya sudah memuat jumlahnya.
     if (queue.isEmpty() && waiting.isEmpty()) return
     item(key = "queue-label") {
-        Row(Modifier.padding(top = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-            Text(if (queue.isEmpty()) "Antrean" else "Antrean · ${queue.size} siap dijadwalkan", style = MaterialTheme.typography.titleSmall, color = ClipMi.colors.textBody, modifier = Modifier.weight(1f))
+        val c = ClipMi.colors
+        Row(
+            Modifier.padding(top = 8.dp).fillMaxWidth().clip(RoundedCornerShape(12.dp))
+                .clickable(onClickLabel = if (open) "Tutup antrean" else "Buka antrean", onClick = onToggle)
+                .padding(horizontal = 4.dp, vertical = 8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                Text("Antrean", style = MaterialTheme.typography.titleMedium, color = c.text)
+                Text(
+                    listOfNotNull(
+                        queue.size.takeIf { it > 0 }?.let { "$it siap dijadwalkan" },
+                        waiting.size.takeIf { it > 0 }?.let { "$it belum dirender" },
+                    ).joinToString(" · "),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = c.textMuted,
+                )
+            }
+            Icon(ClipMiIcons.Chevron, null, tint = c.textMuted, modifier = Modifier.size(18.dp).rotate(if (open) -90f else 90f))
         }
     }
+    if (!open) return
     if (queue.isNotEmpty()) {
+        item(key = "queue-ready") { QueueSubheader("Siap dijadwalkan", queue.size) }
         item(key = "autofill") {
             ClipMiCard(padding = PaddingValues(horizontal = 14.dp, vertical = 12.dp)) {
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -439,38 +523,53 @@ private fun LazyListScope.queueView(
                 }
             }
         }
-    }
-    items(queue, key = { "q-${it.id}" }) { clip ->
-        QueueCard(clip, d.projects[clip.projectId]?.title) { PrimaryButton("Jadwalkan", { onSchedule(clip.id) }, height = 40.dp, icon = ClipMiIcons.Calendar) }
+        items(queue, key = { "q-${it.id}" }) { clip ->
+            QueueCard(clip, d.projects[clip.projectId]?.title) { PrimaryButton("Jadwalkan", { onSchedule(clip.id) }, height = 40.dp, icon = ClipMiIcons.Calendar) }
+        }
     }
     if (waiting.isNotEmpty()) {
-        // Ringkas dalam satu kartu: judul satu baris dan tombol Render kecil; render semuanya dari project.
-        item(key = "waiting") {
+        item(key = "queue-waiting") { QueueSubheader("Terpilih, belum dirender", waiting.size) }
+        // Satu kartu ringkas per klip (seperti baris agenda); sisanya dirender dari halaman project.
+        items(waiting.take(WAITING_SHOWN), key = { "w-${it.id}" }) { clip ->
             val c = ClipMi.colors
-            ClipMiCard(padding = PaddingValues(horizontal = 14.dp, vertical = 12.dp), spacing = 10.dp) {
-                Text("Terpilih, belum dirender (${waiting.size})", style = MaterialTheme.typography.titleSmall, color = c.text)
-                waiting.take(WAITING_SHOWN).forEach { clip ->
-                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                        Column(Modifier.weight(1f)) {
-                            Text(ClipText.displayTitle(clip.title, clip.partNumber), style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.SemiBold), color = c.text, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                            Text(listOfNotNull(d.projects[clip.projectId]?.title, Timecode.format(clip.duration)).joinToString(" · "), style = MaterialTheme.typography.bodySmall, color = c.textMuted, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                        }
-                        when (clip.render) {
-                            RenderStatus.Queued, RenderStatus.Rendering -> Text(
-                                if (clip.render == RenderStatus.Queued) "Antre" else "${clip.renderProgress ?: 0}%",
-                                style = MaterialTheme.typography.labelMedium,
-                                color = c.busy,
-                            )
-                            else -> ActionChip("Render", { onRender(clip) }, icon = ClipMiIcons.Film, height = 34.dp, enabled = d.projects[clip.projectId]?.videoPath != null)
-                        }
+            ClipMiCard(padding = PaddingValues(10.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    ClipThumb(clip, Modifier.width(36.dp).height(64.dp))
+                    Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                        Text(ClipText.displayTitle(clip.title, clip.partNumber), style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.SemiBold), color = c.text, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                        Text(listOfNotNull(Timecode.format(clip.duration), d.projects[clip.projectId]?.title).joinToString(" · "), style = MaterialTheme.typography.bodySmall, color = c.textMuted, maxLines = 1, overflow = TextOverflow.Ellipsis)
                     }
-                }
-                if (waiting.size > WAITING_SHOWN) {
-                    Text("dan ${waiting.size - WAITING_SHOWN} lainnya; render dari halaman project.", style = MaterialTheme.typography.bodySmall, color = c.textMuted)
+                    when (clip.render) {
+                        RenderStatus.Queued, RenderStatus.Rendering -> Text(
+                            if (clip.render == RenderStatus.Queued) "Antre" else "${clip.renderProgress ?: 0}%",
+                            style = MaterialTheme.typography.labelMedium,
+                            color = c.busy,
+                        )
+                        else -> ActionChip("Render", { onRender(clip) }, icon = ClipMiIcons.Film, height = 34.dp, enabled = d.projects[clip.projectId]?.videoPath != null)
+                    }
                 }
             }
         }
+        if (waiting.size > WAITING_SHOWN) {
+            item(key = "queue-more") {
+                Text(
+                    "dan ${waiting.size - WAITING_SHOWN} lainnya; render dari halaman project.",
+                    style = MaterialTheme.typography.bodySmall, color = ClipMi.colors.textMuted, modifier = Modifier.padding(horizontal = 4.dp),
+                )
+            }
+        }
     }
+}
+
+/** Subjudul kelompok di antrean: lebih kecil dan redup daripada judul klip di bawahnya. */
+@Composable
+private fun QueueSubheader(label: String, count: Int) {
+    Text(
+        "$label · $count",
+        style = MaterialTheme.typography.labelLarge,
+        color = ClipMi.colors.textMuted,
+        modifier = Modifier.padding(start = 4.dp, top = 6.dp),
+    )
 }
 
 /** Jumlah klip "belum dirender" yang ditampilkan di antrean. */
@@ -485,7 +584,7 @@ private fun QueueCard(clip: ClipEntity, project: String?, action: @Composable ()
             // Tombol di bawah judul: judul klip biasanya panjang dan tidak boleh terpotong oleh tombol.
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
                 Text(ClipText.displayTitle(clip.title, clip.partNumber), style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.SemiBold), color = c.text, maxLines = 3, overflow = TextOverflow.Ellipsis)
-                Text(listOfNotNull(project, Timecode.format(clip.duration)).joinToString(" · "), style = MaterialTheme.typography.bodySmall, color = c.textMuted, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Text(listOfNotNull(Timecode.format(clip.duration), project).joinToString(" · "), style = MaterialTheme.typography.bodySmall, color = c.textMuted, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 Spacer(Modifier.height(6.dp))
                 action()
             }

@@ -1,5 +1,28 @@
 package id.clipmi.android.ui.screens
 
+import id.clipmi.android.ui.components.ActionChip
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.IntrinsicSize
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.key
+import kotlin.math.roundToInt
+import kotlin.math.abs
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.foundation.layout.offset
+import androidx.compose.ui.unit.IntOffset
+import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.animation.core.animate
+import androidx.compose.foundation.gestures.rememberDraggableState
+import androidx.compose.foundation.gestures.draggable
+import androidx.compose.foundation.gestures.Orientation
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.DropdownMenu
 import android.content.ClipData
@@ -21,10 +44,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.SwipeToDismissBox
-import androidx.compose.material3.SwipeToDismissBoxValue
 import androidx.compose.material3.Text
-import androidx.compose.material3.rememberSwipeToDismissBoxState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -107,19 +127,26 @@ fun ClipsTab(container: AppContainer, project: ProjectEntity, hasTranscript: Boo
                 }
             }
         } else {
-            AnalysisCard(container, project)
+            AnalysisCard(container, project, compact = clips.isNotEmpty())
         }
 
         if (clips.isNotEmpty()) {
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                ReviewFilter.entries.forEach { f ->
-                    FilterPill("${f.label} ${clips.count(f::matches)}", selected = filter == f, height = 32.dp, onClick = { filter = f })
+            // Filter yang kosong disembunyikan (kecuali Aktif); bila filter terpilih jadi kosong, kembali ke Aktif.
+            val counts = ReviewFilter.entries.associateWith { f -> clips.count(f::matches) }
+            LaunchedEffect(counts[filter]) { if (filter != ReviewFilter.Active && counts[filter] == 0) filter = ReviewFilter.Active }
+            if (counts.count { (f, n) -> f == ReviewFilter.Active || n > 0 } > 1) {
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    ReviewFilter.entries.filter { it == ReviewFilter.Active || counts.getValue(it) > 0 }.forEach { f ->
+                        FilterPill("${f.label} ${counts.getValue(f)}", selected = filter == f, height = 32.dp, onClick = { filter = f })
+                    }
                 }
             }
-            Text("Geser kartu ke kanan untuk memilih, ke kiri untuk membuang.", style = MaterialTheme.typography.bodySmall, color = c.textMuted)
+        } else if (hasTranscript) {
+            Text("Tekan lama segmen di Transkrip untuk membuat klip sendiri.", style = MaterialTheme.typography.bodySmall, color = c.textMuted)
         }
 
-        clips.filter(filter::matches).forEach { clip ->
+        // Kunci per klip: status geser/terbuka tiap kartu milik klipnya sendiri, tidak berpindah ke klip lain.
+        clips.filter(filter::matches).forEach { clip -> key(clip.id) {
             ClipCard(
                 container, clip, series.firstOrNull { it.id == clip.clipSeriesId }?.title,
                 onPlay = { playRange(clip.startTime, clip.endTime) },
@@ -138,7 +165,7 @@ fun ClipsTab(container: AppContainer, project: ProjectEntity, hasTranscript: Boo
                     }
                 },
             )
-        }
+        } }
 
         if (clips.any { it.source == ClipSource.AI && it.review == ReviewStatus.Candidate }) {
             GhostButton("Hapus kandidat yang belum ditinjau", onClick = { confirmClear = true }, danger = true, modifier = Modifier.align(Alignment.CenterHorizontally))
@@ -177,7 +204,7 @@ private enum class ReviewFilter(val label: String) {
 
 /** Kartu "Pilih momen dengan AI": Mode API (otomatis) atau lewat chat AI (salin prompt, tempel balasan). */
 @Composable
-private fun AnalysisCard(container: AppContainer, project: ProjectEntity) {
+private fun AnalysisCard(container: AppContainer, project: ProjectEntity, compact: Boolean = false) {
     val scope = rememberCoroutineScope()
     val c = ClipMi.colors
     var manual by rememberSaveable { mutableStateOf(false) }
@@ -191,6 +218,27 @@ private fun AnalysisCard(container: AppContainer, project: ProjectEntity) {
     }
     val active = AnalysisStatus.isActive(project.analysisStatus)
     val cfg = config
+
+    // Sudah ada klip dan tidak ada yang berjalan/tersisa: cukup dua tombol kecil, analisis ulang dikonfirmasi dulu.
+    if (compact && !active && project.analysisMessage == null && resumable.isEmpty()) {
+        var confirmAgain by remember { mutableStateOf(false) }
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            if (cfg != null) ActionChip("Analisis lagi", { confirmAgain = true }, Modifier.weight(1f), height = 40.dp, icon = ClipMiIcons.Sparkle, enabled = prompts.isNotEmpty())
+            ActionChip("Lewat chat AI", { manual = true }, Modifier.weight(1f), height = 40.dp)
+        }
+        if (confirmAgain && cfg != null) {
+            val estimate = container.analysis.estimate(prompts, cfg, null)
+            ConfirmDialog(
+                "Analisis lagi?",
+                listOfNotNull(cfg.provider.label.substringBefore(" ("), "±${number.format(estimate.tokens)} token", estimate.cost?.let { "±$" + "%.${if (it < 0.1) 3 else 2}f".format(Locale.ROOT, it) }).joinToString(" · "),
+                "Analisis",
+                onConfirm = { confirmAgain = false; scope.launch { container.analysis.start(project.id) } },
+                onDismiss = { confirmAgain = false },
+            )
+        }
+        if (manual) ManualAnalysisSheet(container, project, prompts, onDismiss = { manual = false })
+        return
+    }
 
     ClipMiCard(spacing = 12.dp) {
         Row(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -326,6 +374,11 @@ private fun ManualAnalysisSheet(container: AppContainer, project: ProjectEntity,
     }
 }
 
+/**
+ * Kartu klip: ringkas (skor, judul, ringkasan, durasi dan status); ketuk untuk detail dan aksi. Geser ke kanan untuk
+ * memilih (atau memulihkan), ke kiri untuk membuang (atau membatalkan pilihan). Aksi geser baru jalan bila kartu
+ * dilepas setelah digeser lebih dari separuh lebarnya, dan hanya untuk kartu itu.
+ */
 @Composable
 private fun ClipCard(
     container: AppContainer,
@@ -338,145 +391,196 @@ private fun ClipCard(
     onOpen: () -> Unit = {},
     onSchedule: () -> Unit = {},
 ) {
-    val scope = rememberCoroutineScope()
-    val swipe = rememberSwipeToDismissBoxState()
     val c = ClipMi.colors
+    val scope = rememberCoroutineScope()
+    val haptic = LocalHapticFeedback.current
+    var expanded by rememberSaveable(clip.id) { mutableStateOf(false) }
 
-    SwipeToDismissBox(
-        state = swipe,
-        modifier = Modifier.clip(MaterialTheme.shapes.large),
-        backgroundContent = {
-            val toEnd = swipe.dismissDirection == SwipeToDismissBoxValue.StartToEnd
-            val toStart = swipe.dismissDirection == SwipeToDismissBoxValue.EndToStart
-            val (bg, fg) = when {
-                toEnd -> (if (c.isDark) Color(0xFF065F46) else c.accentSoft) to (if (c.isDark) Color(0xFFD1FAE5) else c.accent)
-                toStart -> (if (c.isDark) Color(0xFF7F1D1D) else c.badSoft) to (if (c.isDark) Color(0xFFFECACA) else c.bad)
-                else -> Color.Transparent to Color.Transparent
+    // Arah geser yang berlaku untuk status klip ini (null = arah itu tidak dipakai).
+    val toRight: Pair<String, ReviewStatus>? = when (clip.review) {
+        ReviewStatus.Candidate -> "Pilih" to ReviewStatus.Selected
+        ReviewStatus.Rejected -> "Pulihkan" to ReviewStatus.Candidate
+        else -> null
+    }
+    val toLeft: Pair<String, ReviewStatus>? = when (clip.review) {
+        ReviewStatus.Candidate -> "Buang" to ReviewStatus.Rejected
+        ReviewStatus.Selected -> "Batal pilih" to ReviewStatus.Candidate
+        else -> null
+    }
+    var width by remember { mutableIntStateOf(0) }
+    var dragX by remember(clip.id, clip.review) { mutableFloatStateOf(0f) }
+    val threshold = width * 0.5f
+    val armed = width > 0 && abs(dragX) >= threshold
+    LaunchedEffect(armed) { if (armed) haptic.performHapticFeedback(HapticFeedbackType.LongPress) }
+
+    Box(Modifier.fillMaxWidth().onSizeChanged { width = it.width }.clip(MaterialTheme.shapes.large)) {
+        // Latar di balik kartu: label aksi; warnanya penuh begitu geseran melewati batas.
+        val action = if (dragX > 0) toRight else if (dragX < 0) toLeft else null
+        if (action != null) {
+            val good = action.second != ReviewStatus.Rejected
+            val soft = if (good) c.accentSoft else c.badSoft
+            val strong = if (good) c.accent else c.bad
+            Box(
+                Modifier.matchParentSize().background(if (armed) strong else soft).padding(horizontal = 22.dp),
+                contentAlignment = if (dragX < 0) Alignment.CenterEnd else Alignment.CenterStart,
+            ) {
+                Text(action.first, color = if (armed) Color.White else strong, style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.ExtraBold))
             }
-            Box(Modifier.fillMaxSize().background(bg).padding(horizontal = 22.dp), contentAlignment = if (toStart) Alignment.CenterEnd else Alignment.CenterStart) {
-                if (toEnd || toStart) {
-                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
-                        Icon(if (toEnd) ClipMiIcons.Check else ClipMiIcons.Close, contentDescription = null, tint = fg, modifier = Modifier.size(18.dp))
-                        Text(if (toEnd) "Pilih" else "Buang", color = fg, style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.ExtraBold))
-                    }
-                }
-            }
-        },
-        onDismiss = { direction ->
-            when (direction) {
-                SwipeToDismissBoxValue.StartToEnd -> onReview(ReviewStatus.Selected)
-                SwipeToDismissBoxValue.EndToStart -> onReview(ReviewStatus.Rejected)
-                else -> Unit
-            }
-            scope.launch { swipe.reset() }
-        },
-    ) {
-        ClipMiCard(onClick = onOpen) {
-            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                ScoreRing(clip.score)
-                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                    Text(ClipText.displayTitle(clip.title, clip.partNumber), style = MaterialTheme.typography.titleSmall, color = c.text)
-                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
-                        Text(
-                            "${Timecode.format(clip.startTime)} – ${Timecode.format(clip.endTime)} · ${Timecode.format(clip.duration)}",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = c.textMuted,
-                        )
-                        when (clip.review) {
-                            ReviewStatus.Rejected -> StatusBadge("Dibuang", Tone.Bad)
-                            else -> Unit
+        }
+        Box(
+            Modifier
+                .offset { IntOffset(dragX.roundToInt(), 0) }
+                .draggable(
+                    orientation = Orientation.Horizontal,
+                    state = rememberDraggableState { delta ->
+                        val next = dragX + delta
+                        // Arah yang tidak dipakai hanya bergeser sedikit (tanda tidak ada aksi).
+                        val max = width.toFloat()
+                        dragX = when {
+                            next > 0 && toRight == null -> (next).coerceAtMost(max * 0.08f)
+                            next < 0 && toLeft == null -> (next).coerceAtLeast(-max * 0.08f)
+                            else -> next.coerceIn(-max, max)
                         }
-                        if (clip.source == ClipSource.MANUAL) StatusBadge("Manual", Tone.Idle)
-                    }
-                    seriesTitle?.let { Text("Seri: $it", style = MaterialTheme.typography.labelMedium, color = c.accent) }
-                }
-            }
-            // Ringkas: hook dan alasan AI (dasar memilih); caption, hashtag, dan kata kunci ada di Sunting teks.
-            clip.hook?.let { Text("“$it”", style = MaterialTheme.typography.bodyMedium.copy(fontSize = 13.sp, fontWeight = FontWeight.SemiBold), color = c.textBody, maxLines = 2, overflow = TextOverflow.Ellipsis) }
-            (clip.reason ?: clip.caption)?.let {
-                Text(it, style = MaterialTheme.typography.bodySmall, fontStyle = if (clip.reason != null) FontStyle.Italic else FontStyle.Normal, color = c.textMuted, maxLines = 2, overflow = TextOverflow.Ellipsis)
-            }
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-                IconCircle(ClipMiIcons.Play, "Putar klip", onPlay, size = 40.dp, background = c.panel)
-                when (clip.review) {
-                    ReviewStatus.Candidate -> {
-                        PrimaryButton("Pilih", onClick = { onReview(ReviewStatus.Selected) }, icon = ClipMiIcons.Check, height = 40.dp, modifier = Modifier.weight(1f))
-                        IconCircle(ClipMiIcons.Close, "Buang klip", { onReview(ReviewStatus.Rejected) }, size = 40.dp, background = c.panel)
-                    }
-                    ReviewStatus.Selected -> SecondaryButton("Terpilih", onClick = { onReview(ReviewStatus.Candidate) }, icon = ClipMiIcons.Check, contentColor = c.accent, height = 40.dp, modifier = Modifier.weight(1f))
-                    ReviewStatus.Rejected -> SecondaryButton("Pulihkan", onClick = { onReview(ReviewStatus.Candidate) }, height = 40.dp, modifier = Modifier.weight(1f))
-                }
-                Box {
-                    var menu by remember { mutableStateOf(false) }
-                    IconCircle(ClipMiIcons.More, "Lainnya", { menu = true }, size = 40.dp, background = c.panel)
-                    DropdownMenu(menu, onDismissRequest = { menu = false }, containerColor = c.card) {
-                        DropdownMenuItem(text = { Text("Buka editor") }, leadingIcon = { Icon(ClipMiIcons.Scissors, null, Modifier.size(18.dp)) }, onClick = { menu = false; onOpen() })
-                        DropdownMenuItem(text = { Text("Sunting teks") }, leadingIcon = { Icon(ClipMiIcons.Edit, null, Modifier.size(18.dp)) }, onClick = { menu = false; onEdit() })
-                        DropdownMenuItem(text = { Text("Salin judul & caption") }, leadingIcon = { Icon(ClipMiIcons.Copy, null, Modifier.size(18.dp)) }, onClick = { menu = false; onCopy() })
+                    },
+                    onDragStopped = {
+                        val release = dragX
+                        val target = if (abs(release) >= threshold && width > 0) (if (release > 0) toRight else toLeft) else null
+                        if (target != null) onReview(target.second)
+                        scope.launch { animate(release, 0f) { value, _ -> dragX = value } }
+                    },
+                ),
+        ) {
+            ClipMiCard(onClick = { expanded = !expanded }, spacing = 10.dp) {
+                Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    ScoreBadge(clip.score)
+                    Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        Text(ClipText.displayTitle(clip.title, clip.partNumber), style = MaterialTheme.typography.titleSmall, color = c.text, maxLines = if (expanded) 4 else 2, overflow = TextOverflow.Ellipsis)
+                        (clip.reason ?: clip.caption)?.let {
+                            Text(it, style = MaterialTheme.typography.bodySmall, color = c.textBody, maxLines = if (expanded) 6 else 2, overflow = TextOverflow.Ellipsis)
+                        }
+                        ClipMeta(clip, seriesTitle, expanded)
                     }
                 }
+                if (!expanded) return@ClipMiCard
+                clip.hook?.let { HookLine(it) }
+                ClipActions(container, clip, onPlay, onEdit, onCopy, onReview, onOpen, onSchedule)
             }
-            if (clip.review == ReviewStatus.Selected || clip.render != RenderStatus.NotRendered) RenderRow(container, clip, onSchedule)
         }
     }
 }
 
-/** Status render klip: render, antre/progres (bisa dibatalkan), gagal, atau hasil siap dibagikan. */
+/** Baris kecil di bawah ringkasan: durasi (atau rentang waktu saat dibuka), status pilih, render, manual, seri. */
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
-private fun RenderRow(container: AppContainer, clip: ClipEntity, onSchedule: () -> Unit) {
+private fun ClipMeta(clip: ClipEntity, seriesTitle: String?, expanded: Boolean) {
+    val c = ClipMi.colors
+    FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(4.dp), itemVerticalAlignment = Alignment.CenterVertically) {
+        Text(
+            if (expanded) "${Timecode.format(clip.startTime)} – ${Timecode.format(clip.endTime)} · ${Timecode.format(clip.duration)}" else Timecode.format(clip.duration),
+            style = MaterialTheme.typography.labelMedium, color = c.textMuted, maxLines = 1,
+        )
+        when (clip.review) {
+            ReviewStatus.Selected -> StatusBadge("Terpilih", Tone.Good)
+            ReviewStatus.Rejected -> StatusBadge("Dibuang", Tone.Bad)
+            else -> Unit
+        }
+        when (clip.render) {
+            RenderStatus.Queued -> StatusBadge("Antre render", Tone.Busy)
+            RenderStatus.Rendering -> StatusBadge("Render ${clip.renderProgress ?: 0}%", Tone.Busy)
+            RenderStatus.Done -> StatusBadge(if (clip.changedAfterRender) "Hasil lama" else "Siap unggah", if (clip.changedAfterRender) Tone.Warn else Tone.Good)
+            RenderStatus.Failed -> StatusBadge("Render gagal", Tone.Bad)
+            else -> Unit
+        }
+        if (clip.source == ClipSource.MANUAL) StatusBadge("Manual", Tone.Idle)
+    }
+    if (expanded) seriesTitle?.let { Text("Seri: $it", style = MaterialTheme.typography.labelMedium, color = c.accent) }
+}
+
+/** Hook (teks pembuka di layar) dengan garis aksen di kiri. */
+@Composable
+private fun HookLine(hook: String) {
+    val c = ClipMi.colors
+    Row(Modifier.height(IntrinsicSize.Min), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+        Box(Modifier.width(3.dp).fillMaxHeight().clip(RoundedCornerShape(2.dp)).background(c.accent.copy(alpha = 0.5f)))
+        Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+            Text("Hook", style = MaterialTheme.typography.labelSmall, color = c.textMuted)
+            Text(hook, style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.SemiBold), color = c.text)
+        }
+    }
+}
+
+/** Aksi kartu yang dibuka: tombol kotak membulat (bukan pil), sesuai status render. */
+@Composable
+private fun ClipActions(
+    container: AppContainer,
+    clip: ClipEntity,
+    onPlay: () -> Unit,
+    onEdit: () -> Unit,
+    onCopy: () -> Unit,
+    onReview: (ReviewStatus) -> Unit,
+    onOpen: () -> Unit,
+    onSchedule: () -> Unit,
+) {
     val c = ClipMi.colors
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val notifier = LocalNotifier.current
-    Column(
-        Modifier.fillMaxWidth().clip(RoundedCornerShape(18.dp)).background(c.bg).padding(12.dp),
-        verticalArrangement = Arrangement.spacedBy(10.dp),
-    ) {
-        when (clip.render) {
-            RenderStatus.Queued, RenderStatus.Rendering -> {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text(
-                        if (clip.render == RenderStatus.Queued) clip.renderError ?: RenderSafety.batteryReason(context) ?: "Antre render…" else "Merender ${clip.renderProgress ?: 0}%",
-                        style = MaterialTheme.typography.titleSmall, color = c.text, modifier = Modifier.weight(1f),
-                    )
-                    GhostButton("Batalkan", onClick = { scope.launch { RenderQueue.cancel(context, clip) } })
-                }
-                ProgressBar(if (clip.render == RenderStatus.Rendering) (clip.renderProgress ?: 0) / 100f else null, color = c.busy)
-                Text("Merender di latar · HP boleh dipakai", style = MaterialTheme.typography.bodySmall, color = c.textMuted)
+    val canRender = clip.review == ReviewStatus.Selected || clip.render != RenderStatus.NotRendered
+
+    when (clip.render) {
+        RenderStatus.Queued, RenderStatus.Rendering -> Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    if (clip.render == RenderStatus.Queued) clip.renderError ?: RenderSafety.batteryReason(context) ?: "Antre render…" else "Merender ${clip.renderProgress ?: 0}%",
+                    style = MaterialTheme.typography.bodySmall, color = c.textBody, modifier = Modifier.weight(1f),
+                )
+                GhostButton("Batalkan", onClick = { scope.launch { RenderQueue.cancel(context, clip) } })
             }
-            RenderStatus.Done -> {
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-                    StatusBadge(if (clip.changedAfterRender) "Hasil lama" else "Siap unggah", if (clip.changedAfterRender) Tone.Warn else Tone.Good)
-                    Text("Galeri › Movies/ClipMI", style = MaterialTheme.typography.bodySmall, color = c.textMuted, modifier = Modifier.weight(1f))
-                }
-                if (clip.changedAfterRender) {
-                    Text("Klip diubah setelah dirender; render ulang agar videonya ikut berubah.", style = MaterialTheme.typography.bodySmall, color = c.warn)
-                }
-                // Setelah render: langsung jadwalkan atau bagikan sekarang.
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-                    PrimaryButton("Jadwalkan", icon = ClipMiIcons.Calendar, height = 44.dp, modifier = Modifier.weight(1f), onClick = onSchedule)
-                    SecondaryButton("Bagikan", icon = ClipMiIcons.Share, height = 44.dp, modifier = Modifier.weight(1f), onClick = {
-                        val text = ClipText.shareText(clip.title, clip.partNumber, clip.caption, container.analysis.decodeList(clip.hashtags))
-                        copy(context, text)
-                        if (shareVideo(context, clip.outputPath, clip.title)) notifier.show("Caption & hashtag disalin. Tempel di aplikasi tujuan.")
-                        else notifier.show("File hasil tidak ditemukan. Render ulang klip ini.")
+            ProgressBar(if (clip.render == RenderStatus.Rendering) (clip.renderProgress ?: 0) / 100f else null, color = c.busy)
+        }
+        RenderStatus.Failed -> clip.renderError?.let { Text("Render gagal: $it", style = MaterialTheme.typography.bodySmall, color = c.bad, maxLines = 3, overflow = TextOverflow.Ellipsis) }
+        else -> Unit
+    }
+    if (clip.render == RenderStatus.Done) {
+        // Setelah render: langsung jadwalkan atau bagikan.
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            ActionChip("Jadwalkan", onSchedule, Modifier.weight(1f), height = 40.dp, icon = ClipMiIcons.Calendar, primary = true)
+            ActionChip("Bagikan", {
+                val text = ClipText.shareText(clip.title, clip.partNumber, clip.caption, container.analysis.decodeList(clip.hashtags))
+                copy(context, text)
+                notifier.show(if (shareVideo(context, clip.outputPath, clip.title)) "Caption & hashtag disalin. Tempel di aplikasi tujuan." else "File hasil tidak ditemukan. Render ulang klip ini.")
+            }, Modifier.weight(1f), height = 40.dp, icon = ClipMiIcons.Share)
+        }
+    }
+    Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+        ActionChip("Putar", onPlay, height = 40.dp, icon = ClipMiIcons.Play)
+        ActionChip("Editor", onOpen, height = 40.dp, icon = ClipMiIcons.Scissors)
+        if (canRender && clip.render != RenderStatus.Queued && clip.render != RenderStatus.Rendering) {
+            val label = when (clip.render) { RenderStatus.Done -> "Render ulang"; RenderStatus.Failed -> "Coba lagi"; else -> "Render" }
+            ActionChip(label, { scope.launch { RenderQueue.render(context, clip) } }, Modifier.weight(1f), height = 40.dp, icon = ClipMiIcons.Film, primary = clip.render == RenderStatus.NotRendered)
+        } else {
+            Spacer(Modifier.weight(1f))
+        }
+        Box {
+            var menu by remember { mutableStateOf(false) }
+            ActionChip("", { menu = true }, height = 40.dp, icon = ClipMiIcons.More)
+            DropdownMenu(menu, onDismissRequest = { menu = false }, containerColor = c.card) {
+                if (clip.render == RenderStatus.Done) {
+                    DropdownMenuItem(text = { Text("Putar hasil render") }, leadingIcon = { Icon(ClipMiIcons.Play, null, Modifier.size(18.dp)) }, onClick = {
+                        menu = false
+                        if (!openVideo(context, clip.outputPath)) notifier.show("File hasil tidak ditemukan. Render ulang klip ini.")
                     })
                 }
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Text("Putar atau render ulang", style = MaterialTheme.typography.bodySmall, color = c.textMuted, modifier = Modifier.weight(1f))
-                    IconCircle(ClipMiIcons.Play, "Putar hasil", { if (!openVideo(context, clip.outputPath)) notifier.show("File hasil tidak ditemukan. Render ulang klip ini.") }, size = 44.dp, background = c.panel)
-                    IconCircle(ClipMiIcons.Refresh, "Render ulang", { scope.launch { RenderQueue.render(context, clip) } }, size = 44.dp, background = c.panel)
+                DropdownMenuItem(text = { Text("Sunting teks") }, leadingIcon = { Icon(ClipMiIcons.Edit, null, Modifier.size(18.dp)) }, onClick = { menu = false; onEdit() })
+                DropdownMenuItem(text = { Text("Salin judul & caption") }, leadingIcon = { Icon(ClipMiIcons.Copy, null, Modifier.size(18.dp)) }, onClick = { menu = false; onCopy() })
+                when (clip.review) {
+                    ReviewStatus.Candidate -> {
+                        DropdownMenuItem(text = { Text("Pilih") }, leadingIcon = { Icon(ClipMiIcons.Check, null, Modifier.size(18.dp)) }, onClick = { menu = false; onReview(ReviewStatus.Selected) })
+                        DropdownMenuItem(text = { Text("Buang", color = c.bad) }, leadingIcon = { Icon(ClipMiIcons.Close, null, Modifier.size(18.dp), tint = c.bad) }, onClick = { menu = false; onReview(ReviewStatus.Rejected) })
+                    }
+                    ReviewStatus.Selected -> DropdownMenuItem(text = { Text("Batal pilih") }, leadingIcon = { Icon(ClipMiIcons.Close, null, Modifier.size(18.dp)) }, onClick = { menu = false; onReview(ReviewStatus.Candidate) })
+                    ReviewStatus.Rejected -> DropdownMenuItem(text = { Text("Pulihkan") }, leadingIcon = { Icon(ClipMiIcons.Refresh, null, Modifier.size(18.dp)) }, onClick = { menu = false; onReview(ReviewStatus.Candidate) })
                 }
-            }
-            RenderStatus.Failed, RenderStatus.NotRendered -> {
-                clip.renderError?.takeIf { clip.render == RenderStatus.Failed }?.let {
-                    Text("Render gagal: $it", style = MaterialTheme.typography.bodySmall, color = c.bad)
-                }
-                PrimaryButton(
-                    if (clip.render == RenderStatus.Failed) "Coba render lagi" else "Render klip",
-                    icon = ClipMiIcons.Film, height = 44.dp, modifier = Modifier.fillMaxWidth(),
-                    onClick = { scope.launch { RenderQueue.render(context, clip) } },
-                )
             }
         }
     }
@@ -511,18 +615,22 @@ internal fun openVideo(context: Context, output: String?): Boolean {
 internal fun exists(context: Context, uri: Uri): Boolean =
     runCatching { context.contentResolver.openFileDescriptor(uri, "r")?.use { true } ?: false }.getOrDefault(false)
 
-/** Skor AI dalam cincin: hijau ≥ 80, biru ≥ 60, abu-abu di bawahnya. */
+/** Skor AI dalam kotak membulat: hijau ≥ 80, biru ≥ 60, abu-abu di bawahnya. */
 @Composable
-private fun ScoreRing(score: Int?) {
+private fun ScoreBadge(score: Int?) {
     val c = ClipMi.colors
     val color = when {
-        score == null -> c.lineStrong
+        score == null -> c.textMuted
         score >= 80 -> c.accent
         score >= 60 -> c.busy
         else -> c.textMuted
     }
-    Box(Modifier.size(46.dp).border(3.dp, color, CircleShape), contentAlignment = Alignment.Center) {
-        Text(score?.toString() ?: "–", style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.ExtraBold), color = c.text)
+    Column(
+        Modifier.width(44.dp).clip(RoundedCornerShape(12.dp)).background(color.copy(alpha = 0.12f)).padding(vertical = 6.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+    ) {
+        Text(score?.toString() ?: "–", style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.ExtraBold), color = color)
+        Text("skor", style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp), color = color.copy(alpha = 0.8f))
     }
 }
 

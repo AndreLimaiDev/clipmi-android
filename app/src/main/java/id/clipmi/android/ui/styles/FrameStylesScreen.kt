@@ -1,5 +1,9 @@
 package id.clipmi.android.ui.styles
 
+import kotlin.math.roundToInt
+import androidx.compose.foundation.layout.offset
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
@@ -340,31 +344,45 @@ private fun AspectPicker(selected: String, onSelect: (String) -> Unit) {
     }
 }
 
-/** Sembilan titik jangkar (kiri atas … kanan bawah) untuk logo dan watermark. */
+/**
+ * Posisi logo atau watermark: layar mini 9:16 dengan sembilan titik jangkar (ketuk untuk menempel) dan titik posisi
+ * yang bisa diseret ke mana saja (0–100 di tiap sumbu, sama dengan isian desktop). [hint] tampil di bawahnya.
+ */
 @Composable
-private fun AnchorPicker(label: String, x: Int, y: Int, onSelect: (Int, Int) -> Unit) {
+private fun AnchorPicker(label: String, x: Int, y: Int, hint: String? = null, onSelect: (Int, Int) -> Unit) {
     val c = ClipMi.colors
-    val current = FrameStyle.ANCHORS.values.firstOrNull { it.second == x && it.third == y }?.first ?: "Diatur sendiri"
+    val current = FrameStyle.ANCHORS.values.firstOrNull { it.second == x && it.third == y }?.first ?: "Diatur sendiri · $x, $y"
+    val dot = 18.dp
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         FieldLabel(label, current)
-        Column(
-            Modifier.size(132.dp, 132.dp * 16 / 9 / 2).clip(RoundedCornerShape(12.dp)).background(c.panel).border(1.dp, c.line, RoundedCornerShape(12.dp)).padding(6.dp),
-            verticalArrangement = Arrangement.SpaceBetween,
-        ) {
-            FrameStyle.ANCHORS.values.chunked(3).forEach { row ->
-                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                    row.forEach { (name, ax, ay) ->
-                        val active = ax == x && ay == y
-                        Box(
-                            Modifier.size(28.dp).clip(RoundedCornerShape(8.dp)).clickable(role = Role.RadioButton, onClickLabel = name) { onSelect(ax, ay) },
-                            contentAlignment = Alignment.Center,
-                        ) {
-                            Box(Modifier.size(if (active) 14.dp else 8.dp).clip(RoundedCornerShape(50)).background(if (active) c.accent else c.textMuted))
-                        }
+        androidx.compose.foundation.layout.BoxWithConstraints(
+            Modifier.size(108.dp, 192.dp).clip(RoundedCornerShape(12.dp)).background(c.panel).border(1.dp, c.line, RoundedCornerShape(12.dp))
+                .padding(8.dp)
+                .pointerInput(Unit) {
+                    fun at(offset: androidx.compose.ui.geometry.Offset) = Pair(
+                        (offset.x / size.width * 100).roundToInt().coerceIn(0, 100),
+                        (offset.y / size.height * 100).roundToInt().coerceIn(0, 100),
+                    )
+                    detectDragGestures(onDragStart = { val (px, py) = at(it); onSelect(px, py) }) { change, _ ->
+                        val (px, py) = at(change.position)
+                        onSelect(px, py)
                     }
-                }
+                },
+        ) {
+            val w = maxWidth - dot
+            val h = maxHeight - dot
+            // Titik jangkar: ketuk untuk menempel.
+            FrameStyle.ANCHORS.values.forEach { (name, ax, ay) ->
+                Box(
+                    Modifier.offset(w * ax / 100, h * ay / 100).size(dot).clip(RoundedCornerShape(6.dp))
+                        .clickable(role = Role.RadioButton, onClickLabel = name) { onSelect(ax, ay) },
+                    contentAlignment = Alignment.Center,
+                ) { Box(Modifier.size(6.dp).clip(RoundedCornerShape(50)).background(c.textMuted)) }
             }
+            // Posisi sekarang.
+            Box(Modifier.offset(w * x / 100, h * y / 100).size(dot).clip(RoundedCornerShape(6.dp)).background(c.accent))
         }
+        hint?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = c.textMuted) }
     }
 }
 
@@ -380,6 +398,7 @@ fun FrameStyleFields(
     busy: String?,
     imageError: Pair<String, String>?,
     onPick: (String) -> Unit,
+    inEditor: Boolean = false,
 ) {
     val mode = style.mode
     FieldGroup("Tata letak") {
@@ -438,7 +457,7 @@ fun FrameStyleFields(
             error = imageError?.takeIf { it.first == "logo" }?.second,
         )
         if (style.logoPath != null) {
-            AnchorPicker("Posisi logo", style.logoX, style.logoY) { x, y -> update { it.copy(logoX = x, logoY = y) } }
+            AnchorPicker("Posisi logo", style.logoX, style.logoY, hint = if (inEditor) "Seret logo di pratinjau, atau seret titik di sini." else "Seret titik untuk posisi bebas.") { x, y -> update { it.copy(logoX = x, logoY = y) } }
             IntSlider("Ukuran logo", style.logoSize, 5..40, { v -> update { it.copy(logoSize = v) } }, suffix = "%")
             IntSlider("Kepekatan logo", style.logoOpacity, 10..100, { v -> update { it.copy(logoOpacity = v) } }, suffix = "%")
         }

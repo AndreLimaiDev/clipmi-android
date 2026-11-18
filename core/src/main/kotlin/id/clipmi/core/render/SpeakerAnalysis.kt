@@ -59,6 +59,9 @@ object SpeakerAnalyzer {
      */
     fun cameraCuts(luma: List<IntArray>, fps: Double = CUT_FPS): List<Double> {
         if (luma.size < 3) return emptyList()
+        // Jendela pembanding dalam detik yang sama untuk semua fps (7 dan 3 frame pada 15 fps).
+        val wide = maxOf(1, Math.round(7 * fps / CUT_FPS).toInt())
+        val near = maxOf(1, Math.round(3 * fps / CUT_FPS).toInt())
         val diffs = DoubleArray(luma.size)
         for (k in 1 until luma.size) {
             val a = luma[k - 1]
@@ -69,9 +72,9 @@ object SpeakerAnalyzer {
         }
         val found = ArrayList<Pair<Double, Double>>()
         for (k in 1 until luma.size) {
-            val around = (maxOf(1, k - 7)..minOf(luma.size - 1, k + 7)).filter { it != k }.map { diffs[it] }
+            val around = (maxOf(1, k - wide)..minOf(luma.size - 1, k + wide)).filter { it != k }.map { diffs[it] }
             val local = if (around.isEmpty()) 0.0 else median(around)
-            val peak = (maxOf(1, k - 3)..minOf(luma.size - 1, k + 3)).all { diffs[it] <= diffs[k] }
+            val peak = (maxOf(1, k - near)..minOf(luma.size - 1, k + near)).all { diffs[it] <= diffs[k] }
             if (peak && diffs[k] > maxOf(0.1, 4 * local)) found += (k - 0.5) / fps to diffs[k]
         }
         return spaced(found)
@@ -271,9 +274,20 @@ data class SpeakerTrackData(
     val analysis: Analysis? = null,
     val manual: List<ManualPosition> = emptyList(),
 ) {
-    /** Hasil deteksi: sampel ke-k di detik [start] + k × [interval] (waktu project); [cuts] juga waktu project. */
+    /**
+     * Hasil deteksi: sampel ke-k di detik [start] + k × [interval] (waktu project); [cuts] juga waktu project (potongan
+     * kamera dan pergantian pembicara). [switches] = bagian dari [cuts] yang merupakan pergantian pembicara di gambar
+     * kamera yang sama (crop bergeser halus, bukan loncat); kosong untuk hasil deteksi lama.
+     */
     @Serializable
-    data class Analysis(val start: Double, val end: Double, val interval: Double, val samples: List<Double?>, val cuts: List<Double>)
+    data class Analysis(
+        val start: Double,
+        val end: Double,
+        val interval: Double,
+        val samples: List<Double?>,
+        val cuts: List<Double>,
+        val switches: List<Double> = emptyList(),
+    )
 
     /** Posisi tengah crop (0–1) untuk adegan yang memuat detik [at] (waktu project). */
     @Serializable
@@ -294,6 +308,9 @@ data class SpeakerTrackData(
 
     /** Potongan di rentang klip (detik sejak awal klip). */
     fun cuts(): List<Double> = analysis?.cuts.orEmpty().map { it - start }.filter { it > 0 && it < duration }
+
+    /** Pergantian pembicara di rentang klip (detik sejak awal klip). */
+    fun switches(): List<Double> = analysis?.switches.orEmpty().map { it - start }.filter { it > 0 && it < duration }
 
     /** Adegan dengan pembagian yang sama seperti [SpeakerTrack.build]. */
     fun shots(): List<Shot> {
@@ -331,6 +348,6 @@ data class SpeakerTrackData(
             val shot = shots.firstOrNull { time >= it.from && time < it.to } ?: shots.last()
             shot.manual ?: a.samples[index]
         }
-        return copy(keyframes = SpeakerTrack.build(samples, a.interval, duration, cuts()))
+        return copy(keyframes = SpeakerTrack.build(samples, a.interval, duration, cuts(), switches()))
     }
 }

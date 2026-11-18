@@ -1,5 +1,12 @@
 package id.clipmi.android.ui.editor
 
+import androidx.compose.foundation.layout.imePadding
+import androidx.compose.foundation.layout.height
+import androidx.compose.ui.geometry.CornerRadius
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -67,7 +74,6 @@ private data class EditorTab(val label: String, val icon: ImageVector)
 
 private val TABS = listOf(
     EditorTab("Potong", ClipMiIcons.Scissors),
-    EditorTab("Teks", ClipMiIcons.Edit),
     EditorTab("Crop", ClipMiIcons.Image),
     EditorTab("Gaya", ClipMiIcons.Sliders),
     EditorTab("Hook", ClipMiIcons.Sparkle),
@@ -113,7 +119,9 @@ private fun Editor(container: AppContainer, state: EditorState, onClose: () -> U
     val scope = rememberCoroutineScope()
     val notifier = LocalNotifier.current
     val c = ClipMi.colors
+    // 0 Potong, 1 Crop, 2 Gaya, 3 Hook, 4 Sampul.
     var tab by rememberSaveable { mutableStateOf(0) }
+    if (tab !in TABS.indices) tab = 0
     val player = remember { ExoPlayer.Builder(context).build() }
     var position by remember { mutableDoubleStateOf(state.snapshot.clip.startTime) }
     var playing by remember { mutableStateOf(false) }
@@ -156,7 +164,8 @@ private fun Editor(container: AppContainer, state: EditorState, onClose: () -> U
 
     val seek: (Double) -> Unit = { seconds -> player.seekTo((seconds * 1000).toLong()); position = seconds }
 
-    Column(Modifier.fillMaxSize()) {
+    // Saat keyboard terbuka (teks hook, teks sampul), seluruh editor menyusut supaya kolom isian tetap terlihat.
+    Column(Modifier.fillMaxSize().imePadding()) {
         // Bilah atas: tutup, judul, urungkan/ulangi, render.
         Row(Modifier.statusBarsPadding().padding(start = 8.dp, end = 12.dp, top = 4.dp, bottom = 4.dp), verticalAlignment = Alignment.CenterVertically) {
             IconCircle(ClipMiIcons.Close, "Tutup editor", onClose, background = Color.Transparent, border = false)
@@ -186,10 +195,12 @@ private fun Editor(container: AppContainer, state: EditorState, onClose: () -> U
             state, player,
             modifier = Modifier.fillMaxWidth().weight(1f).padding(horizontal = 16.dp, vertical = 4.dp),
             // Di tab Hook, hook selalu terlihat walau video tidak di waktu tampilnya.
-            hookTime = if (tab == 4 && !playing) hookLayout.start + lead + minOf(0.6, (hookLayout.end - hookLayout.start) / 2) else null,
+            hookTime = if (tab == 3 && !playing) hookLayout.start + lead + minOf(0.6, (hookLayout.end - hookLayout.start) / 2) else null,
             gesture = when (tab) {
-                2 -> PreviewGesture { pan, zoom, _, size, overflow -> crop(state, pan.x / size.width, pan.y / size.height, zoom, overflow, player.currentPosition / 1000.0) }
-                4 -> PreviewGesture { _, _, centroid, size, _ ->
+                1 -> PreviewGesture { pan, zoom, _, size, overflow -> crop(state, pan.x / size.width, pan.y / size.height, zoom, overflow, player.currentPosition / 1000.0) }
+                // Gaya bingkai sedang diedit dan punya logo: seret di pratinjau untuk memindah logo (posisi bebas 0–100).
+                2 -> if (state.frameDraft?.logoPath != null) PreviewGesture { _, _, centroid, size, _ -> moveLogo(state, centroid.x / size.width, centroid.y / size.height) } else null
+                3 -> PreviewGesture { _, _, centroid, size, _ ->
                     val x = (centroid.x / size.width * 100).roundToInt().coerceIn(0, 100)
                     val y = (centroid.y / size.height * 100).roundToInt().coerceIn(0, 100)
                     state.drag { it.copy(hookLayout = HookLayout.merge(it.hookLayout, JsonObject(mapOf("x" to JsonPrimitive(x), "y" to JsonPrimitive(y))))) }
@@ -199,10 +210,10 @@ private fun Editor(container: AppContainer, state: EditorState, onClose: () -> U
             onGestureEnd = { state.endDrag() },
         )
 
-        // Putar/jeda dan waktu di video hasil.
-        Row(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 6.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+        // Putar/jeda (ikon putih tanpa lingkaran), bilah geser tipis di waktu video hasil, dan waktu.
+        Row(Modifier.fillMaxWidth().padding(start = 8.dp, end = 16.dp, top = 2.dp, bottom = 2.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             Box(
-                Modifier.size(44.dp).clip(CircleShape).background(c.text).clickable(role = Role.Button, onClickLabel = if (playing) "Jeda" else "Putar") {
+                Modifier.size(44.dp).clip(RoundedCornerShape(12.dp)).clickable(role = Role.Button, onClickLabel = if (playing) "Jeda" else "Putar") {
                     if (player.isPlaying) player.pause() else {
                         val clip = state.snapshot.clip
                         if (position < clip.startTime || position >= clip.endTime - 0.05) seek(clip.startTime)
@@ -210,22 +221,17 @@ private fun Editor(container: AppContainer, state: EditorState, onClose: () -> U
                     }
                 },
                 contentAlignment = Alignment.Center,
-            ) { Icon(if (playing) ClipMiIcons.Pause else ClipMiIcons.Play, null, tint = EDITOR_BG, modifier = Modifier.size(20.dp)) }
+            ) { Icon(if (playing) ClipMiIcons.Pause else ClipMiIcons.Play, null, tint = Color.White, modifier = Modifier.size(24.dp)) }
             val spec = state.spec()
-            val t = ClipCuts.map(spec.cutRanges(), spec.startTime, position.coerceIn(spec.startTime, spec.endTime))
-            Text("${Timecode.format(t)} / ${Timecode.format(spec.outputDuration())}", style = MaterialTheme.typography.labelMedium, color = c.textMuted)
-            Text(
-                when (tab) {
-                    2 -> if (state.speakerKeyframes() != null) "Geser video untuk adegan ini · cubit untuk zoom" else "Geser video untuk posisi · cubit untuk zoom"
-                    4 -> "Seret di pratinjau untuk memindah hook"
-                    else -> ""
-                },
-                style = MaterialTheme.typography.bodySmall,
-                color = c.textMuted,
+            val cuts = spec.cutRanges()
+            val total = spec.outputDuration()
+            val t = ClipCuts.map(cuts, spec.startTime, position.coerceIn(spec.startTime, spec.endTime))
+            SeekBar(
+                fraction = if (total > 0) (t / total).toFloat() else 0f,
                 modifier = Modifier.weight(1f),
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
+                onSeek = { f -> seek(sourceTime(cuts, spec.startTime, spec.endTime, f * total)) },
             )
+            Text("${Timecode.format(t)} / ${Timecode.format(total)}", style = MaterialTheme.typography.labelMedium, color = c.textMuted)
         }
 
         // Panel tab.
@@ -239,12 +245,11 @@ private fun Editor(container: AppContainer, state: EditorState, onClose: () -> U
         ) {
             Box(Modifier.weight(1f).fillMaxWidth()) {
                 when (tab) {
-                    0 -> TrimPanel(state, position, seek)
-                    1 -> TextPanel(state, seek)
-                    2 -> CropPanel(state, position, seek)
-                    3 -> StylePanel(state)
-                    4 -> HookPanel(state)
-                    5 -> CoverPanel(state, position)
+                    0 -> TrimPanel(state, position, playing, seek)
+                    1 -> CropPanel(state, position, seek)
+                    2 -> StylePanel(state)
+                    3 -> HookPanel(state)
+                    4 -> CoverPanel(state, position)
                 }
             }
             Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 6.dp)) {
@@ -305,3 +310,63 @@ private fun crop(state: EditorState, dx: Float, dy: Float, zoom: Float, overflow
         )
     }
 }
+
+/** Bilah geser tipis (2 dp) dengan bulatan putih; ketuk atau seret untuk pindah. [fraction] 0–1. */
+@Composable
+private fun SeekBar(fraction: Float, modifier: Modifier, onSeek: (Float) -> Unit) {
+    val c = ClipMi.colors
+    androidx.compose.foundation.Canvas(
+        modifier
+            .height(28.dp)
+            .pointerInput(Unit) { detectTapGestures { onSeek((it.x / size.width).coerceIn(0f, 1f)) } }
+            .pointerInput(Unit) { detectHorizontalDragGestures { change, _ -> onSeek((change.position.x / size.width).coerceIn(0f, 1f)) } },
+    ) {
+        val y = size.height / 2
+        val track = 2.dp.toPx()
+        val x = size.width * fraction.coerceIn(0f, 1f)
+        drawRoundRect(c.line, topLeft = Offset(0f, y - track / 2), size = Size(size.width, track), cornerRadius = CornerRadius(track))
+        drawRoundRect(Color.White.copy(alpha = 0.8f), topLeft = Offset(0f, y - track / 2), size = Size(x, track), cornerRadius = CornerRadius(track))
+        drawCircle(Color.White, radius = 6.dp.toPx(), center = Offset(x, y))
+    }
+}
+
+/** Waktu di video sumber untuk detik ke-[output] di video hasil (bagian yang dibuang dilewati). */
+private fun sourceTime(cuts: List<id.clipmi.core.render.Range>, start: Double, end: Double, output: Double): Double {
+    var left = output
+    for ((from, to) in ClipCuts.kept(cuts, start, end)) {
+        val length = to - from
+        if (left <= length) return from + left
+        left -= length
+    }
+    return end
+}
+
+/**
+ * Pindah logo gaya bingkai yang sedang diedit ke titik jari ([fx], [fy] = pecahan layar): jari = tengah logo, dihitung
+ * balik dari rumus letak render (tepi area jangkar di 0, tepi seberang di 100).
+ */
+private fun moveLogo(state: EditorState, fx: Float, fy: Float) {
+    val draft = state.frameDraft ?: return
+    val composition = state.composition()
+    val canvas = composition.canvas
+    val area = composition.anchorArea
+    val logo = composition.logo
+    val (iw, ih) = logoSizes.getOrPut(draft.logoPath ?: return) {
+        val file = state.container.workspace.file(draft.logoPath) ?: return
+        val options = android.graphics.BitmapFactory.Options().apply { inJustDecodeBounds = true }
+        android.graphics.BitmapFactory.decodeFile(file.path, options)
+        maxOf(1, options.outWidth) to maxOf(1, options.outHeight)
+    }
+    val lh = logo.width.toDouble() * ih / iw
+    fun percent(center: Double, size: Double, start: Int, end: Int, total: Int): Int {
+        val room = total - size - start - end
+        if (room <= 0) return 50
+        return ((center - size / 2 - start) / room * 100).roundToInt().coerceIn(0, 100)
+    }
+    val x = percent(fx.toDouble() * canvas.width, logo.width.toDouble(), area.left, area.right, canvas.width)
+    val y = percent(fy.toDouble() * canvas.height, lh, area.top, area.bottom, canvas.height)
+    if (x != draft.logoX || y != draft.logoY) state.editFrame(draft.copy(logoX = x, logoY = y))
+}
+
+/** Ukuran gambar logo (lebar, tinggi) per path, supaya tidak dibaca ulang di tiap gerakan jari. */
+private val logoSizes = HashMap<String, Pair<Int, Int>>()

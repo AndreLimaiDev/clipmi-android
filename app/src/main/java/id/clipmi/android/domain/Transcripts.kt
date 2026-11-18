@@ -7,6 +7,7 @@ import id.clipmi.android.data.TranscriptStatus
 import id.clipmi.android.data.VideoStatus
 import id.clipmi.core.transcript.CorrectionApplier
 import id.clipmi.core.transcript.Segment
+import id.clipmi.core.transcript.SegmentEditor
 import id.clipmi.core.transcript.TranscriptParser
 import id.clipmi.core.transcript.TranscriptTidier
 import id.clipmi.core.transcript.Word
@@ -82,6 +83,21 @@ class Transcripts(private val db: AppDatabase) {
             total += count
         }
         return projects to total
+    }
+
+    /**
+     * Ubah teks satu segmen (waktu kata yang tidak berubah dipertahankan, lihat [SegmentEditor]). Klip yang memuat
+     * segmen ini ditandai berubah supaya hasil render lamanya terlihat. Mengembalikan false bila teks kosong.
+     */
+    suspend fun editSegment(segmentId: Long, text: String): Boolean {
+        val entity = db.segments().find(segmentId) ?: return false
+        val edited = SegmentEditor.edit(entity.toSegment(), text) ?: return false
+        if (edited.text == entity.text) return true
+        db.withTransaction {
+            db.segments().update(entity.copy(text = edited.text, words = encode(edited.words), wordsEstimated = edited.wordsEstimated))
+            db.clips().touchRange(entity.projectId, entity.startTime, entity.endTime)
+        }
+        return true
     }
 
     fun decodeWords(words: String?): List<Word> = words?.let { json.decodeFromString(wordsSerializer, it) }.orEmpty()

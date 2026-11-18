@@ -135,3 +135,107 @@ unggah (akun terbit ringkas; akun menunggu dengan menu ⋯), Statistik (kartu po
   atas sesuai permintaan.
 - Pola pesan (snackbar untuk konfirmasi, banner untuk yang perlu tindakan) belum diseragamkan di semua layar.
 - Belum dicoba: menu ⋯ kandidat dan akun, tombol Jadwalkan setelah render, Isi otomatis dari antrean baru.
+
+## Tahap 5: masukan pengguna untuk halaman Jadwal
+
+- **Kalender bulan melayang**: ketuk label minggu untuk membuka kalender bulan sebagai popup di bawahnya (seperti
+  menu ⋯), tanpa menggeser agenda. Bulan bisa digeser di dalam popup; ketuk tanggal untuk memilih, ketuk di luar
+  untuk menutup.
+- **Antrean tertutup secara bawaan**: satu baris "Antrean" dengan ringkasan jumlah (siap dijadwalkan · belum
+  dirender) dan panah; ketuk untuk membuka.
+- **Hierarki antrean**: subjudul kecil redup ("Siap dijadwalkan · n", "Terpilih, belum dirender · n"), tiap klip
+  belum dirender jadi kartu sendiri dengan gambar kecil (seperti baris agenda), jarak antarkartu 12dp.
+- **Hari kosong**: kartu lembut bergaris putus-putus (`DashedCard`) dengan "+ Jadwalkan klip"; tombol Jadwalkan di
+  judul hari hanya tampil bila hari itu sudah ada jadwalnya.
+- **Filter akun**: baris chip digeser sampai tepi layar (`Modifier.bleed()`), juga di Statistik. Baris chip lain
+  yang masih berhenti di gutter (Performa, Hasil render, editor, gaya) menyusul saat halaman itu dibahas.
+- Dicek di HP: kalender melayang dan pilih tanggal, hari kosong, antrean tertutup lalu dibuka (20 belum dirender,
+  durasi kini di depan judul project). Kelompok "Siap dijadwalkan" belum terlihat karena antrean siap sedang kosong.
+- Revisi: garis putus-putus 1dp; kartu hari kosong hanya "+ Jadwalkan klip" (seluruh kartu bisa diketuk); kalender
+  bulan jadi lapisan di pohon yang sama (bukan `Popup` yang membuat jendela baru) dengan bayangan 6dp.
+
+## Tahap 6: detail jadwal (Siap unggah)
+
+- Gambar kecil video bisa diketuk untuk memutar (ikon ▶); judul project dan tombol "Putar video" dihapus.
+- Lencana progres "n/m akun terbit" (atau Terlewat/Semua terbit) menggantikan "Terjadwal".
+- Teks unggahan: Judul, Caption, Hashtag masing-masing dengan ikon salin, plus satu tombol "Salin semua".
+- Kartu akun menunggu hanya berisi Bagikan ke <platform> dan Terbit. Terbit membuka lembar "Terbit di <akun>"
+  dengan kolom link opsional (tombol Tempel dari clipboard), "Tanpa link", dan "Simpan".
+- Label Bagikan selalu menyebut platform; bila aplikasinya tidak terpasang, terbuka menu bagikan biasa.
+- Pesan dipersingkat ("Terlewat sejak …", "File hasil render tidak ditemukan.", "Klip diubah setelah dirender.").
+- Dicek di HP: tampilan jadwal 19 Nov dan lembar Terbit (ditutup tanpa menyimpan). Simpan link, Tempel, dan kartu
+  akun yang sudah terbit belum dicoba.
+- Kartu akun terbit: satu baris "Terbit 18 Nov · 369 tayangan" dengan lencana "Terbit" dan menu ⋯ (Ubah/Tambah
+  link, Isi statistik manual, Kembalikan ke Menunggu). Ketuk untuk empat angka kecil, link satu baris (ketuk untuk
+  membuka), dan "Diperbarui … · sumber" dengan ikon ambil ulang. Kolom link, kalimat statistik panjang, dan tombol
+  terpisah dihapus. Akun dilewati: lencana "Dilewati" dan menu ⋯. Dicek di HP (jadwal 2); Simpan link belum dicoba.
+
+## Tahap 7: detail project
+
+- Bagian atas: ikon hapus di atas video diganti menu ⋯ (Hapus project). Keterangan "YouTube · 49:59" dengan lencana
+  kecil asal transkrip (Otomatis, Manual, SRT, VTT, Whisper, API) dan ikonnya; jumlah segmen dihapus.
+- Transkrip: Terapkan kamus, Impor SRT/VTT, dan Transkripsi ulang di menu ⋯ samping kolom cari (tampil langsung
+  hanya bila belum ada transkrip atau transkripsi berjalan). Kalimat petunjuk dihapus.
+- Klip: kartu AI jadi dua tombol kecil (Analisis lagi dengan konfirmasi token, Lewat chat AI) bila klip sudah ada.
+  Filter kosong disembunyikan, petunjuk geser dihapus.
+- Kartu klip: skor dalam kotak membulat, judul, ringkasan (alasan AI), durasi dan lencana status. Ketuk untuk detail
+  (rentang waktu, hook, aksi Putar · Editor · Render · ⋯). Tombol aksi kotak 12dp (`ActionChip`, `primary`).
+  Tombol Pilih dihapus: geser kanan = Pilih/Pulihkan, kiri = Buang/Batal pilih; juga ada di menu ⋯.
+- Bug geser: daftar klip tanpa kunci + status `SwipeToDismissBox` yang tertinggal di posisi yang sama membuat klip
+  berikutnya ikut terpilih/terbuang. Diganti geser buatan sendiri (`draggable`) dengan `key(clip.id)`; aksi hanya
+  jalan bila dilepas setelah lewat separuh lebar kartu (latar jadi warna penuh dan HP bergetar sebagai tanda).
+- Dicek di HP: geser pendek tidak berbuat apa-apa, geser penuh hanya mengubah satu kartu (10 → 9 → 10 terpilih),
+  kartu dibuka menampilkan hook dan aksi. Analisis lagi, Render, dan menu ⋯ kartu belum dicoba.
+- Edit teks transkrip: tekan lama satu segmen → ikon pensil di bilah pilihan → lembar "Edit teks". `SegmentEditor`
+  (core) menjaga waktu kata yang tidak berubah, membagi ulang hanya kata yang berubah di rentang kata lamanya, dan
+  kata sisipan tanpa celah berbagi waktu dengan tetangganya. Klip yang tumpang tindih ditandai berubah (`touchRange`,
+  "Hasil lama"). Tes `SegmentEditorTest` (7) lulus. Dicek di HP: tambah kata lalu hapus lagi pada segmen 00:11;
+  teks dan waktu kata kembali persis seperti semula.
+
+## Tahap 8: editor
+
+- **Umum**: tombol putar berupa ikon putih tanpa lingkaran; bilah geser tipis untuk pindah di video hasil; petunjuk
+  di samping tombol putar dan judul panel dihapus. Semua slider editor: jalur 4dp dan bulatan putih
+  (`sliderColors`, `SliderThumb`). Editor menyusut saat keyboard terbuka (`imePadding`).
+- **Potong + Teks digabung** (tab Teks dihapus; tab: Potong · Crop · Gaya · Hook · Sampul): timeline selebar layar
+  (ketuk = lompat, tahan-geser = telusuri; ujung tidak diseret lagi) dengan tombol ◀ ▶ mulai di kiri dan selesai di
+  kanan (ketuk 0,1 dtk, tahan = terus bergeser makin cepat). Chip "Mulai di sini" / "Selesai di sini" untuk
+  perpindahan jauh, Buang jeda, Tempel ke batas kata, + Kalimat. Di bawahnya teks klip yang berjalan mengikuti
+  video (kalimat aktif bergaris aksen, kata yang terdengar putih), dengan kartu Intro di awal dan Outro di akhir
+  (lembar pilih dari pustaka; bagian intro/outro di Sampul dihapus).
+- **Crop**: kartu adegan ringkas ("5 · 00:29", titik kuning bila diatur manual) dan ikut bergeser mengikuti video;
+  keterangan panjang dihapus; tombol kotak.
+- **Gaya**: ikon pensil kecil di pojok kartu terpilih (tidak menutupi contoh).
+- **Hook**: tombol Simpan teks dihapus; tersimpan 0,8 dtk setelah berhenti mengetik dengan centang hijau sebentar.
+- **Sampul**: tombol kotak, petunjuk dihapus. Judul sampul punya model (kolom baru `cover_layout`, skema 9, khusus
+  Android): Klasik (sama dengan desktop, bawaan), Editorial, Kapital tebal, Pop, Sorot kotak, Tulisan tangan
+  (`CoverTitle` di core, ASS di atas frame jadi). Teks sampul (Enter = baris, `*kata*` = sorotan; tanpa bintang =
+  kata kunci), warna sorotan, posisi, ukuran. Huruf baru: Instrument Serif Italic (OFL) dan Permanent Marker
+  (Apache 2.0) di `assets/fonts` beserta lisensinya.
+- Tes: `CoverTitleTest` (5) lulus. Dicek di HP (klip 55): teks berjalan, kelima model sampul dirender (lalu
+  dikembalikan ke Klasik dan judul mati), kartu adegan ikut video, hook tersimpan sendiri (lalu dikembalikan),
+  kolom hook di atas keyboard. Belum dicoba: tombol ◀ ▶ ditahan, lembar Intro/Outro, Mulai/Selesai di sini.
+- Rentang klip 55 berubah ke 34:03,2–35:50,5 pada 18 Nov 22.37, bukan dari pengujian ini.
+- Revisi: satu komponen slider untuk seluruh aplikasi (`ClipMiSlider`, `ClipMiRangeSlider` di Components: jalur
+  4dp, bulatan putih) dipakai di editor, Gaya subtitle, dan Gaya bingkai (`IntSlider`).
+- Logo bingkai: pratinjau editor kini menggambar logo (posisi sama dengan render). Saat gaya bingkai diedit di
+  editor, logo diseret langsung di pratinjau (posisi bebas 0–100). Kotak "Posisi logo"/"Posisi watermark" jadi
+  layar mini 9:16: ketuk titik jangkar untuk menempel, seret titik hijau untuk posisi bebas (juga di Pengaturan).
+  Dicek di HP: logo ikut jari, slider tipis; perubahan uji dibuang (Batal → Buang).
+
+## Tahap 9: transisi adegan ikuti pembicara
+
+Penyebab perpindahan adegan terasa patah: (1) pergantian pembicara di gambar kamera yang sama dibuat loncat seperti
+potongan kamera; (2) potongan kamera dicari di 15 gambar/detik sehingga titik pindah crop bisa meleset 1–2 gambar;
+(3) pratinjau menghitung crop dari jam pemutar yang bisa berbeda ±60 ms dari gambar yang tampil.
+
+- `SpeakerTrackData.Analysis.switches` (baru, kosong untuk deteksi lama) menyimpan pergantian pembicara terpisah dari
+  potongan kamera. `SpeakerTrack.build(..., switches)`: di pergantian pembicara crop menoleh 0,45 dtk dengan
+  smoothstep (6 keyframe); potongan kamera tetap pindah langsung. Paritas desktop tidak berubah (tes lulus).
+- Potongan kamera dicari di setiap gambar video (fps asli, maksimal ±30; 15 untuk klip > 5 menit); jendela pembanding
+  `cameraCuts` mengikuti fps.
+- Pratinjau: `ShownFrameClock` memakai waktu presentasi gambar dari `VideoFrameMetadataListener` (tanpa offset di
+  Media3 1.11.1, diperiksa di HP), jatuh ke jam pemutar bila selisih > 1 dtk.
+- Dicek di HP: klip 55 → 0 potongan kamera, 8 ganti pembicara (semua adegannya pergantian pembicara, kini halus);
+  klip 30 → 2 potongan kamera (28,02 dan 44,40 dtk, sebelumnya 28,03/44,43) dan 2 ganti pembicara.
+- Klip yang dideteksi sebelum perubahan ini perlu "Deteksi ulang" agar pergantian pembicaranya halus.

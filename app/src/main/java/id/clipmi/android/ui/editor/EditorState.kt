@@ -57,6 +57,7 @@ data class EditorSnapshot(
     val coverPath: String? = null,
     val coverTitle: Boolean = false,
     val coverInVideo: Boolean = true,
+    val coverLayout: String? = null,
     val introId: Long? = null,
     val outroId: Long? = null,
     /** Posisi crop manual per adegan saat mengikuti pembicara (waktu project). */
@@ -235,7 +236,7 @@ class EditorState(
         startTime = s.clip.startTime, endTime = s.clip.endTime, cuts = s.clip.cuts.toJson()?.toString(), hook = s.hook,
         showHookOverlay = s.showHookOverlay, hookLayout = s.hookLayout?.toString(), captionStyleId = s.captionStyleId, frameStyleId = s.frameStyleId,
         cropPosition = s.cropPosition, cropZoom = s.cropZoom, cropY = s.cropY, coverTime = s.coverTime, coverPath = s.coverPath,
-        coverTitle = s.coverTitle, coverInVideo = s.coverInVideo, introId = s.introId, outroId = s.outroId,
+        coverTitle = s.coverTitle, coverInVideo = s.coverInVideo, coverLayout = s.coverLayout, introId = s.introId, outroId = s.outroId,
         speakerTrack = storedTrack(s)?.let(::encodeSpeakerTrack),
     )
 
@@ -314,7 +315,7 @@ class EditorState(
                     s.clip.subtitleEdited, s.captionStyleId, s.frameStyleId, s.cropPosition, s.cropZoom, s.cropY,
                     s.hook, s.showHookOverlay, s.hookLayout?.toString(),
                     s.keywords.takeIf { it.isNotEmpty() }?.let { container.analysis.encodeList(it) },
-                    s.coverTime, s.coverPath, s.coverTitle, s.coverInVideo, s.introId, s.outroId,
+                    s.coverTime, s.coverPath, s.coverTitle, s.coverInVideo, s.coverLayout, s.introId, s.outroId,
                 )
                 if (speakerBase != null) container.speakers.save(entity.id, storedTrack(s))
             }
@@ -366,6 +367,7 @@ class EditorState(
                 coverPath = clip.coverPath,
                 coverTitle = clip.coverTitle,
                 coverInVideo = clip.coverInVideo,
+                coverLayout = clip.coverLayout,
                 introId = clip.introId,
                 outroId = clip.outroId,
                 speakerManual = decodeSpeakerTrack(clip.speakerTrack)?.manual.orEmpty(),

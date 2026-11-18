@@ -191,7 +191,7 @@ fun StyleEditPanel(state: EditorState, kind: String, onClose: () -> Unit) {
             } else {
                 val draft = frameDraft ?: return@Column
                 Field(draft.name, { v -> state.editFrame(draft.copy(name = v)); nameError = null }, label = "Nama gaya", singleLine = true, error = nameError)
-                FrameStyleFields(container, draft, { change -> state.frameDraft?.let { state.editFrame(change(it)) } }, busy, imageError, pick)
+                FrameStyleFields(container, draft, { change -> state.frameDraft?.let { state.editFrame(change(it)) } }, busy, imageError, pick, inEditor = true)
             }
         }
     }

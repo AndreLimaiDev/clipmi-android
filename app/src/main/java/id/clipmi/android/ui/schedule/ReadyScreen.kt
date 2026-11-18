@@ -1,5 +1,10 @@
 package id.clipmi.android.ui.schedule
 
+import android.content.Intent
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.ui.draw.clip
+import androidx.compose.foundation.clickable
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.draw.rotate
 import androidx.compose.material3.DropdownMenuItem
@@ -10,7 +15,6 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
-import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -135,25 +139,33 @@ fun ReadyScreen(container: AppContainer, scheduleId: Long, onBack: () -> Unit, o
             verticalArrangement = Arrangement.spacedBy(14.dp),
         ) {
             Row(horizontalArrangement = Arrangement.spacedBy(14.dp)) {
-                ClipThumb(clip, Modifier.width(72.dp).height(128.dp))
-                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                // Ketuk gambar untuk memutar video hasil render.
+                Box(contentAlignment = Alignment.Center) {
+                    ClipThumb(clip, Modifier.width(72.dp).height(128.dp).clip(RoundedCornerShape(10.dp)).clickable(enabled = fileOk == true, onClickLabel = "Putar video") { openVideo(context, clip.outputPath) })
+                    if (fileOk == true) {
+                        Box(Modifier.size(34.dp).clip(CircleShape).background(Color.Black.copy(alpha = 0.45f)), contentAlignment = Alignment.Center) {
+                            Icon(ClipMiIcons.Play, contentDescription = null, tint = Color.White, modifier = Modifier.size(20.dp))
+                        }
+                    }
+                }
+                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Text(s.title, style = MaterialTheme.typography.titleMedium, color = c.text, maxLines = 3, overflow = TextOverflow.Ellipsis)
-                    s.project?.let { Text(it.title, style = MaterialTheme.typography.bodySmall, color = c.textMuted, maxLines = 2, overflow = TextOverflow.Ellipsis) }
                     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                         Icon(ClipMiIcons.Clock, contentDescription = null, tint = c.textMuted, modifier = Modifier.size(16.dp))
                         Text(IdDate.weekdayDayMonthTime(s.at), style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.SemiBold), color = c.textBody)
                     }
+                    val active = s.targets.filter { it.row.status != TargetStatus.SKIPPED }
+                    val published = active.count { it.row.status == TargetStatus.PUBLISHED }
                     when {
-                        s.state == ScheduleState.Published -> StatusBadge("Sudah terbit semua", Tone.Good)
-                        s.isOverdue(now) -> StatusBadge("Terlewat", Tone.Bad)
-                        s.state == ScheduleState.Partial -> StatusBadge("Sebagian terbit", Tone.Busy)
-                        else -> StatusBadge("Terjadwal", Tone.Idle)
+                        s.state == ScheduleState.Published -> StatusBadge("Semua terbit", Tone.Good)
+                        s.isOverdue(now) -> StatusBadge("Terlewat · $published/${active.size} terbit", Tone.Bad)
+                        else -> StatusBadge("$published/${active.size} akun terbit", if (published > 0) Tone.Busy else Tone.Idle)
                     }
                 }
             }
 
             if (s.isOverdue(now)) {
-                Notice(Tone.Bad, "Terlewat sejak ${IdDate.weekdayDayMonthTime(s.at)}. Unggah sekarang, atau pindahkan ke slot berikutnya.") {
+                Notice(Tone.Bad, "Terlewat sejak ${IdDate.weekdayDayMonthTime(s.at)}.") {
                     SecondaryButton("Jadwalkan ulang", {
                         scope.launch { container.scheduler.reschedule(s.id)?.let { (id, message) -> notifier.show(message); if (id != s.id) onOpened(id) } }
                     }, height = 40.dp)
@@ -162,8 +174,8 @@ fun ReadyScreen(container: AppContainer, scheduleId: Long, onBack: () -> Unit, o
             if (s.state != ScheduleState.Published) {
                 val busy = clip.render == RenderStatus.Queued || clip.render == RenderStatus.Rendering
                 val warnings = listOfNotNull(
-                    if (fileOk == false && !busy) "File hasil render tidak ditemukan. Render ulang klipnya." else null,
-                    if (clip.changedAfterRender && !busy) "Klip diubah setelah dirender. Render ulang supaya videonya mengikuti perubahan." else null,
+                    if (fileOk == false && !busy) "File hasil render tidak ditemukan." else null,
+                    if (clip.changedAfterRender && !busy) "Klip diubah setelah dirender." else null,
                 )
                 warnings.forEach { warning ->
                     Notice(Tone.Warn, warning) {
@@ -179,22 +191,16 @@ fun ReadyScreen(container: AppContainer, scheduleId: Long, onBack: () -> Unit, o
                 }
             }
 
-            ClipMiCard {
-                Text("Teks unggahan", style = MaterialTheme.typography.titleSmall, color = c.text)
-                if (caption.isNotBlank()) Text(caption, style = MaterialTheme.typography.bodySmall, color = c.textBody, maxLines = 6, overflow = TextOverflow.Ellipsis)
-                if (hashtags.isNotEmpty()) Text(hashtags.joinToString(" "), style = MaterialTheme.typography.bodySmall, color = c.accent)
-                FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    listOf(
-                        "Salin judul" to s.title,
-                        "Salin caption" to caption,
-                        "Salin hashtag" to hashtags.joinToString(" "),
-                        "Salin semua" to uploadText,
-                    ).forEach { (label, text) ->
-                        ActionChip(label, enabled = text.isNotBlank(), onClick = { if (copy(context, text)) notifier.show("Tersalin.") })
-                    }
-                    if (fileOk == true) ActionChip("Putar video", onClick = { openVideo(context, clip.outputPath) })
+            // Teks yang ditempel di aplikasi tujuan: tiap bagian bisa disalin sendiri, atau sekaligus.
+            ClipMiCard(spacing = 12.dp) {
+                CopyBlock("Judul", s.title) { Text(s.title, style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.SemiBold), color = c.text) }
+                if (caption.isNotBlank()) CopyBlock("Caption", caption) { Text(caption, style = MaterialTheme.typography.bodySmall, color = c.textBody, maxLines = 6, overflow = TextOverflow.Ellipsis) }
+                if (hashtags.isNotEmpty()) {
+                    val tags = hashtags.joinToString(" ")
+                    CopyBlock("Hashtag", tags) { Text(tags, style = MaterialTheme.typography.bodySmall, color = c.accent) }
                 }
                 s.entity.note?.let { Text("Catatan: $it", style = MaterialTheme.typography.bodySmall, color = c.warn) }
+                SecondaryButton("Salin semua", { if (copy(context, uploadText)) notifier.show("Tersalin.") }, icon = ClipMiIcons.Copy, height = 44.dp, modifier = Modifier.fillMaxWidth())
             }
 
             s.targets.forEach { target ->
@@ -228,7 +234,20 @@ private fun Notice(tone: Tone, text: String, action: @Composable () -> Unit = {}
     }
 }
 
-@OptIn(ExperimentalLayoutApi::class)
+/** Satu bagian teks unggahan (label kecil, isi, ikon salin). */
+@Composable
+private fun CopyBlock(label: String, text: String, content: @Composable () -> Unit) {
+    val context = LocalContext.current
+    val notifier = LocalNotifier.current
+    Row(verticalAlignment = Alignment.Top, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+            Text(label, style = MaterialTheme.typography.labelMedium, color = ClipMi.colors.textMuted)
+            content()
+        }
+        IconCircle(ClipMiIcons.Copy, "Salin ${label.lowercase()}", { if (copy(context, text)) notifier.show("$label tersalin.") }, size = 36.dp, background = Color.Transparent, border = false)
+    }
+}
+
 @Composable
 private fun TargetCard(
     container: AppContainer,
@@ -246,22 +265,26 @@ private fun TargetCard(
     val notifier = LocalNotifier.current
     val row = target.row
     val account = target.account
-    var link by remember(row.id, row.url) { mutableStateOf(row.url.orEmpty()) }
-    var linkError by remember { mutableStateOf<String?>(null) }
+    var sheet by remember { mutableStateOf(false) }
     val latest = stats.lastOrNull()
-    val app = remember(account.platform) { installedApp(context, account.platform) }
+    val pending = row.status == TargetStatus.PENDING
+    val published = row.status == TargetStatus.PUBLISHED
+    val publishedAt = row.publishedAt?.let { Wall.of(it) }
 
-    // Akun yang sudah terbit/dilewati diringkas jadi satu baris (link dan angka); ketuk untuk detail.
-    var expanded by remember(row.id, row.status) { mutableStateOf(row.status == TargetStatus.PENDING) }
+    // Semua kartu: titik akun, nama, lencana, menu ⋯. Akun menunggu: Bagikan + Terbit. Akun terbit: ketuk untuk angka.
+    var expanded by remember(row.id, row.status) { mutableStateOf(false) }
 
-    ClipMiCard(onClick = if (row.status != TargetStatus.PENDING) ({ expanded = !expanded }) else null) {
+    ClipMiCard(onClick = if (published) ({ expanded = !expanded }) else null) {
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
             AccountDot(account.color, 12.dp)
             Column(Modifier.weight(1f)) {
                 Text(account.name, style = MaterialTheme.typography.titleSmall, color = c.text)
                 Text(
-                    if (row.status == TargetStatus.PUBLISHED && latest != null) {
-                        "${PostStats.number(latest.views)} tayangan · ${PostStats.number(latest.likes)} suka"
+                    if (published) {
+                        listOfNotNull(
+                            publishedAt?.let { "Terbit ${IdDate.dayMonth(it)}" },
+                            latest?.views?.let { "${PostStats.number(it)} tayangan" } ?: if (row.url == null) "belum ada link" else null,
+                        ).joinToString(" · ")
                     } else {
                         listOfNotNull(Platforms.label(account.platform), account.handle).joinToString(" · ")
                     },
@@ -272,80 +295,143 @@ private fun TargetCard(
                 )
             }
             StatusBadge(
-                TargetStatus.LABELS[row.status] ?: row.status,
+                when (row.status) { TargetStatus.PUBLISHED -> "Terbit"; TargetStatus.SKIPPED -> "Dilewati"; else -> "Menunggu" },
                 when (row.status) { TargetStatus.PUBLISHED -> Tone.Good; TargetStatus.SKIPPED -> Tone.Idle; else -> Tone.Warn },
             )
-            if (row.status == TargetStatus.PENDING) {
-                Box {
-                    var menu by remember { mutableStateOf(false) }
-                    IconCircle(ClipMiIcons.More, "Lainnya", { menu = true }, size = 36.dp, background = Color.Transparent, border = false)
-                    DropdownMenu(menu, onDismissRequest = { menu = false }, containerColor = c.card) {
+            Box {
+                var menu by remember { mutableStateOf(false) }
+                IconCircle(ClipMiIcons.More, "Lainnya", { menu = true }, size = 36.dp, background = Color.Transparent, border = false)
+                DropdownMenu(menu, onDismissRequest = { menu = false }, containerColor = c.card) {
+                    if (pending) {
                         DropdownMenuItem(text = { Text("Lewati akun ini") }, onClick = { menu = false; scope.launch { container.scheduler.markTarget(row.id, TargetStatus.SKIPPED) } })
-                        // Statistik manual (misalnya angka dari aplikasi Instagram) sekaligus menandai akun ini terbit, sama dengan desktop.
-                        DropdownMenuItem(text = { Text("Isi statistik manual") }, onClick = { menu = false; onManual() })
+                    }
+                    if (published) {
+                        DropdownMenuItem(text = { Text(if (row.url == null) "Tambah link" else "Ubah link") }, onClick = { menu = false; sheet = true })
+                    }
+                    // Statistik manual (misalnya angka dari aplikasi Instagram) sekaligus menandai akun ini terbit, sama dengan desktop.
+                    DropdownMenuItem(text = { Text("Isi statistik manual") }, onClick = { menu = false; onManual() })
+                    if (!pending) {
+                        DropdownMenuItem(text = { Text("Kembalikan ke Menunggu") }, onClick = { menu = false; scope.launch { container.scheduler.markTarget(row.id, TargetStatus.PENDING) } })
                     }
                 }
-            } else {
-                Icon(ClipMiIcons.Chevron, null, tint = c.textMuted, modifier = Modifier.size(18.dp).rotate(if (expanded) -90f else 90f))
             }
         }
-        if (row.status == TargetStatus.PENDING) {
+        if (pending) {
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                // Label selalu menyebut platformnya; bila aplikasinya tidak terpasang, yang terbuka menu bagikan biasa.
                 PrimaryButton(
-                    if (app != null) "Bagikan ke ${Platforms.label(account.platform)}" else "Bagikan…",
+                    "Bagikan ke ${Platforms.label(account.platform)}",
                     { notifier.show(shareTo(context, s.clip, uploadText, account.platform)) },
                     icon = ClipMiIcons.Share, height = 44.dp, modifier = Modifier.weight(1f),
                 )
-                SecondaryButton("Terbit", { scope.launch { container.scheduler.markTarget(row.id, TargetStatus.PUBLISHED) } }, icon = ClipMiIcons.Check, height = 44.dp)
+                SecondaryButton("Terbit", { sheet = true }, icon = ClipMiIcons.Check, height = 44.dp)
             }
         }
-        if (!expanded) return@ClipMiCard
-        if (row.status != TargetStatus.PENDING) {
-            row.publishedAt?.let { Text("Terbit ${IdDate.full(Wall.of(it))}", style = MaterialTheme.typography.bodySmall, color = c.textMuted) }
+        if (sheet) {
+            PublishSheet(container, target, editing = !pending, onFetchStarted = onFetchStarted, onDone = { sheet = false })
         }
+        if (!expanded || !published) return@ClipMiCard
+
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            MiniStat("Tayangan", PostStats.number(latest?.views), Modifier.weight(1f))
+            MiniStat("Suka", PostStats.number(latest?.likes), Modifier.weight(1f))
+            MiniStat("Komentar", PostStats.number(latest?.comments), Modifier.weight(1f))
+            MiniStat("Share", PostStats.number(latest?.shares), Modifier.weight(1f))
+        }
+        val url = row.url
+        if (url != null) {
+            // Link sebagai satu baris (ketuk untuk membuka); ubah lewat menu ⋯.
+            Row(
+                Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(c.panel)
+                    .clickable(onClickLabel = "Buka postingan") { runCatching { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url))) } }
+                    .padding(horizontal = 12.dp, vertical = 10.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                Icon(ClipMiIcons.Link, null, tint = c.textMuted, modifier = Modifier.size(16.dp))
+                Text(url.removePrefix("https://").removePrefix("http://"), style = MaterialTheme.typography.bodySmall, color = c.textBody, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            }
+        } else {
+            ActionChip("Tambah link", { sheet = true }, icon = ClipMiIcons.Link)
+        }
+        val failed = row.statsError != null && row.statsCheckedAt != null && (latest == null || row.statsCheckedAt > latest.recordedAt)
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            if (fetching) CircularProgressIndicator(Modifier.size(14.dp), color = c.accent, strokeWidth = 2.dp)
+            Text(
+                when {
+                    fetching -> "Mengambil statistik…"
+                    failed -> "Gagal diambil"
+                    latest != null -> "Diperbarui ${IdDate.dayMonthTime(Wall.of(latest.recordedAt))} · ${StatSource.LABELS[latest.source] ?: latest.source}"
+                    else -> "Belum ada statistik"
+                },
+                style = MaterialTheme.typography.bodySmall,
+                color = if (failed) c.warn else c.textMuted,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.weight(1f),
+            )
+            if (url != null && !fetching) {
+                IconCircle(ClipMiIcons.Refresh, "Ambil statistik", { scope.launch { if (container.scheduler.refreshStats(row.id)) onFetchStarted() } }, size = 32.dp, background = Color.Transparent, border = false)
+            }
+        }
+    }
+}
+
+/** Angka kecil di kartu akun terbit. */
+@Composable
+private fun MiniStat(label: String, value: String, modifier: Modifier = Modifier) {
+    val c = ClipMi.colors
+    Column(modifier.clip(RoundedCornerShape(12.dp)).background(c.panel).padding(horizontal = 8.dp, vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(1.dp)) {
+        Text(value, style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.ExtraBold), color = c.text, maxLines = 1)
+        Text(label, style = MaterialTheme.typography.labelSmall, color = c.textMuted, maxLines = 1)
+    }
+}
+
+/**
+ * Tandai satu akun terbit dengan link postingan opsional (dipakai untuk statistik), atau ubah link akun yang sudah
+ * terbit ([editing]).
+ */
+@Composable
+private fun PublishSheet(container: AppContainer, target: TargetView, editing: Boolean, onFetchStarted: () -> Unit, onDone: () -> Unit) {
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    val current = target.row.url.orEmpty()
+    var link by remember { mutableStateOf(current) }
+    var error by remember { mutableStateOf<String?>(null) }
+    ClipMiSheet(
+        onDone,
+        title = if (editing) "Link postingan" else "Terbit di ${target.account.name}",
+        subtitle = if (editing) target.account.name else "Link opsional, untuk statistik.",
+    ) {
         Field(
-            link, { link = it; linkError = null },
-            label = "Link postingan",
-            placeholder = "Tempel link setelah terbit",
+            link, { link = it; error = null },
+            label = if (editing) null else "Link postingan",
+            placeholder = "https://…",
             singleLine = true,
-            error = linkError,
-            supporting = if (row.status == TargetStatus.PENDING) "Menempel link menandai akun ini terbit dan mengambil statistiknya." else null,
+            error = error,
             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri),
-            trailing = if (link.trim() != row.url.orEmpty()) ({
-                GhostButton("Simpan", {
-                    scope.launch {
-                        val error = container.scheduler.saveLink(row.id, link)
-                        linkError = error
-                        if (error == null && link.isNotBlank()) onFetchStarted()
-                    }
+            trailing = {
+                GhostButton("Tempel", {
+                    val clip = runCatching { context.getSystemService(android.content.ClipboardManager::class.java).primaryClip?.getItemAt(0)?.coerceToText(context)?.toString() }.getOrNull()
+                    if (!clip.isNullOrBlank()) { link = clip.trim(); error = null }
                 })
-            }) else null,
+            },
         )
-        if (row.status == TargetStatus.PUBLISHED) {
-            val failed = row.statsError != null && row.statsCheckedAt != null && (latest == null || row.statsCheckedAt > latest.recordedAt)
-            when {
-                fetching -> Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    CircularProgressIndicator(Modifier.size(16.dp), color = c.accent, strokeWidth = 2.dp)
-                    Text("Mengambil statistik…", style = MaterialTheme.typography.bodySmall, color = c.textMuted)
-                }
-                failed -> Text(row.statsError.orEmpty(), style = MaterialTheme.typography.bodySmall, color = c.warn)
-            }
-            latest?.let {
-                Text(
-                    "${PostStats.number(it.views)} tayangan · ${PostStats.number(it.likes)} suka · ${PostStats.number(it.comments)} komentar · ${PostStats.number(it.shares)} share",
-                    style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.SemiBold), color = c.textBody,
-                )
-                Text("Diperbarui ${IdDate.dayMonthTime(Wall.of(it.recordedAt))} · ${StatSource.LABELS[it.source] ?: it.source}", style = MaterialTheme.typography.bodySmall, color = c.textMuted)
-            }
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                if (row.url != null) SecondaryButton("Ambil statistik", {
-                    scope.launch { if (container.scheduler.refreshStats(row.id)) onFetchStarted() }
-                }, icon = ClipMiIcons.Refresh, height = 40.dp, enabled = !fetching)
-                SecondaryButton("Isi manual", onManual, height = 40.dp)
+        val save: () -> Unit = {
+            scope.launch {
+                val failed = container.scheduler.saveLink(target.row.id, link)
+                if (failed != null) error = failed else { if (link.isNotBlank()) onFetchStarted(); onDone() }
             }
         }
-        if (row.status != TargetStatus.PENDING) {
-            GhostButton("Kembalikan ke Menunggu", { scope.launch { container.scheduler.markTarget(row.id, TargetStatus.PENDING) } })
+        if (editing) {
+            PrimaryButton("Simpan", save, enabled = link.trim() != current, modifier = Modifier.fillMaxWidth())
+        } else {
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                SecondaryButton("Tanpa link", {
+                    scope.launch { container.scheduler.markTarget(target.row.id, TargetStatus.PUBLISHED); onDone() }
+                }, modifier = Modifier.weight(1f))
+                PrimaryButton("Simpan", save, enabled = link.isNotBlank(), modifier = Modifier.weight(1f))
+            }
         }
     }
 }

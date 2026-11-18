@@ -66,7 +66,12 @@ class SpeakerDetector(private val context: Context, private val ffmpeg: Ffmpeg) 
             val began = System.currentTimeMillis()
             try {
                 val columns = 50
-                val cells = ceil(duration * SpeakerAnalyzer.CUT_FPS).toInt() + 2
+                // Potongan kamera dicari di setiap frame video (paling banyak 30 per detik), supaya crop pindah tepat di
+                // frame pertama adegan baru.
+                val native = MediaInfo.frameRate(source)?.takeIf { it in 5.0..240.0 } ?: 30.0
+                // Klip sangat panjang: cukup 15 per detik supaya lembar gambar tidak terlalu besar untuk memori HP.
+                val cutFps = if (duration > 300) SpeakerAnalyzer.CUT_FPS else native / ceil(native / 30.5)
+                val cells = ceil(duration * cutFps).toInt() + 2
                 val rows = maxOf(1, ceil(cells / columns.toDouble()).toInt())
                 val fps = String.format(Locale.ROOT, "%.4f", 1 / step)
                 ffmpeg.run(
@@ -74,7 +79,7 @@ class SpeakerDetector(private val context: Context, private val ffmpeg: Ffmpeg) 
                         "-y", "-ss", RenderGraph.seconds(start), "-t", RenderGraph.seconds(duration), "-i", source.absolutePath,
                         "-filter_complex",
                         "[0:v]split=2[a][b];[a]fps=$fps,scale=640:640:force_original_aspect_ratio=decrease[f];" +
-                            "[b]fps=${SpeakerAnalyzer.CUT_FPS.toInt()},scale=32:18,tile=${columns}x$rows[s]",
+                            "[b]fps=${String.format(Locale.ROOT, "%.4f", cutFps)},scale=32:18,tile=${columns}x$rows[s]",
                         "-map", "[f]", "-q:v", "5", "f%05d.jpg",
                         "-map", "[s]", "-frames:v", "1", "-q:v", "2", "scene.jpg",
                     ),
@@ -83,7 +88,7 @@ class SpeakerDetector(private val context: Context, private val ffmpeg: Ffmpeg) 
                 ) { onProgress(it / 100f * 0.25f) }
 
                 withContext(Dispatchers.Default) {
-                    val cuts = sceneCuts(File(dir, "scene.jpg"), columns, rows, duration)
+                    val cuts = sceneCuts(File(dir, "scene.jpg"), columns, rows, duration, cutFps)
                     val files = dir.listFiles { f -> f.name.startsWith("f") && f.name.endsWith(".jpg") }.orEmpty().sortedBy { it.name }
                     val frames = ArrayList<AnalysisFrame>(files.size)
                     var measured = 0
@@ -113,21 +118,26 @@ class SpeakerDetector(private val context: Context, private val ffmpeg: Ffmpeg) 
                             "$measured ukur mulut, ${cuts.size} potongan kamera, ${result.switches.size} ganti pembicara, " +
                             "${System.currentTimeMillis() - began} ms",
                     )
-                    SpeakerTrackData.Analysis(start, end, interval, result.samples.map { v -> v?.let { Math.round(it * 1000) / 1000.0 } }, result.cuts.map { Math.round((start + it) * 1000) / 1000.0 })
+                    SpeakerTrackData.Analysis(
+                        start, end, interval,
+                        result.samples.map { v -> v?.let { Math.round(it * 1000) / 1000.0 } },
+                        result.cuts.map { Math.round((start + it) * 1000) / 1000.0 },
+                        result.switches.map { Math.round((start + it) * 1000) / 1000.0 },
+                    )
                 }
             } finally {
                 dir.deleteRecursively()
             }
         }
 
-    /** Potongan kamera dari lembar frame kecil 15 fps (sel 32×18, [columns] per baris). */
-    private fun sceneCuts(sheet: File, columns: Int, rows: Int, duration: Double): List<Double> {
+    /** Potongan kamera dari lembar frame kecil [fps] per detik (sel 32×18, [columns] per baris). */
+    private fun sceneCuts(sheet: File, columns: Int, rows: Int, duration: Double, fps: Double): List<Double> {
         val bitmap = BitmapFactory.decodeFile(sheet.path) ?: return emptyList()
         val cellW = bitmap.width / columns
         val cellH = bitmap.height / rows
         if (cellW <= 0 || cellH <= 0) return emptyList()
         val pixels = IntArray(cellW * cellH)
-        val count = minOf(columns * rows, (duration * SpeakerAnalyzer.CUT_FPS).toInt())
+        val count = minOf(columns * rows, (duration * fps).toInt())
         val luma = ArrayList<IntArray>(count)
         for (k in 0 until count) {
             bitmap.getPixels(pixels, 0, cellW, (k % columns) * cellW, (k / columns) * cellH, cellW, cellH)
@@ -139,7 +149,7 @@ class SpeakerDetector(private val context: Context, private val ffmpeg: Ffmpeg) 
         bitmap.recycle()
         // Sel kosong (hitam) di ujung lembar bukan frame video.
         while (luma.isNotEmpty() && luma.last().all { it < 4 }) luma.removeAt(luma.size - 1)
-        return SpeakerAnalyzer.cameraCuts(luma).filter { it < duration - 0.5 }
+        return SpeakerAnalyzer.cameraCuts(luma, fps).filter { it < duration - 0.5 }
     }
 }
 

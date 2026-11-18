@@ -1,5 +1,19 @@
 package id.clipmi.android.ui.editor
 
+import id.clipmi.android.ui.components.ClipMiRangeSlider
+import id.clipmi.android.ui.components.ClipMiSlider
+import kotlinx.coroutines.launch
+import androidx.compose.ui.semantics.role
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.draw.rotate
+import androidx.compose.foundation.gestures.waitForUpOrCancellation
+import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.LazyRow
 import id.clipmi.core.render.SpeakerTrack
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.foundation.shape.CircleShape
@@ -114,209 +128,282 @@ internal fun PanelTitle(title: String, hint: String? = null) {
 }
 
 // ---------------------------------------------------------------------------------------------------------------
-// Potong: timeline sentuh
+// Potong: timeline, ujung mulai/selesai, dan teks yang berjalan mengikuti video
 // ---------------------------------------------------------------------------------------------------------------
 
 /**
- * Timeline klip: rentang ±10 detik di sekitar klip, kata dari transkrip, bagian yang dibuang, dan pegangan mulai/selesai
- * yang menempel ke batas kata (dengan getaran halus).
+ * Panel Potong (gabungan potong dan teks): timeline selebar layar (ketuk untuk lompat, tahan-geser untuk menelusuri)
+ * dengan tombol ◀ ▶ mulai di kiri dan selesai di kanan (ketuk = 0,1 dtk, tahan = terus bergeser makin cepat). Di
+ * bawahnya teks klip yang mengikuti video: kalimat aktif disorot dan selalu terlihat; ketuk kata untuk buang/kembalikan,
+ * tahan untuk opsi. Kartu intro di awal dan outro di akhir daftar.
  */
+@OptIn(ExperimentalFoundationApi::class, androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
 @Composable
-fun TrimPanel(state: EditorState, position: Double, seek: (Double) -> Unit) {
+fun TrimPanel(state: EditorState, position: Double, playing: Boolean, seek: (Double) -> Unit) {
     val c = ClipMi.colors
+    val notifier = LocalNotifier.current
     val clip = state.snapshot.clip
     val editor = state.editor()
-    val haptic = LocalHapticFeedback.current
     val limit = state.projectDuration ?: state.segments.maxOfOrNull { it.end } ?: clip.endTime
-    var dragging by remember { mutableStateOf<String?>(null) }
+    // Rentang timeline: klip ±10 detik (dibulatkan ke 10 detik), tetap selama ujung sedang digeser.
+    var holding by remember { mutableStateOf(false) }
     var window by remember { mutableStateOf(0.0 to 0.0) }
-    LaunchedEffect(clip.startTime, clip.endTime, dragging) {
-        if (dragging == null) window = maxOf(0.0, floor((clip.startTime - 10) / 10) * 10) to minOf(limit, ceil((clip.endTime + 10) / 10) * 10)
+    LaunchedEffect(clip.startTime, clip.endTime, holding) {
+        if (!holding) window = maxOf(0.0, floor((clip.startTime - 10) / 10) * 10) to minOf(limit, ceil((clip.endTime + 10) / 10) * 10)
     }
     val (from, to) = window
     val words = remember(window, state.segments) {
         state.segments.filter { it.end >= from && it.start <= to }.flatMap { it.words.orEmpty() }.filter { it.end >= from && it.start <= to }
     }
-    val cuts = state.spec().cutRanges()
-    var snapped by remember { mutableStateOf<Double?>(null) }
-
-    Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        PanelTitle("Potong", "Tarik ujung · ketuk untuk memutar")
-
-        Canvas(
-            Modifier
-                .fillMaxWidth()
-                .height(84.dp)
-                .pointerInput(window) {
-                    detectTapGestures { offset -> seek(from + (to - from) * offset.x / size.width) }
-                }
-                .pointerInput(window, "drag") {
-                    detectDragGestures(
-                        onDragStart = { offset ->
-                            val current = state.snapshot.clip
-                            val startX = ((current.startTime - from) / (to - from) * size.width).toFloat()
-                            val endX = ((current.endTime - from) / (to - from) * size.width).toFloat()
-                            dragging = if (abs(offset.x - startX) <= abs(offset.x - endX)) "start" else "end"
-                        },
-                        onDragEnd = { dragging = null; snapped = null; state.endDrag() },
-                        onDragCancel = { dragging = null; snapped = null; state.endDrag() },
-                        onDrag = { change, _ ->
-                            val edge = dragging ?: return@detectDragGestures
-                            var time = from + (to - from) * (change.position.x / size.width).coerceIn(0f, 1f)
-                            // Menempel ke batas kata terdekat (awal kata untuk mulai, akhir kata untuk selesai).
-                            val boundary = words.map { if (edge == "start") it.start else it.end }.minByOrNull { abs(it - time) }
-                            if (boundary != null && abs(boundary - time) < (to - from) * 0.012) {
-                                if (snapped != boundary) haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                                snapped = boundary
-                                time = boundary
-                            } else {
-                                snapped = null
-                            }
-                            state.drag { s ->
-                                val next = if (edge == "start") state.editor().setRange(s.clip, time, s.clip.endTime) else state.editor().setRange(s.clip, s.clip.startTime, time)
-                                s.copy(clip = next)
-                            }
-                            seek(if (edge == "start") state.snapshot.clip.startTime else maxOf(state.snapshot.clip.startTime, state.snapshot.clip.endTime - 1.5))
-                        },
-                    )
-                },
-        ) {
-            val w = size.width
-            val h = size.height
-            fun x(t: Double) = ((t - from) / (to - from) * w).toFloat()
-            drawRoundRect(EDITOR_CARD, cornerRadius = CornerRadius(14.dp.toPx()))
-            // Kata: batang kecil, lebih terang di dalam klip.
-            for (word in words) {
-                val inside = word.end > clip.startTime && word.start < clip.endTime
-                drawRoundRect(
-                    if (inside) Color(0xFF3B5A50) else Color(0xFF26302D),
-                    topLeft = Offset(x(word.start) + 1, h * 0.32f),
-                    size = Size(maxOf(2f, x(word.end) - x(word.start) - 2), h * 0.36f),
-                    cornerRadius = CornerRadius(3.dp.toPx()),
-                )
-            }
-            for ((a, b) in cuts) drawRect(c.bad.copy(alpha = 0.45f), topLeft = Offset(x(a), h * 0.18f), size = Size(x(b) - x(a), h * 0.64f))
-            // Rentang klip dan pegangan.
-            val left = x(clip.startTime)
-            val right = x(clip.endTime)
-            drawRect(c.accent.copy(alpha = 0.12f), topLeft = Offset(left, 0f), size = Size(right - left, h))
-            drawRect(c.accent, topLeft = Offset(left, 0f), size = Size(right - left, 3.dp.toPx()))
-            drawRect(c.accent, topLeft = Offset(left, h - 3.dp.toPx()), size = Size(right - left, 3.dp.toPx()))
-            val handle = 14.dp.toPx()
-            for (edge in listOf(left - handle, right)) {
-                drawRoundRect(c.accent, topLeft = Offset(edge, 0f), size = Size(handle, h), cornerRadius = CornerRadius(6.dp.toPx()))
-                drawRect(c.onAccent, topLeft = Offset(edge + handle / 2 - 1.dp.toPx(), h * 0.35f), size = Size(2.dp.toPx(), h * 0.3f))
-            }
-            // Penanda putar.
-            val px = x(position)
-            if (px in 0f..w) drawRect(Color.White, topLeft = Offset(px - 1.dp.toPx(), 0f), size = Size(2.dp.toPx(), h))
-        }
-
-        EdgeRow("Mulai", clip.startTime) { delta -> state.applyClip { editor.nudge(it, "start", delta) }; seek(state.snapshot.clip.startTime) }
-        EdgeRow("Selesai", clip.endTime) { delta -> state.applyClip { editor.nudge(it, "end", delta) }; seek(maxOf(state.snapshot.clip.startTime, state.snapshot.clip.endTime - 1.5)) }
-
-        ChipRow(gutter = 0.dp) {
-            ActionChip("Tempel ke batas kata", height = 36.dp, onClick = { state.applyClip { editor.snapToWords(it) } })
-            ActionChip("+ Kalimat sebelum", height = 36.dp, enabled = editor.neighbour(clip, "before") != null, onClick = { state.applyClip { editor.extend(it, "before") } })
-            ActionChip("+ Kalimat sesudah", height = 36.dp, enabled = editor.neighbour(clip, "after") != null, onClick = { state.applyClip { editor.extend(it, "after") } })
-        }
-
-        val spec = state.spec()
-        Text(
-            "Rentang ${Timecode.format(clip.duration())} · hasil ${Timecode.format(spec.outputDuration())}" +
-                if (cuts.isNotEmpty()) " · ${cuts.size} bagian dibuang" else "",
-            style = MaterialTheme.typography.bodySmall,
-            color = c.textMuted,
-        )
-    }
-}
-
-@Composable
-private fun EdgeRow(label: String, time: Double, onNudge: (Double) -> Unit) {
-    val c = ClipMi.colors
-    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-        Column(Modifier.width(76.dp)) {
-            Text(label, style = MaterialTheme.typography.labelMedium, color = c.textMuted)
-            Text(precise(time), style = MaterialTheme.typography.titleSmall, color = c.text)
-        }
-        for (delta in listOf(-0.5, -0.1, 0.1, 0.5)) {
-            ActionChip((if (delta > 0) "+" else "−") + seconds(abs(delta)), height = 36.dp, onClick = { onNudge(delta) }, modifier = Modifier.weight(1f))
-        }
-    }
-}
-
-// ---------------------------------------------------------------------------------------------------------------
-// Teks & kata
-// ---------------------------------------------------------------------------------------------------------------
-
-/** Kata per baris subtitle: ketuk untuk buang/kembalikan, tahan untuk ubah teks, sembunyikan, atau kata kunci; jeda bisa dibuang. */
-@OptIn(ExperimentalFoundationApi::class, androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
-@Composable
-fun TextPanel(state: EditorState, seek: (Double) -> Unit) {
-    val c = ClipMi.colors
-    val notifier = LocalNotifier.current
-    val clip = state.snapshot.clip
-    val editor = state.editor()
+    val spec = state.spec()
+    val cuts = spec.cutRanges()
     val lines = remember(state.snapshot, state.captionStyles) { editor.lines(clip) }
-    val words = remember(state.snapshot, state.captionStyles) { editor.words(clip) }
+    val clipWords = remember(state.snapshot, state.captionStyles) { editor.words(clip) }
     val pauses = remember(state.snapshot, state.silences, state.captionStyles) { state.silences?.let { editor.pauses(clip, it) }.orEmpty() }
     var chosen by remember { mutableStateOf<EditorWord?>(null) }
+    var bumper by remember { mutableStateOf<String?>(null) }
     LaunchedEffect(clip.startTime, clip.endTime) { state.detectSilences() }
     val tooShort = "Sisa klip terlalu pendek (minimal ${seconds(ClipSpec.MIN_DURATION)} detik)."
 
-    Column(Modifier.fillMaxSize().padding(start = 16.dp, end = 16.dp, top = 16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-        PanelTitle("Teks & kata", "Ketuk = buang · tahan = opsi")
-        val longPauses = pauses.filter { !it.removed && it.length >= 0.6 }
-        if (longPauses.isNotEmpty()) {
-            SecondaryButton("Buang ${longPauses.size} jeda ≥ 0,6 dtk", height = 40.dp, onClick = {
-                if (!state.applyClip { editor.cleanPauses(it, state.silences.orEmpty(), 0.6) }) notifier.show(tooShort)
-            })
-        } else if (state.silences == null && state.silenceError == null) {
-            Text("Membaca jeda dari suara klip…", style = MaterialTheme.typography.bodySmall, color = c.textMuted)
+    fun nudge(edge: String, delta: Double) {
+        state.drag { s -> s.copy(clip = editor.nudge(s.clip, edge, delta)) }
+        val now = state.snapshot.clip
+        seek(if (edge == "start") now.startTime else maxOf(now.startTime, now.endTime - 1.5))
+    }
+
+    Column(Modifier.fillMaxSize().padding(top = 12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        // Timeline dengan tombol ujung: kiri = mulai, kanan = selesai.
+        Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp).height(52.dp), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            NudgeColumn("mulai", onStart = { holding = true }, onEnd = { holding = false; state.endDrag() }) { delta -> nudge("start", delta) }
+            Canvas(
+                Modifier
+                    .weight(1f)
+                    .fillMaxSize()
+                    .pointerInput(window) { detectTapGestures { offset -> seek(from + (to - from) * (offset.x / size.width).coerceIn(0f, 1f)) } }
+                    .pointerInput(window, "scrub") {
+                        detectDragGestures { change, _ -> seek(from + (to - from) * (change.position.x / size.width).coerceIn(0f, 1f)) }
+                    },
+            ) {
+                val w = size.width
+                val h = size.height
+                fun x(t: Double) = ((t - from) / (to - from) * w).toFloat()
+                drawRoundRect(EDITOR_CARD, cornerRadius = CornerRadius(10.dp.toPx()))
+                for (word in words) {
+                    val inside = word.end > clip.startTime && word.start < clip.endTime
+                    drawRoundRect(
+                        if (inside) Color(0xFF3B5A50) else Color(0xFF26302D),
+                        topLeft = Offset(x(word.start) + 1, h * 0.3f),
+                        size = Size(maxOf(2f, x(word.end) - x(word.start) - 2), h * 0.4f),
+                        cornerRadius = CornerRadius(2.dp.toPx()),
+                    )
+                }
+                for ((a, b) in cuts) drawRect(c.bad.copy(alpha = 0.45f), topLeft = Offset(x(a), h * 0.18f), size = Size(x(b) - x(a), h * 0.64f))
+                // Rentang klip: latar aksen tipis dan garis tegak di kedua ujung.
+                val left = x(clip.startTime)
+                val right = x(clip.endTime)
+                drawRect(c.accent.copy(alpha = 0.14f), topLeft = Offset(left, 0f), size = Size(right - left, h))
+                val edge = 3.dp.toPx()
+                drawRect(c.accent, topLeft = Offset(left, 0f), size = Size(edge, h))
+                drawRect(c.accent, topLeft = Offset(right - edge, 0f), size = Size(edge, h))
+                val px = x(position)
+                if (px in 0f..w) drawRect(Color.White, topLeft = Offset(px - 1.dp.toPx(), 0f), size = Size(2.dp.toPx(), h))
+            }
+            NudgeColumn("selesai", onStart = { holding = true }, onEnd = { holding = false; state.endDrag() }) { delta -> nudge("end", delta) }
+        }
+        Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp), verticalAlignment = Alignment.CenterVertically) {
+            Text(precise(clip.startTime), style = MaterialTheme.typography.labelMedium, color = c.text)
+            Text(
+                "hasil ${Timecode.format(spec.outputDuration())}" + if (cuts.isNotEmpty()) " · ${cuts.size} dibuang" else "",
+                style = MaterialTheme.typography.labelSmall, color = c.textMuted, textAlign = TextAlign.Center, modifier = Modifier.weight(1f),
+            )
+            Text(precise(clip.endTime), style = MaterialTheme.typography.labelMedium, color = c.text)
         }
 
-        LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            var offset = 0
-            val ranges = lines.map { line -> (offset until offset + line.words.orEmpty().size).also { offset += line.words.orEmpty().size } }
+        ChipRow(gutter = 16.dp) {
+            ActionChip("Mulai di sini", height = 34.dp, enabled = position < clip.endTime - ClipSpec.MIN_DURATION, onClick = {
+                state.applyClip { editor.setRange(it, position, it.endTime) }
+            })
+            ActionChip("Selesai di sini", height = 34.dp, enabled = position > clip.startTime + ClipSpec.MIN_DURATION, onClick = {
+                state.applyClip { editor.setRange(it, it.startTime, position) }
+            })
+            val longPauses = pauses.filter { !it.removed && it.length >= 0.6 }
+            if (longPauses.isNotEmpty()) {
+                ActionChip("Buang ${longPauses.size} jeda", height = 34.dp, onClick = {
+                    if (!state.applyClip { editor.cleanPauses(it, state.silences.orEmpty(), 0.6) }) notifier.show(tooShort)
+                })
+            }
+            ActionChip("Tempel ke batas kata", height = 34.dp, onClick = { state.applyClip { editor.snapToWords(it) } })
+            ActionChip("+ Kalimat sebelum", height = 34.dp, enabled = editor.neighbour(clip, "before") != null, onClick = { state.applyClip { editor.extend(it, "before") } })
+            ActionChip("+ Kalimat sesudah", height = 34.dp, enabled = editor.neighbour(clip, "after") != null, onClick = { state.applyClip { editor.extend(it, "after") } })
+        }
+
+        // Teks berjalan: kalimat yang sedang terdengar disorot dan digulir ke atas daftar saat video berjalan.
+        val listState = rememberLazyListState()
+        val active = lines.indexOfLast { it.start <= position + 0.05 }.coerceAtLeast(0)
+        LaunchedEffect(active, playing) {
+            if (playing && !listState.isScrollInProgress && lines.isNotEmpty()) listState.animateScrollToItem(active + 1, scrollOffset = -8)
+        }
+        var offset = 0
+        val ranges = lines.map { line -> (offset until offset + line.words.orEmpty().size).also { offset += line.words.orEmpty().size } }
+        LazyColumn(
+            Modifier.fillMaxSize(),
+            state = listState,
+            contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 4.dp, bottom = 16.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            item(key = "intro") { BumperCard("Intro", state.bumpers.firstOrNull { it.id == state.snapshot.introId }?.name) { bumper = "intro" } }
             itemsIndexed(lines) { index, line ->
                 val range = ranges[index]
                 val marked = Keywords.mark(line.words.orEmpty().map { it.text }, state.snapshot.keywords)
+                val current = index == active && position >= clip.startTime && position <= clip.endTime
                 Column(
-                    Modifier.fillMaxWidth().clip(RoundedCornerShape(18.dp)).background(EDITOR_CARD).padding(horizontal = 12.dp, vertical = 10.dp),
+                    Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(14.dp))
+                        .background(EDITOR_CARD)
+                        .border(1.dp, if (current) c.accent.copy(alpha = 0.6f) else Color.Transparent, RoundedCornerShape(14.dp))
+                        .padding(horizontal = 12.dp, vertical = 10.dp),
                     verticalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
-                    Text(Timecode.format(state.spec().let { ClipCuts.map(it.cutRanges(), it.startTime, line.start) }), style = MaterialTheme.typography.labelSmall, color = c.textMuted)
+                    Text(
+                        Timecode.format(ClipCuts.map(cuts, spec.startTime, line.start)),
+                        style = MaterialTheme.typography.labelSmall,
+                        color = if (current) c.accent else c.textMuted,
+                        modifier = Modifier.clip(RoundedCornerShape(6.dp)).clickable(onClickLabel = "Putar dari sini") { seek(line.start) }.padding(end = 6.dp),
+                    )
                     FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                         if (index == 0) pauses.filter { it.after < range.first }.forEach { PauseChip(it) { if (!state.applyClip { c2 -> editor.togglePause(c2, it) }) notifier.show(tooShort) } }
                         for ((k, i) in range.withIndex()) {
-                            val word = words.getOrNull(i) ?: continue
+                            val word = clipWords.getOrNull(i) ?: continue
                             WordChip(
-                                word, keyword = k in marked,
+                                word, keyword = k in marked, speaking = current && position >= word.start && position < word.end,
                                 onClick = {
                                     val ok = state.applyClip { if (word.cut) editor.restore(it, word.start, word.end) else editor.cut(it, word.start, word.end) }
                                     if (!ok && !word.cut) notifier.show(tooShort)
                                 },
                                 onLongClick = { chosen = word },
                             )
-                            pauses.filter { it.after == i && (i < range.last || index == lines.lastIndex || true) }.forEach { pause ->
+                            pauses.filter { it.after == i }.forEach { pause ->
                                 PauseChip(pause) { if (!state.applyClip { c2 -> editor.togglePause(c2, pause) }) notifier.show(tooShort) }
                             }
                         }
                     }
                 }
             }
+            item(key = "outro") { BumperCard("Outro", state.bumpers.firstOrNull { it.id == state.snapshot.outroId }?.name) { bumper = "outro" } }
         }
     }
 
     chosen?.let { word -> WordSheet(state, word, seek, onDone = { chosen = null }) }
+    bumper?.let { kind -> BumperSheet(state, kind, onDone = { bumper = null }) }
 }
+
+/** Dua tombol kecil bertumpuk (▶ atas = maju, ◀ bawah = mundur) untuk satu ujung klip. */
+@Composable
+private fun NudgeColumn(edge: String, onStart: () -> Unit, onEnd: () -> Unit, onStep: (Double) -> Unit) {
+    Column(Modifier.width(34.dp).fillMaxSize(), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        RepeatButton(ClipMiIcons.Play, "Geser $edge maju 0,1 detik", Modifier.weight(1f), onStart, onEnd) { onStep(0.1) }
+        RepeatButton(ClipMiIcons.Play, "Geser $edge mundur 0,1 detik", Modifier.weight(1f).rotate(180f), onStart, onEnd) { onStep(-0.1) }
+    }
+}
+
+/** Tombol yang mengulang aksinya selama ditahan: sekali saat ditekan, lalu makin cepat (400 ms, lalu turun ke 40 ms). */
+@Composable
+private fun RepeatButton(icon: androidx.compose.ui.graphics.vector.ImageVector, label: String, modifier: Modifier, onStart: () -> Unit, onEnd: () -> Unit, onStep: () -> Unit) {
+    val c = ClipMi.colors
+    val step by androidx.compose.runtime.rememberUpdatedState(onStep)
+    val scope = androidx.compose.runtime.rememberCoroutineScope()
+    Box(
+        modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(8.dp))
+            .background(EDITOR_CARD)
+            .semantics { contentDescription = label; role = androidx.compose.ui.semantics.Role.Button }
+            .pointerInput(Unit) {
+                awaitEachGesture {
+                    awaitFirstDown()
+                    onStart()
+                    step()
+                    val job = scope.launch {
+                        var wait = 400L
+                        while (true) {
+                            kotlinx.coroutines.delay(wait)
+                            step()
+                            wait = maxOf(40L, (wait * 0.75).toLong())
+                        }
+                    }
+                    waitForUpOrCancellation()
+                    job.cancel()
+                    onEnd()
+                }
+            },
+        contentAlignment = Alignment.Center,
+    ) {
+        Icon(icon, null, tint = c.text, modifier = Modifier.size(12.dp))
+    }
+}
+
+/** Kartu intro/outro di awal/akhir teks klip; ketuk untuk memilih video dari pustaka. */
+@Composable
+private fun BumperCard(label: String, name: String?, onClick: () -> Unit) {
+    val c = ClipMi.colors
+    Row(
+        Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)).border(1.dp, c.line, RoundedCornerShape(14.dp)).clickable(onClick = onClick).padding(horizontal = 12.dp, vertical = 10.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        Icon(if (name == null) ClipMiIcons.Plus else ClipMiIcons.Film, null, tint = if (name == null) c.textMuted else c.accent, modifier = Modifier.size(16.dp))
+        Text(name?.let { "$label · $it" } ?: label, style = MaterialTheme.typography.labelLarge, color = if (name == null) c.textMuted else c.text, modifier = Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis)
+    }
+}
+
+/** Pilih intro atau outro klip ini dari pustaka; bisa dijadikan bawaan project. */
+@Composable
+private fun BumperSheet(state: EditorState, kind: String, onDone: () -> Unit) {
+    val c = ClipMi.colors
+    val scope = androidx.compose.runtime.rememberCoroutineScope()
+    val notifier = LocalNotifier.current
+    val s = state.snapshot
+    val label = if (kind == "intro") "Intro" else "Outro"
+    val selected = if (kind == "intro") s.introId else s.outroId
+    val options = state.bumpers.filter { it.kind == kind }
+    fun choose(id: Long?) {
+        state.apply { if (kind == "intro") it.copy(introId = id) else it.copy(outroId = id) }
+    }
+    ClipMiSheet(onDone, title = label) {
+        if (options.isEmpty()) {
+            Text("Belum ada video di pustaka. Tambahkan di Pengaturan › Intro & outro.", style = MaterialTheme.typography.bodySmall, color = c.textMuted)
+        }
+        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            FilterPill("Tanpa ${label.lowercase()}", selected = selected == null, height = 40.dp, onClick = { choose(null); onDone() })
+            options.forEach { b ->
+                FilterPill("${b.name} · ${Math.round(b.duration)} dtk", selected = selected == b.id, height = 40.dp, onClick = { choose(b.id); onDone() })
+            }
+        }
+        if (kind == "intro" && s.introId != null && state.spec().leadKind() == "intro" && state.hookLayout().opener) {
+            Text("Dengan intro, kartu pembuka hook tidak dipakai.", style = MaterialTheme.typography.bodySmall, color = c.textMuted)
+        }
+        if (options.isNotEmpty()) {
+            val isProjectDefault = state.project.introId == s.introId && state.project.outroId == s.outroId
+            GhostButton(if (isProjectDefault) "Sudah jadi bawaan project" else "Jadikan bawaan project", enabled = !isProjectDefault, onClick = {
+                scope.launch {
+                    state.container.database.projects().setBumpers(state.project.id, s.introId, s.outroId)
+                    state.project = state.project.copy(introId = s.introId, outroId = s.outroId)
+                    notifier.show("Klip baru di project ini memakai intro/outro yang sama.")
+                }
+            })
+        }
+    }
+}
+
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
-private fun WordChip(word: EditorWord, keyword: Boolean, onClick: () -> Unit, onLongClick: () -> Unit) {
+private fun WordChip(word: EditorWord, keyword: Boolean, speaking: Boolean, onClick: () -> Unit, onLongClick: () -> Unit) {
     val c = ClipMi.colors
     val (bg, fg) = when {
         word.cut -> c.badSoft to c.bad
+        speaking -> Color.White to EDITOR_BG
         word.hidden -> Color.Transparent to c.textMuted
         keyword -> c.accentSoft to c.accent
         else -> Color(0xFF26302D) to c.text
@@ -417,18 +504,11 @@ fun CropPanel(state: EditorState, position: Double, seek: (Double) -> Unit) {
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
         PanelTitle("Crop & zoom", frame.name)
         if (!frame.usesCropPosition() && zoom <= 100) {
-            Text("Bingkai \"${frame.name}\" menampilkan video utuh, jadi posisi crop hanya berlaku saat di-zoom.", style = MaterialTheme.typography.bodySmall, color = c.textMuted)
+            Text("Video utuh: posisi crop berlaku saat di-zoom.", style = MaterialTheme.typography.bodySmall, color = c.textMuted)
         }
         if (frame.usesCropPosition()) {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                Column(Modifier.weight(1f)) {
-                    Text("Ikuti pembicara", style = MaterialTheme.typography.titleSmall, color = c.text)
-                    Text(
-                        if (follow) "Crop berpindah ke orang yang sedang berbicara." else "Crop di satu posisi tetap.",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = c.textMuted,
-                    )
-                }
+                Text("Ikuti pembicara", style = MaterialTheme.typography.titleSmall, color = c.text, modifier = Modifier.weight(1f))
                 ClipMiSwitch(follow) { on ->
                     if (on) state.apply { it.copy(cropPosition = null) }
                     else state.apply { it.copy(cropPosition = fixedPosition(state, position)) }
@@ -449,8 +529,8 @@ fun CropPanel(state: EditorState, position: Double, seek: (Double) -> Unit) {
             state.drag { it.copy(cropZoom = v.roundToInt()) }
         }, onDone = { state.endDrag() })
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            SecondaryButton("Tengahkan", modifier = Modifier.weight(1f), height = 44.dp, onClick = { state.apply { it.copy(cropPosition = 50, cropY = 50) } })
-            SecondaryButton("Kembali ke bawaan", modifier = Modifier.weight(1f), height = 44.dp, onClick = {
+            ActionChip("Tengahkan", modifier = Modifier.weight(1f), height = 40.dp, onClick = { state.apply { it.copy(cropPosition = 50, cropY = 50) } })
+            ActionChip("Kembali ke bawaan", modifier = Modifier.weight(1f), height = 40.dp, onClick = {
                 state.apply { it.copy(cropPosition = null, cropY = null, cropZoom = null, speakerManual = emptyList()) }
             })
         }
@@ -468,56 +548,59 @@ private fun SpeakerSection(state: EditorState, position: Double, seek: (Double) 
     when {
         progress != null -> Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
             Text("Mendeteksi pembicara… ${(progress * 100).roundToInt()}%", style = MaterialTheme.typography.bodySmall, color = c.textBody)
-            LinearProgressIndicator(progress = { progress }, modifier = Modifier.fillMaxWidth(), color = c.accent, trackColor = c.panel)
+            LinearProgressIndicator(
+                progress = { progress }, modifier = Modifier.fillMaxWidth().height(3.dp), color = c.accent, trackColor = c.panel,
+                gapSize = 0.dp, drawStopIndicator = {},
+            )
         }
         error != null -> Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Text("Deteksi pembicara gagal: $error", style = MaterialTheme.typography.bodySmall, color = c.bad)
-            SecondaryButton("Coba lagi", height = 40.dp, onClick = { state.detectSpeaker() })
+            ActionChip("Coba lagi", height = 40.dp, onClick = { state.detectSpeaker() })
         }
-        track == null -> SecondaryButton("Deteksi pembicara", height = 40.dp, onClick = { state.detectSpeaker() })
+        track == null -> ActionChip("Deteksi pembicara", height = 40.dp, onClick = { state.detectSpeaker() })
     }
     if (track == null || progress != null) return
 
     val shots = track.shots()
     val current = track.shotAt(position - clip.startTime)
     val detected = track.analysis?.samples?.any { it != null } == true
-    Text(
-        when {
-            !detected && track.manual.isEmpty() -> "Pembicara tidak terdeteksi; crop memakai posisi project. Geser video untuk mengatur tiap adegan."
-            shots.size == 1 -> "1 adegan. Geser video untuk mengatur posisinya bila meleset."
-            else -> "${shots.size} adegan (potongan kamera atau pergantian pembicara). Geser video untuk mengatur adegan yang sedang tampil."
-        },
-        style = MaterialTheme.typography.bodySmall,
-        color = c.textMuted,
-    )
+    if (!detected && track.manual.isEmpty()) {
+        Text("Pembicara tidak terdeteksi; crop memakai posisi project.", style = MaterialTheme.typography.bodySmall, color = c.textMuted)
+    }
     if (shots.size > 1) {
         val cuts = state.spec().cutRanges()
-        Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            shots.forEach { shot ->
+        // Kartu adegan yang sedang tampil selalu terlihat: daftar ikut bergeser saat video berjalan.
+        val listState = rememberLazyListState()
+        LaunchedEffect(current?.index) {
+            val index = current?.index ?: return@LaunchedEffect
+            if (!listState.isScrollInProgress) listState.animateScrollToItem(maxOf(0, index - 1))
+        }
+        LazyRow(state = listState, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            items(shots, key = { it.index }) { shot ->
                 val active = shot.index == current?.index
-                Column(
+                Row(
                     Modifier
                         .clip(RoundedCornerShape(12.dp))
                         .background(if (active) c.accentSoft else c.panel)
                         .border(1.dp, if (active) c.accent else c.line, RoundedCornerShape(12.dp))
                         .clickable { seek(clip.startTime + shot.from + minOf(0.05, (shot.to - shot.from) / 2)) }
                         .padding(horizontal = 12.dp, vertical = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
                 ) {
-                    Text("Adegan ${shot.index + 1}", style = MaterialTheme.typography.labelMedium, color = if (active) c.accent else c.text)
-                    Text(
-                        Timecode.format(ClipCuts.map(cuts, clip.startTime, clip.startTime + shot.from)) + (if (shot.manual != null) " · manual" else ""),
-                        style = MaterialTheme.typography.labelSmall,
-                        color = c.textMuted,
-                    )
+                    Text("${shot.index + 1}", style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.ExtraBold), color = if (active) c.accent else c.text)
+                    Text(Timecode.format(ClipCuts.map(cuts, clip.startTime, clip.startTime + shot.from)), style = MaterialTheme.typography.labelSmall, color = c.textMuted)
+                    // Posisi diatur manual: titik kecil.
+                    if (shot.manual != null) Box(Modifier.size(6.dp).clip(CircleShape).background(c.warn))
                 }
             }
         }
     }
     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        SecondaryButton("Otomatis lagi", modifier = Modifier.weight(1f), height = 44.dp, enabled = current?.manual != null, onClick = {
+        ActionChip("Otomatis lagi", modifier = Modifier.weight(1f), height = 40.dp, enabled = current?.manual != null, onClick = {
             current?.let { shot -> state.apply { it.copy(speakerManual = track.withManual(shot, null).manual) } }
         })
-        SecondaryButton("Deteksi ulang", modifier = Modifier.weight(1f), height = 44.dp, onClick = { state.detectSpeaker() })
+        ActionChip("Deteksi ulang", modifier = Modifier.weight(1f), height = 40.dp, onClick = { state.detectSpeaker() })
     }
 }
 
@@ -539,6 +622,7 @@ private fun fixedPosition(state: EditorState, position: Double): Int {
 }
 
 @Composable
+@OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
 private fun LabeledSlider(label: String, value: String, current: Float, range: ClosedFloatingPointRange<Float>, onChange: (Float) -> Unit, onDone: () -> Unit) {
     val c = ClipMi.colors
     Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
@@ -546,13 +630,7 @@ private fun LabeledSlider(label: String, value: String, current: Float, range: C
             Text(label, style = MaterialTheme.typography.labelMedium, color = c.textBody, modifier = Modifier.weight(1f))
             Text(value, style = MaterialTheme.typography.labelMedium, color = c.text)
         }
-        Slider(
-            value = current.coerceIn(range),
-            onValueChange = onChange,
-            valueRange = range,
-            onValueChangeFinished = onDone,
-            colors = SliderDefaults.colors(thumbColor = c.accent, activeTrackColor = c.accent, inactiveTrackColor = c.line),
-        )
+        ClipMiSlider(value = current, onValueChange = onChange, valueRange = range, onValueChangeFinished = onDone)
     }
 }
 
@@ -596,10 +674,6 @@ fun StylePanel(state: EditorState) {
                 }
             }
         }
-        Text(
-            "Ketuk gaya yang terpilih untuk mengubahnya.",
-            style = MaterialTheme.typography.bodySmall, color = ClipMi.colors.textMuted, modifier = Modifier.padding(horizontal = 16.dp),
-        )
     }
 }
 
@@ -623,9 +697,12 @@ private fun StyleCard(selected: Boolean, editLabel: String, onClick: () -> Unit,
     ) {
         content()
         if (selected) {
-            Box(Modifier.matchParentSize().background(Color.Black.copy(alpha = 0.35f)))
-            Box(Modifier.size(40.dp).clip(CircleShape).background(c.accent), contentAlignment = Alignment.Center) {
-                Icon(ClipMiIcons.Edit, contentDescription = editLabel, tint = c.onAccent, modifier = Modifier.size(20.dp))
+            // Ikon pensil kecil di pojok, tidak menutupi contoh gaya.
+            Box(
+                Modifier.align(Alignment.TopEnd).padding(6.dp).size(24.dp).clip(RoundedCornerShape(8.dp)).background(c.accent),
+                contentAlignment = Alignment.Center,
+            ) {
+                Icon(ClipMiIcons.Edit, contentDescription = editLabel, tint = c.onAccent, modifier = Modifier.size(14.dp))
             }
         }
     }
@@ -677,6 +754,7 @@ private fun hex(value: String?): Color = value?.trimStart('#')?.takeIf { it.leng
 // ---------------------------------------------------------------------------------------------------------------
 
 @Composable
+@OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
 fun HookPanel(state: EditorState) {
     val c = ClipMi.colors
     val layout = state.hookLayout()
@@ -689,12 +767,22 @@ fun HookPanel(state: EditorState) {
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(vertical = 16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         Column(Modifier.padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             PanelTitle("Hook", if (layout.x != null) "Posisi diatur sendiri" else "Posisi bawaan")
-            Field(text, { text = it }, placeholder = "Teks pembuka 3 detik pertama", maxLines = 3)
+            // Tersimpan sendiri 0,8 detik setelah berhenti mengetik; centang hijau sebentar sebagai tanda.
+            var saved by remember { mutableStateOf(false) }
+            LaunchedEffect(text) {
+                if (text.trim() == state.snapshot.hook.orEmpty()) return@LaunchedEffect
+                kotlinx.coroutines.delay(800)
+                state.apply { it.copy(hook = text.trim().ifEmpty { null }) }
+                saved = true
+                kotlinx.coroutines.delay(2000)
+                saved = false
+            }
+            Field(
+                text, { text = it }, placeholder = "Teks pembuka 3 detik pertama", maxLines = 3,
+                trailing = if (saved) ({ Icon(ClipMiIcons.Check, contentDescription = "Tersimpan", tint = c.accent, modifier = Modifier.size(20.dp)) }) else null,
+            )
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-                PrimaryButton("Simpan teks", height = 40.dp, enabled = text.trim() != state.snapshot.hook.orEmpty(), onClick = {
-                    state.apply { it.copy(hook = text.trim().ifEmpty { null }) }
-                })
-                Text("Tampilkan", style = MaterialTheme.typography.labelMedium, color = c.textBody, modifier = Modifier.weight(1f), textAlign = TextAlign.End)
+                Text("Tampilkan", style = MaterialTheme.typography.labelMedium, color = c.textBody, modifier = Modifier.weight(1f))
                 ClipMiSwitch(state.snapshot.showHookOverlay) { on -> state.apply { it.copy(showHookOverlay = on) } }
             }
         }
@@ -722,7 +810,7 @@ fun HookPanel(state: EditorState) {
                 Text("Waktu tampil", style = MaterialTheme.typography.labelMedium, color = c.textBody, modifier = Modifier.weight(1f))
                 Text("${seconds(layout.start)}–${seconds(layout.end)} dtk", style = MaterialTheme.typography.labelMedium, color = c.text)
             }
-            RangeSlider(
+            ClipMiRangeSlider(
                 value = layout.start.toFloat()..layout.end.toFloat(),
                 onValueChange = { r ->
                     state.drag { s ->
@@ -731,7 +819,6 @@ fun HookPanel(state: EditorState) {
                 },
                 valueRange = min.toFloat()..maxOf(min + 0.5, length).toFloat(),
                 onValueChangeFinished = { state.endDrag() },
-                colors = SliderDefaults.colors(thumbColor = c.accent, activeTrackColor = c.accent, inactiveTrackColor = c.line),
             )
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f)) {
@@ -741,7 +828,7 @@ fun HookPanel(state: EditorState) {
                 ClipMiSwitch(layout.opener) { on -> merge("opener" to JsonPrimitive(on)) }
             }
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                SecondaryButton("Posisi bawaan", modifier = Modifier.weight(1f), height = 40.dp, enabled = layout.x != null, onClick = { merge("x" to JsonNull, "y" to JsonNull) })
+                ActionChip("Posisi bawaan", modifier = Modifier.weight(1f), height = 40.dp, enabled = layout.x != null, onClick = { merge("x" to JsonNull, "y" to JsonNull) })
                 GhostButton("Reset tampilan", onClick = { state.apply { it.copy(hookLayout = null) } })
             }
         }

@@ -236,6 +236,8 @@ data class ClipEntity(
     @ColumnInfo(name = "cover_path") val coverPath: String? = null,
     @ColumnInfo(name = "cover_title", defaultValue = "0") val coverTitle: Boolean = false,
     @ColumnInfo(name = "cover_in_video", defaultValue = "1") val coverInVideo: Boolean = true,
+    /** Model judul sampul Android (JSON [id.clipmi.core.render.CoverTitleLayout]); null = klasik seperti desktop. */
+    @ColumnInfo(name = "cover_layout") val coverLayout: String? = null,
     @ColumnInfo(name = "intro_id") val introId: Long? = null,
     @ColumnInfo(name = "outro_id") val outroId: Long? = null,
     /**

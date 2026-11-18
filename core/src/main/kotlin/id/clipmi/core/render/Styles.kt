@@ -24,8 +24,14 @@ object Fonts {
 
     fun isBold(family: String?): Boolean = AVAILABLE[family]?.bold ?: false
 
+    /** Font khusus judul sampul Android ([CoverTitle]); tidak ditawarkan sebagai font subtitle. */
+    val COVER: Map<String, Font> = linkedMapOf(
+        "Instrument Serif" to Font("Instrument Serif Italic", false, "InstrumentSerif-Italic.ttf"),
+        "Permanent Marker" to Font("Permanent Marker", false, "PermanentMarker-Regular.ttf"),
+    )
+
     /** File font untuk keluarga ini, atau file font bawaan. */
-    fun file(family: String?): String = (AVAILABLE[family] ?: AVAILABLE.getValue(DEFAULT)).file
+    fun file(family: String?): String = (AVAILABLE[family] ?: COVER[family] ?: AVAILABLE.getValue(DEFAULT)).file
 }
 
 /**

@@ -69,14 +69,12 @@ fun FieldLabel(text: String, value: String? = null) {
 /** Penggeser bilangan bulat dengan nilai di kanan label. */
 @Composable
 fun IntSlider(label: String, value: Int, range: IntRange, onChange: (Int) -> Unit, suffix: String = "", modifier: Modifier = Modifier) {
-    val c = ClipMi.colors
     Column(modifier.fillMaxWidth()) {
         FieldLabel(label, "$value$suffix")
-        Slider(
+        id.clipmi.android.ui.components.ClipMiSlider(
             value = value.toFloat(),
             onValueChange = { onChange(it.roundToInt().coerceIn(range)) },
             valueRange = range.first.toFloat()..range.last.toFloat(),
-            colors = SliderDefaults.colors(thumbColor = c.accent, activeTrackColor = c.accent, inactiveTrackColor = c.line),
         )
     }
 }

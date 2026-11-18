@@ -1,5 +1,6 @@
 package id.clipmi.android.domain
 
+import id.clipmi.core.render.CoverTitle
 import android.content.ContentValues
 import android.content.Context
 import android.graphics.Paint
@@ -381,7 +382,7 @@ class Renderer(
 
     private fun coverKey(clip: ClipEntity, project: ProjectEntity, spec: ClipSpec): String {
         val parts = listOf(
-            clip.coverTime, clip.coverPath, clip.coverTitle, spec.displayTitle(), spec.frame, spec.style,
+            clip.coverTime, clip.coverPath, clip.coverTitle, clip.coverLayout, clip.keywords, spec.displayTitle(), spec.frame, spec.style,
             spec.speakerKeyframes, spec.effectiveCropPosition(), spec.effectiveZoom(), spec.effectiveCropY(), clip.startTime, project.videoPath,
         )
         val digest = java.security.MessageDigest.getInstance("MD5").digest(parts.toString().toByteArray())
@@ -401,7 +402,10 @@ class Renderer(
 
         val width = frame.canvasWidth()
         val height = frame.canvasHeight()
-        val title = if (clip.coverTitle) spec.displayTitle() else null
+        // Model judul Android (bukan klasik): judul tidak lewat jalur desktop, tetapi digambar di atas frame jadi.
+        val layout = CoverTitle.parse(clip.coverLayout)
+        val styled = clip.coverTitle && !layout.classic
+        val title = if (clip.coverTitle && !styled) spec.displayTitle() else null
         // Judul besar di sekitar tiga perlima tinggi layar, di atas area subtitle.
         val titleTop = Php.roundInt(height * 0.58)
         val core = ClipRender(AssWriter(FontMeasurer(fontsDir())))
@@ -423,9 +427,20 @@ class Renderer(
                 val (inputs, imageArgs) = prepare(core, spec, composition, workDir, emptyList(), 2.0, title, titleTop, COVER_TITLE_SIZE)
                 (listOf("-ss", RenderGraph.seconds(maxOf(0.0, time - 0.4)), "-t", "1.5", "-i", video.absolutePath) + imageArgs) to RenderGraph.filter(composition, inputs)
             }
+            var graph = filter
+            if (styled) {
+                File(workDir, "fonts").takeIf { !it.isDirectory }?.let { dir ->
+                    dir.mkdirs()
+                    fontsDir().listFiles().orEmpty().forEach { it.copyTo(File(dir, it.name), overwrite = true) }
+                }
+                val keywords = clip.keywords?.let { runCatching { json.decodeFromString<List<String>>(it) }.getOrNull() }.orEmpty()
+                File(workDir, "cover.ass").writeText(CoverTitle.build(layout, spec.displayTitle(), keywords, width, height, FontMeasurer(fontsDir())))
+                // Judul di atas frame jadi (setelah bingkai bila ada).
+                graph = graph.removeSuffix("[v]") + "[vt];[vt]ass=cover.ass:fontsdir=fonts[v]"
+            }
             // Frame di detik 0,4: judul sudah selesai muncul pelan.
             ffmpeg.run(
-                listOf("-y") + args + listOf("-filter_complex", RenderGraph.lgpl(filter), "-map", "[v]", "-ss", "0.4", "-frames:v", "1", "-q:v", "3", output.absolutePath),
+                listOf("-y") + args + listOf("-filter_complex", RenderGraph.lgpl(graph), "-map", "[v]", "-ss", "0.4", "-frames:v", "1", "-q:v", "3", output.absolutePath),
                 directory = workDir,
             )
             if (!output.isFile || output.length() == 0L) throw RenderException("Sampul tidak berhasil dibuat.")
