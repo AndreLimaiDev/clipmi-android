@@ -1,5 +1,16 @@
 package id.clipmi.android.ui.screens
 
+import id.clipmi.android.ui.components.IconCircle
+import id.clipmi.android.ui.components.ActionChip
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.ui.unit.sp
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.draw.clip
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.Box
 import android.net.Uri
 import android.os.StatFs
 import android.provider.MediaStore
@@ -146,74 +157,91 @@ fun DataScreen(container: AppContainer, onBack: () -> Unit) {
             }
 
             SectionLabel("Penyimpanan")
-            ClipMiCard {
+            // Ringkasan: sisa ruang besar, batang pemakaian (folder kerja vs video hasil), satu baris keterangan.
+            ClipMiCard(spacing = 14.dp, padding = PaddingValues(20.dp)) {
                 val s = space
-                if (s == null) CircularProgressIndicator(Modifier.size(20.dp), color = c.accent, strokeWidth = 2.dp)
-                else {
-                    Text("Sisa ruang HP ${formatBytes(s.first)}", style = MaterialTheme.typography.titleMedium, color = c.text)
-                    Text("Folder kerja ClipMI ${formatBytes(s.second)} · video hasil di galeri ${formatBytes(s.third)}", style = MaterialTheme.typography.bodySmall, color = c.textMuted)
-                }
-                Text(
-                    "Video sumber paling banyak memakan ruang. Hapus setelah klipnya selesai; transkrip, klip, dan hasil render tetap ada. Bila perlu render ulang, unduh atau pilih ulang videonya.",
-                    style = MaterialTheme.typography.bodySmall, color = c.textMuted,
-                )
-            }
-            projects.orEmpty().sortedByDescending { sizes?.get(it.id) ?: 0 }.forEach { p ->
-                ClipMiCard {
-                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                        Column(Modifier.weight(1f)) {
-                            Text(p.title, style = MaterialTheme.typography.titleSmall, color = c.text, maxLines = 2, overflow = TextOverflow.Ellipsis)
-                            Text(sizes?.get(p.id)?.let(::formatBytes) ?: "…", style = MaterialTheme.typography.bodySmall, color = c.textMuted)
-                        }
-                        when (p.video) {
-                            VideoStatus.Deleted -> StatusBadge("Sumber dihapus", Tone.Warn)
-                            VideoStatus.Ready -> StatusBadge("Sumber ada", Tone.Good)
-                            VideoStatus.Failed -> StatusBadge("Gagal", Tone.Bad)
-                            else -> StatusBadge(p.video.label, Tone.Busy)
-                        }
+                if (s == null) {
+                    CircularProgressIndicator(Modifier.size(20.dp), color = c.accent, strokeWidth = 2.dp)
+                } else {
+                    Column {
+                        Text("Sisa ruang HP", style = MaterialTheme.typography.bodySmall, color = c.textMuted)
+                        Text(formatBytes(s.first), style = MaterialTheme.typography.displaySmall.copy(fontWeight = FontWeight.ExtraBold, fontSize = 36.sp), color = c.text)
                     }
-                    when (p.video) {
-                        VideoStatus.Ready -> SecondaryButton("Hapus video sumber", { deleteSource = p }, height = 40.dp, contentColor = c.bad)
-                        VideoStatus.Deleted, VideoStatus.Failed -> SecondaryButton(
-                            if (p.isYouTube) "Unduh ulang video" else "Pilih ulang video",
-                            {
-                                if (p.isYouTube) scope.launch { container.actions.recoverVideo(p.id); notifier.show("Video diunduh ulang di latar.") }
-                                else { recoverLocal = p.id; pickVideo.launch(arrayOf("video/*")) }
-                            },
-                            icon = ClipMiIcons.Refresh, height = 40.dp,
-                        )
-                        else -> {}
+                    val total = (s.second + s.third).coerceAtLeast(1)
+                    Row(Modifier.fillMaxWidth().height(8.dp).clip(RoundedCornerShape(50)).background(c.panel)) {
+                        Box(Modifier.weight(s.second.toFloat().coerceAtLeast(0.001f)).fillMaxHeight().background(c.accent))
+                        Box(Modifier.weight(s.third.toFloat().coerceAtLeast(0.001f)).fillMaxHeight().background(c.busy))
+                    }
+                    Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+                        Legend(c.accent, "Folder kerja", formatBytes(s.second))
+                        Legend(c.busy, "Video hasil", formatBytes(s.third))
+                    }
+                    if (total > 0) Text("Video sumber paling besar; transkrip, klip, dan hasil tetap ada bila dihapus.", style = MaterialTheme.typography.bodySmall, color = c.textMuted)
+                }
+            }
+            // Video sumber per project dalam satu kartu: judul, ukuran, dan ikon hapus/unduh ulang.
+            val list = projects.orEmpty().sortedByDescending { sizes?.get(it.id) ?: 0 }
+            if (list.isNotEmpty()) {
+                ClipMiCard(spacing = 0.dp, padding = PaddingValues(vertical = 4.dp)) {
+                    list.forEachIndexed { i, p ->
+                        if (i > 0) Box(Modifier.fillMaxWidth().padding(horizontal = 16.dp).height(1.dp).background(c.line))
+                        Row(Modifier.padding(start = 16.dp, end = 8.dp, top = 10.dp, bottom = 10.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                            Column(Modifier.weight(1f)) {
+                                Text(p.title, style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.SemiBold), color = c.text, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                Text(
+                                    listOfNotNull(
+                                        sizes?.get(p.id)?.let(::formatBytes) ?: "…",
+                                        when (p.video) {
+                                            VideoStatus.Deleted -> "sumber dihapus"
+                                            VideoStatus.Failed -> "gagal"
+                                            VideoStatus.Ready -> null
+                                            else -> p.video.label.lowercase()
+                                        },
+                                    ).joinToString(" · "),
+                                    style = MaterialTheme.typography.bodySmall, color = if (p.video == VideoStatus.Deleted) c.warn else c.textMuted,
+                                )
+                            }
+                            when (p.video) {
+                                VideoStatus.Ready -> IconCircle(ClipMiIcons.Trash, "Hapus video sumber ${p.title}", { deleteSource = p }, size = 40.dp, background = Color.Transparent, border = false, tint = c.bad)
+                                VideoStatus.Deleted, VideoStatus.Failed -> IconCircle(
+                                    if (p.isYouTube) ClipMiIcons.Download else ClipMiIcons.Refresh,
+                                    if (p.isYouTube) "Unduh ulang video" else "Pilih ulang video",
+                                    {
+                                        if (p.isYouTube) scope.launch { container.actions.recoverVideo(p.id); notifier.show("Video diunduh ulang di latar.") }
+                                        else { recoverLocal = p.id; pickVideo.launch(arrayOf("video/*")) }
+                                    },
+                                    size = 40.dp, background = Color.Transparent, border = false,
+                                )
+                                else -> {}
+                            }
+                        }
                     }
                 }
             }
 
             SectionLabel("Cadangkan & pulihkan")
             ClipMiCard {
-                Text("Cadangkan", style = MaterialTheme.typography.titleMedium, color = c.text)
-                Text(
-                    "Satu file ZIP berisi project, transkrip, klip, gaya, kamus, jadwal, statistik, dan pengaturan, untuk disimpan di HP atau Google Drive. " +
-                        "API key dan video sumber tidak ikut.",
-                    style = MaterialTheme.typography.bodySmall, color = c.textMuted,
-                )
-                SwitchRow("Sertakan video hasil render", "File cadangan jadi lebih besar (${space?.third?.let(::formatBytes) ?: "…"}).", includeRenders, onCheckedChange = { includeRenders = it })
-                PrimaryButton("Cadangkan sekarang", { createBackup.launch(container.backup.fileName()) }, enabled = busy == null, icon = ClipMiIcons.Download, modifier = Modifier.fillMaxWidth())
+                Text("Cadangkan", style = MaterialTheme.typography.titleSmall, color = c.text)
+                Text("Project, klip, gaya, jadwal, dan pengaturan · tanpa API key dan video sumber", style = MaterialTheme.typography.bodySmall, color = c.textMuted)
+                SwitchRow("Sertakan video hasil", space?.third?.let(::formatBytes), includeRenders, onCheckedChange = { includeRenders = it })
+                ActionChip("Cadangkan sekarang", { createBackup.launch(container.backup.fileName()) }, Modifier.fillMaxWidth(), height = 44.dp, enabled = busy == null, icon = ClipMiIcons.Download, primary = true)
             }
             ClipMiCard {
-                Text("Pulihkan", style = MaterialTheme.typography.titleMedium, color = c.text)
-                Text("Pilih file cadangan ClipMI. Isinya ditampilkan dulu sebelum data di HP ini diganti.", style = MaterialTheme.typography.bodySmall, color = c.textMuted)
-                SecondaryButton("Pilih file cadangan", { openBackup.launch(arrayOf("application/zip", "application/octet-stream")) }, enabled = busy == null, icon = ClipMiIcons.Upload, height = 44.dp)
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Column(Modifier.weight(1f)) {
+                        Text("Pulihkan", style = MaterialTheme.typography.titleSmall, color = c.text)
+                        Text("Isinya ditampilkan dulu sebelum diganti", style = MaterialTheme.typography.bodySmall, color = c.textMuted)
+                    }
+                    ActionChip("Pilih file", { openBackup.launch(arrayOf("application/zip", "application/octet-stream")) }, height = 40.dp, enabled = busy == null, icon = ClipMiIcons.Upload)
+                }
             }
 
             SectionLabel("Paket Standar Tim")
             ClipMiCard {
-                Text(
-                    "Template prompt, gaya subtitle, gaya bingkai, intro/outro, dan kamus koreksi dalam satu file, sama dengan ClipMI di PC. " +
-                        "Saat diimpor, entri dengan nama atau kata yang sama diperbarui; entri lain di HP ini tidak dihapus.",
-                    style = MaterialTheme.typography.bodySmall, color = c.textMuted,
-                )
+                Text("Prompt, gaya, intro/outro, dan kamus · sama dengan ClipMI di PC", style = MaterialTheme.typography.bodySmall, color = c.textMuted)
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    SecondaryButton("Ekspor paket", { exportPack.launch(container.teamPacks.fileName()) }, icon = ClipMiIcons.Download, height = 44.dp)
-                    SecondaryButton("Impor paket", { openPack.launch(arrayOf("application/json", "text/plain", "application/octet-stream")) }, icon = ClipMiIcons.Upload, height = 44.dp)
+                    ActionChip("Ekspor paket", { exportPack.launch(container.teamPacks.fileName()) }, Modifier.weight(1f), height = 44.dp, icon = ClipMiIcons.Download)
+                    ActionChip("Impor paket", { openPack.launch(arrayOf("application/json", "text/plain", "application/octet-stream")) }, Modifier.weight(1f), height = 44.dp, icon = ClipMiIcons.Upload)
                 }
             }
         }
@@ -280,5 +308,13 @@ fun DataScreen(container: AppContainer, onBack: () -> Unit) {
             })
             GhostButton("Batal", { pack = null })
         }
+    }
+}
+
+@Composable
+private fun Legend(color: Color, label: String, value: String) {
+    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+        Box(Modifier.size(8.dp).clip(RoundedCornerShape(50)).background(color))
+        Text("$label $value", style = MaterialTheme.typography.labelMedium, color = ClipMi.colors.textBody)
     }
 }

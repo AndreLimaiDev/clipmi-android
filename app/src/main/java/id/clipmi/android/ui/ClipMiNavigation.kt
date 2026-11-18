@@ -198,7 +198,7 @@ fun ClipMiNavigation(container: AppContainer, shared: SharedResult?, onSharedHan
                 composable<CaptionStylesRoute> {
                     // Menu Gaya klip: tab Subtitle (rute ini) dan Bingkai (FrameStylesRoute) saling menggantikan.
                     CaptionStylesScreen(container, onBack = { nav.popBackStack() }, onEdit = { id, copy -> nav.navigate(CaptionStyleEditRoute(id, copy)) }, header = {
-                        StylesHeader(0, onBack = { nav.popBackStack() }) { tab -> if (tab == 1) nav.navigate(FrameStylesRoute) { popUpTo<CaptionStylesRoute> { inclusive = true } } }
+                        StylesHeader(0, onBack = { nav.popBackStack() }, onAdd = { nav.navigate(CaptionStyleEditRoute(0, 0)) }) { tab -> if (tab == 1) nav.navigate(FrameStylesRoute) { popUpTo<CaptionStylesRoute> { inclusive = true } } }
                     })
                 }
                 composable<CaptionStyleEditRoute> {
@@ -209,7 +209,7 @@ fun ClipMiNavigation(container: AppContainer, shared: SharedResult?, onSharedHan
                 }
                 composable<FrameStylesRoute> {
                     FrameStylesScreen(container, onBack = { nav.popBackStack() }, onEdit = { id, copy -> nav.navigate(FrameStyleEditRoute(id, copy)) }, header = {
-                        StylesHeader(1, onBack = { nav.popBackStack() }) { tab -> if (tab == 0) nav.navigate(CaptionStylesRoute) { popUpTo<FrameStylesRoute> { inclusive = true } } }
+                        StylesHeader(1, onBack = { nav.popBackStack() }, onAdd = { nav.navigate(FrameStyleEditRoute(0, 0)) }) { tab -> if (tab == 0) nav.navigate(CaptionStylesRoute) { popUpTo<FrameStylesRoute> { inclusive = true } } }
                     })
                 }
                 composable<FrameStyleEditRoute> {

@@ -109,7 +109,6 @@ fun FrameStylesScreen(
                 }
             }
         }
-        FloatingPill("Gaya baru", ClipMiIcons.Plus, onClick = { onEdit(0, 0) }, modifier = Modifier.align(Alignment.BottomCenter).navigationBarsPadding().padding(bottom = 24.dp))
     }
 }
 

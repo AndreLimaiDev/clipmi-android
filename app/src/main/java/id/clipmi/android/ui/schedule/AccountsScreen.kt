@@ -1,5 +1,6 @@
 package id.clipmi.android.ui.schedule
 
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -72,7 +73,7 @@ fun AccountsScreen(container: AppContainer, onBack: () -> Unit) {
         if (list.isEmpty()) {
             EmptyState(
                 "Belum ada akun",
-                "Tambahkan akun TikTok, Instagram, YouTube, atau Facebook yang Anda kelola. Hanya label untuk jadwal: ClipMI tidak login ke akun mana pun.",
+                "Akun hanya label untuk jadwal; ClipMI tidak login ke akun mana pun. Atur jam posting rutin untuk Isi otomatis.",
                 icon = ClipMiIcons.Users,
                 action = { PrimaryButton("Tambah akun", { editing = SocialAccountEntity(name = "", platform = "instagram", color = Platforms.COLORS[0]) }, icon = ClipMiIcons.Plus) },
             )
@@ -84,26 +85,39 @@ fun AccountsScreen(container: AppContainer, onBack: () -> Unit) {
             ) {
                 items(list, key = { it.id }) { account ->
                     val slots = SlotCodec.decode(account.slots)
-                    ClipMiCard(onClick = { editing = account }) {
+                    val c = ClipMi.colors
+                    ClipMiCard(onClick = { editing = account }, padding = PaddingValues(14.dp)) {
                         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                            AccountDot(account.color, 14.dp)
-                            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                                Text(account.name, style = MaterialTheme.typography.titleMedium, color = ClipMi.colors.text)
-                                Text(listOfNotNull(Platforms.label(account.platform), account.handle).joinToString(" · "), style = MaterialTheme.typography.bodySmall, color = ClipMi.colors.textMuted)
-                                Text(
-                                    if (slots.isEmpty()) "Tanpa slot rutin" else Slots.summary(slots),
-                                    style = MaterialTheme.typography.bodySmall, color = if (slots.isEmpty()) ClipMi.colors.textMuted else ClipMi.colors.textBody,
-                                )
+                            // Ikon platform di kotak warna akun.
+                            val color = runCatching { androidx.compose.ui.graphics.Color(android.graphics.Color.parseColor(account.color)) }.getOrDefault(c.textMuted)
+                            Box(Modifier.size(44.dp).clip(RoundedCornerShape(14.dp)).background(color), contentAlignment = Alignment.Center) {
+                                Icon(platformIcon(account.platform), contentDescription = Platforms.label(account.platform), tint = androidx.compose.ui.graphics.Color.White, modifier = Modifier.size(22.dp))
                             }
-                            Icon(ClipMiIcons.Chevron, contentDescription = null, tint = ClipMi.colors.textMuted, modifier = Modifier.size(20.dp))
+                            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                                Column {
+                                    Text(account.name, style = MaterialTheme.typography.titleSmall, color = c.text)
+                                    Text(listOfNotNull(Platforms.label(account.platform), account.handle).joinToString(" · "), style = MaterialTheme.typography.bodySmall, color = c.textMuted)
+                                }
+                                if (slots.isEmpty()) {
+                                    Text("Tanpa slot rutin", style = MaterialTheme.typography.labelMedium, color = c.textMuted)
+                                } else {
+                                    FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                                        Slots.summary(slots).split(" · ").forEach { slot ->
+                                            Row(
+                                                Modifier.clip(RoundedCornerShape(8.dp)).background(c.panel).padding(horizontal = 8.dp, vertical = 4.dp),
+                                                verticalAlignment = Alignment.CenterVertically,
+                                                horizontalArrangement = Arrangement.spacedBy(4.dp),
+                                            ) {
+                                                Icon(ClipMiIcons.Clock, null, tint = c.textMuted, modifier = Modifier.size(12.dp))
+                                                Text(slot, style = MaterialTheme.typography.labelMedium, color = c.textBody)
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                            Icon(ClipMiIcons.Chevron, contentDescription = null, tint = c.textMuted, modifier = Modifier.size(20.dp))
                         }
                     }
-                }
-                item(key = "hint") {
-                    Text(
-                        "Slot rutin dipakai Isi otomatis di tab Antrean. Akun yang slotnya di jam yang sama mendapat satu jadwal bersama.",
-                        style = MaterialTheme.typography.bodySmall, color = ClipMi.colors.textMuted, modifier = Modifier.padding(horizontal = 4.dp),
-                    )
                 }
             }
         }
@@ -216,4 +230,13 @@ private fun AccountSheet(container: AppContainer, account: SocialAccountEntity, 
             onDismiss = { confirmDelete = false },
         )
     }
+}
+
+/** Ikon platform akun sosmed. */
+internal fun platformIcon(platform: String) = when (platform) {
+    "tiktok" -> ClipMiIcons.TikTok
+    "instagram" -> ClipMiIcons.Instagram
+    "youtube" -> ClipMiIcons.YouTube
+    "facebook" -> ClipMiIcons.Facebook
+    else -> ClipMiIcons.Globe
 }

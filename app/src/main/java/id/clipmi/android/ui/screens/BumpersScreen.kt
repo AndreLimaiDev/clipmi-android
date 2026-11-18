@@ -1,5 +1,12 @@
 package id.clipmi.android.ui.screens
 
+import androidx.compose.foundation.layout.size
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.graphics.Color
+import androidx.compose.material3.Icon
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
@@ -78,14 +85,17 @@ fun BumpersScreen(container: AppContainer, onBack: () -> Unit) {
 
     Box(Modifier.fillMaxSize().background(ClipMi.colors.bg)) {
         Column(Modifier.fillMaxSize().statusBarsPadding()) {
-            SubScreenHeader("Intro & outro", onBack)
+            // Tambah di kanan atas (bukan tombol melayang yang menutupi daftar).
+            SubScreenHeader("Intro & outro", onBack) {
+                if (importing) CircularProgressIndicator(Modifier.size(24.dp), color = ClipMi.colors.accent, strokeWidth = 2.dp)
+                else IconCircle(ClipMiIcons.Plus, "Tambah ${label.lowercase()}", { picker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.VideoOnly)) })
+            }
             SegmentedTabs(listOf("Intro", "Outro"), tab, { tab = it }, Modifier.padding(horizontal = ScreenGutter, vertical = 4.dp))
             val list = bumpers.orEmpty().filter { it.kind == kind }
             if (bumpers != null && list.isEmpty()) {
                 EmptyState(
                     "Belum ada ${label.lowercase()}",
-                    "Video ${if (kind == "intro") "pembuka" else "penutup"} pendek (maksimal ${BumperEntity.MAX_SECONDS} detik, MP4/MOV) dari galeri HP. " +
-                        "Pilih per klip di editor, tab Sampul.",
+                    "Video ${if (kind == "intro") "pembuka" else "penutup"} pendek, maksimal ${BumperEntity.MAX_SECONDS} detik. Ketuk + untuk menambah.",
                     icon = ClipMiIcons.Film,
                 )
             }
@@ -95,7 +105,16 @@ fun BumpersScreen(container: AppContainer, onBack: () -> Unit) {
                 verticalArrangement = Arrangement.spacedBy(10.dp),
             ) {
                 items(list, key = { it.id }) { bumper ->
-                    ClipMiCard {
+                    val context = LocalContext.current
+                    // Ketuk kartu untuk memutar videonya.
+                    ClipMiCard(onClick = {
+                        container.workspace.file(bumper.path)?.takeIf { it.isFile }?.let { file ->
+                            val uri = androidx.core.content.FileProvider.getUriForFile(context, "${context.packageName}.files", file)
+                            runCatching {
+                                context.startActivity(android.content.Intent(android.content.Intent.ACTION_VIEW).setDataAndType(uri, "video/mp4").addFlags(android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION))
+                            }
+                        }
+                    }) {
                         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(14.dp)) {
                             FileImage(
                                 container.workspace.file(bumper.thumbnailPath),
@@ -106,17 +125,22 @@ fun BumpersScreen(container: AppContainer, onBack: () -> Unit) {
                                 Text(bumper.name, style = MaterialTheme.typography.titleMedium, color = ClipMi.colors.text, maxLines = 2, overflow = TextOverflow.Ellipsis)
                                 Text(String.format(Locale.forLanguageTag("id"), "%.1f detik", bumper.duration), style = MaterialTheme.typography.bodySmall, color = ClipMi.colors.textMuted)
                             }
-                            IconCircle(ClipMiIcons.Trash, "Hapus", { deleting = bumper }, size = 40.dp, background = ClipMi.colors.panel)
+                            Box {
+                                var menu by remember { mutableStateOf(false) }
+                                IconCircle(ClipMiIcons.More, "Lainnya", { menu = true }, size = 40.dp, background = Color.Transparent, border = false)
+                                DropdownMenu(menu, onDismissRequest = { menu = false }, containerColor = ClipMi.colors.card) {
+                                    DropdownMenuItem(
+                                        text = { Text("Hapus", color = ClipMi.colors.bad) },
+                                        leadingIcon = { Icon(ClipMiIcons.Trash, null, Modifier.size(18.dp), tint = ClipMi.colors.bad) },
+                                        onClick = { menu = false; deleting = bumper },
+                                    )
+                                }
+                            }
                         }
                     }
                 }
             }
         }
-        FloatingPill(
-            if (importing) "Menyalin video…" else "Tambah ${label.lowercase()}", ClipMiIcons.Plus,
-            onClick = { if (!importing) picker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.VideoOnly)) },
-            modifier = Modifier.align(Alignment.BottomCenter).navigationBarsPadding().padding(bottom = 24.dp),
-        )
     }
 
     deleting?.let { bumper ->

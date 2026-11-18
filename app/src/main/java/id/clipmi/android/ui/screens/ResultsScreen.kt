@@ -1,5 +1,14 @@
 package id.clipmi.android.ui.screens
 
+import id.clipmi.android.ui.components.bleed
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.ui.graphics.Color
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.clickable
 import android.content.Context
 import android.content.Intent
 import android.graphics.Bitmap
@@ -49,9 +58,7 @@ import id.clipmi.android.ui.components.ClipMiCard
 import id.clipmi.android.ui.components.EmptyState
 import id.clipmi.android.ui.components.FilterPill
 import id.clipmi.android.ui.components.GhostButton
-import id.clipmi.android.ui.components.IconCircle
 import id.clipmi.android.ui.components.LocalNotifier
-import id.clipmi.android.ui.components.PrimaryButton
 import id.clipmi.android.ui.components.ProgressBar
 import id.clipmi.android.ui.components.ScreenGutter
 import id.clipmi.android.ui.components.StatusBadge
@@ -78,35 +85,64 @@ private val TARGETS = listOf(
 /** Info file hasil di galeri: ada atau hilang, ukuran, resolusi, durasi, gambar kecil. */
 private data class OutputInfo(val exists: Boolean, val bytes: Long?, val width: Int?, val height: Int?, val durationMs: Long?, val thumbnail: Bitmap?)
 
+/** Filter hasil render. */
+private enum class ResultFilter(val label: String) { All("Semua"), Ready("Siap unggah"), Stale("Hasil lama"), Scheduled("Sudah dijadwalkan") }
+
 /**
- * Layar Hasil (mockup "Hasil render"): render yang sedang berjalan, klip yang sudah jadi dengan tombol bagikan ke
- * aplikasi sosmed, dan peringatan bila klip diubah setelah dirender atau file hasilnya hilang dari galeri.
+ * Layar Hasil render: klip yang sedang/selesai dirender. Kartu ringkas (gambar untuk memutar, judul, durasi dan ukuran,
+ * status) dengan Jadwalkan, Bagikan, dan menu ⋯; filter per status bila ada isinya.
  */
 @Composable
 fun ResultsScreen(container: AppContainer, onBack: () -> Unit, onOpenProject: (Long) -> Unit, onOpenEditor: (Long) -> Unit, onSchedule: (Long) -> Unit = {}) {
     val clips by container.database.clips().observeRendered().collectAsState(initial = null)
+    val schedule by id.clipmi.android.ui.schedule.rememberScheduleData(container)
+    val scheduled = schedule?.scheduledClipIds.orEmpty()
     val context = LocalContext.current
+    val c = ClipMi.colors
     val installed = remember {
         val pm = context.packageManager
         TARGETS.mapNotNull { (label, packages) ->
             packages.firstOrNull { pkg -> runCatching { pm.getPackageInfo(pkg, 0) }.isSuccess }?.let { label to it }
         }
     }
+    var filter by rememberSaveable { mutableStateOf(ResultFilter.All) }
 
-    Column(Modifier.fillMaxSize().background(ClipMi.colors.bg).statusBarsPadding()) {
+    Column(Modifier.fillMaxSize().background(c.bg).statusBarsPadding()) {
         SubScreenHeader("Hasil render", onBack)
         val list = clips
         if (list != null && list.isEmpty()) {
-            EmptyState("Belum ada hasil", "Pilih klip di project, lalu ketuk Render klip. Hasilnya muncul di sini dan di galeri HP.", icon = ClipMiIcons.Film)
+            EmptyState("Belum ada hasil", "Render klip terpilih dari halaman project.", icon = ClipMiIcons.Film)
             return
         }
+        fun matches(f: ResultFilter, clip: ClipEntity) = when (f) {
+            ResultFilter.All -> true
+            ResultFilter.Ready -> clip.render == RenderStatus.Done && !clip.changedAfterRender && clip.id !in scheduled
+            ResultFilter.Stale -> clip.changedAfterRender
+            ResultFilter.Scheduled -> clip.id in scheduled
+        }
+        val all = list.orEmpty()
+        val shown = all.filter { matches(filter, it) }
         LazyColumn(
             Modifier.fillMaxSize(),
-            contentPadding = PaddingValues(start = ScreenGutter, end = ScreenGutter, top = 4.dp, bottom = 48.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp),
+            contentPadding = PaddingValues(start = ScreenGutter, end = ScreenGutter, top = 0.dp, bottom = 48.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
-            items(list.orEmpty(), key = { it.id }) { clip ->
-                ResultCard(container, clip, installed, onOpenProject, onOpenEditor, onSchedule)
+            item(key = "where") {
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Icon(ClipMiIcons.Image, null, tint = c.textMuted, modifier = Modifier.size(14.dp))
+                    Text("Tersimpan di Galeri › Movies/ClipMI", style = MaterialTheme.typography.bodySmall, color = c.textMuted)
+                }
+            }
+            val filters = ResultFilter.entries.filter { f -> f == ResultFilter.All || f == filter || all.any { matches(f, it) } }
+            if (filters.size > 2 || filter != ResultFilter.All) {
+                item(key = "filter") {
+                    ChipRow(Modifier.bleed()) {
+                        filters.forEach { f -> FilterPill("${f.label} · ${all.count { matches(f, it) }}", selected = filter == f, height = 34.dp, onClick = { filter = f }) }
+                    }
+                }
+            }
+            items(shown, key = { it.id }) { clip ->
+                ResultCard(container, clip, installed, clip.id in scheduled, onOpenProject, onOpenEditor, onSchedule)
             }
         }
     }
@@ -117,6 +153,7 @@ private fun ResultCard(
     container: AppContainer,
     clip: ClipEntity,
     installed: List<Pair<String, String>>,
+    isScheduled: Boolean,
     onOpenProject: (Long) -> Unit,
     onOpenEditor: (Long) -> Unit,
     onSchedule: (Long) -> Unit,
@@ -130,14 +167,14 @@ private fun ResultCard(
         value = clip.outputPath?.let { path -> withContext(Dispatchers.IO) { outputInfo(context, Uri.parse(path)) } }
     }
 
-    ClipMiCard {
+    ClipMiCard(padding = PaddingValues(12.dp), spacing = 12.dp) {
         when (clip.render) {
             RenderStatus.Queued, RenderStatus.Rendering -> {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Column(Modifier.weight(1f)) {
-                        Text(title, style = MaterialTheme.typography.titleMedium, color = c.text, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                        Text(title, style = MaterialTheme.typography.titleSmall, color = c.text, maxLines = 2, overflow = TextOverflow.Ellipsis)
                         Text(
-                            if (clip.render == RenderStatus.Queued) clip.renderError ?: RenderSafety.batteryReason(context) ?: "Antre render…" else "Merender ${clip.renderProgress ?: 0}% · HP boleh dipakai",
+                            if (clip.render == RenderStatus.Queued) clip.renderError ?: RenderSafety.batteryReason(context) ?: "Antre render…" else "Merender ${clip.renderProgress ?: 0}%",
                             style = MaterialTheme.typography.bodySmall, color = c.textMuted,
                         )
                     }
@@ -146,62 +183,73 @@ private fun ResultCard(
                 ProgressBar(if (clip.render == RenderStatus.Rendering) (clip.renderProgress ?: 0) / 100f else null, color = c.busy)
             }
             RenderStatus.Failed -> {
-                Text(title, style = MaterialTheme.typography.titleMedium, color = c.text, maxLines = 2, overflow = TextOverflow.Ellipsis)
-                Text("Render gagal: ${clip.renderError ?: "sebab tidak diketahui"}", style = MaterialTheme.typography.bodySmall, color = c.bad, maxLines = 4, overflow = TextOverflow.Ellipsis)
+                Text(title, style = MaterialTheme.typography.titleSmall, color = c.text, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                Text("Render gagal: ${clip.renderError ?: "sebab tidak diketahui"}", style = MaterialTheme.typography.bodySmall, color = c.bad, maxLines = 3, overflow = TextOverflow.Ellipsis)
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    PrimaryButton("Coba lagi", onClick = { scope.launch { RenderQueue.render(context, clip) } }, icon = ClipMiIcons.Refresh, height = 44.dp)
-                    GhostButton("Buka editor", onClick = { onOpenEditor(clip.id) })
+                    ActionChip("Coba lagi", { scope.launch { RenderQueue.render(context, clip) } }, Modifier.weight(1f), height = 40.dp, icon = ClipMiIcons.Refresh, primary = true)
+                    ActionChip("Buka editor", { onOpenEditor(clip.id) }, Modifier.weight(1f), height = 40.dp, icon = ClipMiIcons.Scissors)
                 }
             }
             else -> {
                 val missing = info?.exists == false
                 Row(horizontalArrangement = Arrangement.spacedBy(14.dp)) {
-                    Box(Modifier.width(72.dp).height(128.dp).clip(RoundedCornerShape(14.dp)).background(c.panel), contentAlignment = Alignment.Center) {
+                    // Gambar kecil: ketuk untuk memutar.
+                    Box(
+                        Modifier.width(64.dp).height(112.dp).clip(RoundedCornerShape(12.dp)).background(c.panel)
+                            .clickable(enabled = !missing, onClickLabel = "Putar hasil") { openVideo(context, clip.outputPath) },
+                        contentAlignment = Alignment.Center,
+                    ) {
                         info?.thumbnail?.let { Image(it.asImageBitmap(), contentDescription = null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize()) }
-                            ?: Icon(ClipMiIcons.Film, contentDescription = null, tint = c.textMuted, modifier = Modifier.size(24.dp))
+                            ?: Icon(ClipMiIcons.Film, contentDescription = null, tint = c.textMuted, modifier = Modifier.size(22.dp))
+                        if (!missing && info != null) {
+                            Box(Modifier.size(30.dp).clip(CircleShape).background(Color.Black.copy(alpha = 0.45f)), contentAlignment = Alignment.Center) {
+                                Icon(ClipMiIcons.Play, null, tint = Color.White, modifier = Modifier.size(16.dp))
+                            }
+                        }
                     }
                     Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                        Text(title, style = MaterialTheme.typography.titleMedium, color = c.text, maxLines = 3, overflow = TextOverflow.Ellipsis)
+                        Text(title, style = MaterialTheme.typography.titleSmall, color = c.text, maxLines = 3, overflow = TextOverflow.Ellipsis)
                         info?.takeIf { it.exists }?.let { i ->
                             Text(
-                                listOfNotNull(
-                                    i.durationMs?.let { Timecode.format(it / 1000.0) },
-                                    if (i.width != null && i.height != null) "${i.width}×${i.height}" else null,
-                                    i.bytes?.let(::formatBytes),
-                                ).joinToString(" · "),
+                                listOfNotNull(i.durationMs?.let { Timecode.format(it / 1000.0) }, i.bytes?.let(::formatBytes)).joinToString(" · "),
                                 style = MaterialTheme.typography.bodySmall, color = c.textMuted,
                             )
                         }
-                        Text("Tersimpan di Galeri › Movies/ClipMI", style = MaterialTheme.typography.bodySmall, color = c.textMuted)
                         when {
                             missing -> StatusBadge("File hilang", Tone.Bad)
                             clip.changedAfterRender -> StatusBadge("Hasil lama", Tone.Warn)
+                            isScheduled -> StatusBadge("Dijadwalkan", Tone.Busy)
                             else -> StatusBadge("Siap unggah", Tone.Good)
                         }
                     }
                 }
-                if (missing || clip.changedAfterRender) {
-                    Text(
-                        if (missing) "File hasil sudah tidak ada di galeri. Render ulang untuk membuatnya lagi."
-                        else "Klip diubah setelah dirender; render ulang agar videonya ikut berubah.",
-                        style = MaterialTheme.typography.bodySmall, color = if (missing) c.bad else c.warn,
-                    )
-                    PrimaryButton("Render ulang", onClick = { scope.launch { RenderQueue.render(context, clip) } }, icon = ClipMiIcons.Refresh, height = 44.dp, modifier = Modifier.fillMaxWidth())
-                }
-                if (!missing) {
-                    Text("Bagikan ke", style = MaterialTheme.typography.labelMedium, color = c.textBody)
-                    ChipRow(gutter = 0.dp) {
-                        installed.forEach { (label, pkg) ->
-                            ActionChip(label, onClick = { share(context, container, clip, pkg) { notifier.show(it) } })
-                        }
-                        ActionChip("Lainnya…", onClick = { share(context, container, clip, null) { notifier.show(it) } })
-                    }
-                }
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-                    if (!missing) IconCircle(ClipMiIcons.Play, "Putar hasil", { openVideo(context, clip.outputPath) }, size = 40.dp, background = c.panel)
-                    IconCircle(ClipMiIcons.Edit, "Buka editor", { onOpenEditor(clip.id) }, size = 40.dp, background = c.panel)
-                    GhostButton("Buka project", onClick = { onOpenProject(clip.projectId) })
-                    if (!missing) GhostButton("Jadwalkan", onClick = { onSchedule(clip.id) })
+                    if (missing || clip.changedAfterRender) {
+                        ActionChip("Render ulang", { scope.launch { RenderQueue.render(context, clip) } }, Modifier.weight(1f), height = 40.dp, icon = ClipMiIcons.Refresh, primary = true)
+                    } else {
+                        ActionChip(if (isScheduled) "Lihat jadwal" else "Jadwalkan", { onSchedule(clip.id) }, Modifier.weight(1f), height = 40.dp, icon = ClipMiIcons.Calendar, primary = !isScheduled)
+                    }
+                    if (!missing) ActionChip("Bagikan", { share(context, container, clip, null) { notifier.show(it) } }, Modifier.weight(1f), height = 40.dp, icon = ClipMiIcons.Share)
+                    Box {
+                        var menu by remember { mutableStateOf(false) }
+                        ActionChip("", { menu = true }, height = 40.dp, icon = ClipMiIcons.More)
+                        DropdownMenu(menu, onDismissRequest = { menu = false }, containerColor = c.card) {
+                            if (!missing) installed.forEach { (label, pkg) ->
+                                DropdownMenuItem(text = { Text("Bagikan ke $label") }, leadingIcon = { Icon(ClipMiIcons.Share, null, Modifier.size(18.dp)) }, onClick = {
+                                    menu = false
+                                    share(context, container, clip, pkg) { notifier.show(it) }
+                                })
+                            }
+                            DropdownMenuItem(text = { Text("Buka editor") }, leadingIcon = { Icon(ClipMiIcons.Scissors, null, Modifier.size(18.dp)) }, onClick = { menu = false; onOpenEditor(clip.id) })
+                            DropdownMenuItem(text = { Text("Buka project") }, leadingIcon = { Icon(ClipMiIcons.Home, null, Modifier.size(18.dp)) }, onClick = { menu = false; onOpenProject(clip.projectId) })
+                            if (!missing && !clip.changedAfterRender) {
+                                DropdownMenuItem(text = { Text("Render ulang") }, leadingIcon = { Icon(ClipMiIcons.Refresh, null, Modifier.size(18.dp)) }, onClick = {
+                                    menu = false
+                                    scope.launch { RenderQueue.render(context, clip) }
+                                })
+                            }
+                        }
+                    }
                 }
             }
         }

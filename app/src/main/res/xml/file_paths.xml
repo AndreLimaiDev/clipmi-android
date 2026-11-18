@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Berkas yang boleh dibuka aplikasi lain lewat FileProvider: hanya APK pembaruan yang diunduh ClipMI. -->
+<!-- Berkas yang boleh dibuka aplikasi lain lewat FileProvider: APK pembaruan dan video intro/outro (untuk diputar). -->
 <paths>
     <cache-path name="update" path="update/" />
+    <files-path name="bumpers" path="workspace/bumpers/" />
 </paths>

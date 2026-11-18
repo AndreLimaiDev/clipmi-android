@@ -257,3 +257,18 @@ potongan kamera; (2) potongan kamera dicari di 15 gambar/detik sehingga titik pi
   (Kosong, 4 pemakaian, Kurangi noise…, Key tersimpan, 6 video, Terpakai 1,4 GB, Versi … · data hanya di HP ini);
   tombol Perbarui yt-dlp kotak.
 - Dicek di HP: ketiga halaman, kartu postingan dibuka, tab Gaya klip. Belum: filter satu akun di Statistik.
+
+## Tahap 11: Hasil render, Akun sosmed, Data & penyimpanan, Intro & outro
+
+- **Hasil render**: lokasi galeri sekali di bawah judul; filter Semua · Siap unggah · Hasil lama · Sudah
+  dijadwalkan (hanya yang ada isinya). Kartu: gambar bertanda ▶ (ketuk = putar), judul, "01:47 · 78 MB", lencana
+  (Siap unggah, Dijadwalkan, Hasil lama, File hilang); satu baris Jadwalkan/Lihat jadwal atau Render ulang, Bagikan,
+  dan ⋯ (Bagikan ke aplikasi terpasang, Buka editor, Buka project, Render ulang). Resolusi dihapus.
+- **Akun sosmed**: ikon platform (garis sederhana, bukan logo resmi) di kotak warna akun; slot sebagai chip jam;
+  catatan bawah dihapus.
+- **Data & penyimpanan**: ringkasan sisa ruang besar dengan batang folder kerja/video hasil; video sumber dalam satu
+  kartu (judul, ukuran, ikon hapus atau unduh/pilih ulang); keterangan cadangan dan paket satu baris; tombol kotak.
+- **Intro & outro**: tambah lewat ikon + di kanan atas (tombol melayang dihapus), ketuk kartu untuk memutar
+  (FileProvider kini juga membagikan `workspace/bumpers/` saja), Hapus di menu ⋯. **Gaya klip**: "+ Gaya baru"
+  juga pindah ke ikon + di kanan atas.
+- Dicek di HP: keempat halaman dan Gaya klip. Belum dicoba: memutar intro dari kartu, menu ⋯ hasil render.

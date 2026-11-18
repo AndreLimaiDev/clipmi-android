@@ -249,9 +249,11 @@ object PreviewSize {
 
 /** Judul menu Gaya klip dengan tab Subtitle | Bingkai (satu menu di Pengaturan). */
 @Composable
-fun StylesHeader(selected: Int, onBack: () -> Unit, onSelect: (Int) -> Unit) {
+fun StylesHeader(selected: Int, onBack: () -> Unit, onAdd: () -> Unit = {}, onSelect: (Int) -> Unit) {
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        id.clipmi.android.ui.components.SubScreenHeader("Gaya klip", onBack)
+        id.clipmi.android.ui.components.SubScreenHeader("Gaya klip", onBack) {
+            id.clipmi.android.ui.components.IconCircle(id.clipmi.android.ui.theme.ClipMiIcons.Plus, if (selected == 0) "Gaya subtitle baru" else "Gaya bingkai baru", onAdd)
+        }
         id.clipmi.android.ui.components.SegmentedTabs(
             listOf("Subtitle", "Bingkai"), selected, onSelect = onSelect,
             modifier = Modifier.padding(start = id.clipmi.android.ui.components.ScreenGutter, end = id.clipmi.android.ui.components.ScreenGutter, bottom = 8.dp),
