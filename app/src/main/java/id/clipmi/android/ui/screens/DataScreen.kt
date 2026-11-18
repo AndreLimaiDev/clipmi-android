@@ -167,10 +167,13 @@ fun DataScreen(container: AppContainer, onBack: () -> Unit) {
                         Text("Sisa ruang HP", style = MaterialTheme.typography.bodySmall, color = c.textMuted)
                         Text(formatBytes(s.first), style = MaterialTheme.typography.displaySmall.copy(fontWeight = FontWeight.ExtraBold, fontSize = 36.sp), color = c.text)
                     }
-                    val total = (s.second + s.third).coerceAtLeast(1)
+                    val total = s.second + s.third
                     Row(Modifier.fillMaxWidth().height(8.dp).clip(RoundedCornerShape(50)).background(c.panel)) {
-                        Box(Modifier.weight(s.second.toFloat().coerceAtLeast(0.001f)).fillMaxHeight().background(c.accent))
-                        Box(Modifier.weight(s.third.toFloat().coerceAtLeast(0.001f)).fillMaxHeight().background(c.busy))
+                        // Keduanya kosong: batang tetap abu-abu, bukan separuh-separuh.
+                        if (total > 0) {
+                            Box(Modifier.weight(s.second.toFloat().coerceAtLeast(0.001f)).fillMaxHeight().background(c.accent))
+                            Box(Modifier.weight(s.third.toFloat().coerceAtLeast(0.001f)).fillMaxHeight().background(c.busy))
+                        }
                     }
                     Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
                         Legend(c.accent, "Folder kerja", formatBytes(s.second))

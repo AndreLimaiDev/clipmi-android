@@ -57,12 +57,27 @@ android {
         }
     }
 
+    lint {
+        // Salah positif: sebuah library mendeklarasikan fragment 1.1.0, padahal yang terpakai 1.3.6 (≥ 1.3.0), dan
+        // MainActivity adalah ComponentActivity, bukan FragmentActivity.
+        disable += "InvalidFragmentVersionForActivityResult"
+    }
+
     buildTypes {
         release {
             signingConfig = signingConfigs.findByName("release")
             isMinifyEnabled = true
             isShrinkResources = true
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
+        }
+        // Calon rilis: sama dengan rilis (R8, shrink) tetapi bertanda tangan debug dan berpaket lain (".rc"), jadi bisa
+        // dipasang di samping aplikasi yang ada untuk menguji hasil R8 tanpa menyentuh data.
+        create("rc") {
+            initWith(getByName("release"))
+            signingConfig = signingConfigs.getByName("debug")
+            applicationIdSuffix = ".rc"
+            versionNameSuffix = "-rc"
+            matchingFallbacks += listOf("release")
         }
     }
 

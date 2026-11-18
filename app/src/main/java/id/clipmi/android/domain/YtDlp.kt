@@ -43,8 +43,21 @@ class YtDlp(private val context: Context) {
     /** Memperbarui yt-dlp ke rilis stabil terbaru (YouTube sering berubah). */
     suspend fun update(): String {
         ensureInit()
-        return withContext(Dispatchers.IO) { ytdl.updateYoutubeDL(context, YoutubeDL.UpdateChannel._STABLE)?.name ?: "UNKNOWN" }
+        val status = withContext(Dispatchers.IO) { ytdl.updateYoutubeDL(context, YoutubeDL.UpdateChannel._STABLE)?.name ?: "UNKNOWN" }
+        prefs.edit().putLong(KEY_CHECKED, System.currentTimeMillis()).apply()
+        return status
     }
+
+    /**
+     * Perbarui yt-dlp otomatis paling sering sekali sehari sebelum mengambil video: yt-dlp bawaan APK cepat usang dan
+     * YouTube lalu menolak unduhan (HTTP 403). Gagal memperbarui (misalnya luring) tidak menghentikan unduhan.
+     */
+    suspend fun updateIfStale() {
+        if (System.currentTimeMillis() - prefs.getLong(KEY_CHECKED, 0) < 24 * 3600_000L) return
+        runCatching { update() }
+    }
+
+    private val prefs get() = context.getSharedPreferences("yt-dlp", Context.MODE_PRIVATE)
 
     /**
      * Menulis youtube.info.json, subtitle Indonesia (youtube.{bahasa}.json3), dan thumbnail ke [directory] tanpa
@@ -65,23 +78,29 @@ class YtDlp(private val context: Context) {
      */
     suspend fun downloadStreams(url: String, directory: File, infoJson: File?, onProgress: (Float) -> Unit): Pair<File, File> {
         directory.mkdirs()
-        val source = if (infoJson != null && infoJson.isFile && infoJson.lastModified() > System.currentTimeMillis() - 5 * 3600_000L) {
-            listOf("--load-info-json", infoJson.absolutePath)
-        } else {
-            listOf("--", url)
+        val reuse = infoJson != null && infoJson.isFile && infoJson.lastModified() > System.currentTimeMillis() - 5 * 3600_000L
+        val video = File(directory, "source.stream.mp4")
+        val audio = File(directory, "source.stream.m4a")
+        var result = downloadOnce(directory, if (reuse) listOf("--load-info-json", infoJson!!.absolutePath) else listOf("--", url), onProgress)
+        if (!video.isFile || !audio.isFile) {
+            // Ditolak YouTube (HTTP 403): URL stream di info.json kedaluwarsa atau diekstrak yt-dlp lama, atau sisa
+            // unduhan gagal (.part) dilanjutkan dengan format lain. Ulangi sekali dari awal dengan ekstraksi baru.
+            directory.listFiles().orEmpty().filter { it.name.startsWith("source.stream.") }.forEach { it.delete() }
+            result = downloadOnce(directory, listOf("--", url), onProgress)
         }
+        if (!video.isFile || !audio.isFile) throw YtDlpException(errorMessage(result.second))
+        return video to audio
+    }
+
+    private suspend fun downloadOnce(directory: File, source: List<String>, onProgress: (Float) -> Unit): Pair<Int, String> {
         // Video dan audio diunduh berurutan; persen kembali ke 0 untuk stream kedua, jadi dipetakan ke 0–85 dan 85–100.
         var stream = 0
         var last = 0f
-        val result = execute("media-${directory.name}", YtDlpArgs.media(cacheDir, directory.absolutePath) + source) { pct ->
+        return execute("media-${directory.name}", YtDlpArgs.media(cacheDir, directory.absolutePath) + source) { pct ->
             if (pct + 20 < last) stream++
             last = pct
             onProgress(if (stream == 0) pct * 0.85f else 85 + pct * 0.15f)
         }
-        val video = File(directory, "source.stream.mp4")
-        val audio = File(directory, "source.stream.m4a")
-        if (!video.isFile || !audio.isFile) throw YtDlpException(errorMessage(result.second))
-        return video to audio
     }
 
     /**
@@ -113,8 +132,10 @@ class YtDlp(private val context: Context) {
             val request = YoutubeDLRequest(emptyList()).addCommands(args)
             try {
                 val response = ytdl.execute(request, id) { _, _, line -> YtDlpArgs.parseProgress(line)?.let { onProgress?.invoke(it) } }
+                if (response.exitCode != 0) android.util.Log.w("ClipMI", "yt-dlp $id gagal (${response.exitCode}):\n${response.err.takeLast(4000)}")
                 response.exitCode to response.err
             } catch (e: Exception) {
+                android.util.Log.w("ClipMI", "yt-dlp $id gagal:\n${e.message?.takeLast(4000)}")
                 1 to (e.message ?: e.javaClass.simpleName)
             }
         }
@@ -127,6 +148,7 @@ class YtDlp(private val context: Context) {
             ?: "yt-dlp gagal tanpa pesan"
 
     companion object {
+        private const val KEY_CHECKED = "checked_at"
         private val initLock = Mutex()
         @Volatile private var initialized = false
     }

@@ -121,6 +121,7 @@ class YouTubeWorker(context: Context, params: WorkerParameters) : ProjectWorker(
         val ws = container.workspace
         val youtubeDir = ws.youtubeDir(projectId)
         notify(project.title, "Mengambil judul dan subtitle…")
+        container.ytDlp.updateIfStale()
 
         if (project.transcript != TranscriptStatus.Ready || !File(youtubeDir, "youtube.info.json").isFile) {
             fetchTranscript(url, youtubeDir)
