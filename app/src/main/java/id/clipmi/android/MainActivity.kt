@@ -39,6 +39,8 @@ class MainActivity : ComponentActivity() {
         if (savedInstanceState == null) {
             handleIntent(intent)
             lifecycleScope.launch {
+                // Baru dipulihkan dari cadangan: video hasil didaftarkan lagi ke galeri sebelum pekerjaan lain jalan.
+                container.backup.finishRestore()?.let { shared = SharedResult(message = it) }
                 container.actions.resumeInterrupted()
                 id.clipmi.android.work.RenderQueue.resumeInterrupted(this@MainActivity)
                 id.clipmi.android.reminders.ReminderAlarm.arm(this@MainActivity)

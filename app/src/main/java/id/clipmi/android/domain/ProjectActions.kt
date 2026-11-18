@@ -150,6 +150,43 @@ class ProjectActions(
         workspace.transcribeDir(projectId).deleteRecursively()
     }
 
+    // --- Video sumber (Penyimpanan & perawatan) -----------------------------------------------------------------
+
+    /**
+     * Menghapus video sumber dan pratinjaunya untuk menghemat ruang (`ManagesSourceVideo::deleteSourceVideo`).
+     * Transkrip, klip, gambar kecil, dan hasil render tetap ada. Mengembalikan jumlah byte yang dibebaskan.
+     */
+    suspend fun deleteSource(projectId: Long): Long {
+        val project = db.projects().find(projectId) ?: return 0
+        if (project.video != VideoStatus.Ready) return 0
+        val busy = db.clips().forProject(projectId).any { it.render == id.clipmi.android.data.RenderStatus.Queued || it.render == id.clipmi.android.data.RenderStatus.Rendering }
+        if (busy) return 0
+        val files = listOfNotNull(project.videoPath, project.previewPath).mapNotNull(workspace::file).filter { it.isFile }
+        val freed = files.sumOf { it.length() }
+        files.forEach { it.delete() }
+        db.projects().modify(projectId) {
+            it.copy(videoStatus = VideoStatus.Deleted.value, videoPath = null, previewPath = null, sourceDeletedAt = System.currentTimeMillis())
+        }
+        return freed
+    }
+
+    /**
+     * Menyiapkan ulang video sumber yang dihapus, gagal, atau filenya hilang (`recoverVideo`): project YouTube diunduh
+     * ulang (transkrip yang sudah ada dipertahankan), project file lokal memakai video [uri] yang dipilih ulang.
+     */
+    suspend fun recoverVideo(projectId: Long, uri: Uri? = null) {
+        val project = db.projects().find(projectId) ?: return
+        if (!project.isYouTube && uri == null) return
+        uri?.let { runCatching { context.contentResolver.takePersistableUriPermission(it, Intent.FLAG_GRANT_READ_URI_PERMISSION) } }
+        db.projects().modify(projectId) {
+            it.copy(
+                videoStatus = VideoStatus.Pending.value, videoProgress = null, videoPath = null, previewPath = null, sourceDeletedAt = null,
+                errorMessage = if (it.transcript == TranscriptStatus.Failed) it.errorMessage else null,
+            )
+        }
+        if (project.isYouTube) ProjectQueue.youtube(context, projectId) else ProjectQueue.localVideo(context, projectId, uri!!)
+    }
+
     // --- Kamus koreksi -------------------------------------------------------------------------------------------
 
     /** Menambah atau mengubah pasangan koreksi; teks salah unik tanpa membedakan huruf besar/kecil. */

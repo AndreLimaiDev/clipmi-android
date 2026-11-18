@@ -66,11 +66,13 @@ import id.clipmi.android.ui.styles.FrameStyleEditScreen
 import id.clipmi.android.ui.styles.FrameStylesScreen
 import id.clipmi.android.ui.screens.AnalysisSettingsScreen
 import id.clipmi.android.ui.screens.CorrectionsScreen
+import id.clipmi.android.ui.screens.DataScreen
 import id.clipmi.android.ui.screens.ProjectDetailScreen
 import id.clipmi.android.ui.screens.ProjectListScreen
 import id.clipmi.android.ui.screens.SettingsScreen
 import id.clipmi.android.ui.screens.TranscriptionSettingsScreen
 import id.clipmi.android.ui.schedule.AccountsScreen
+import id.clipmi.android.ui.schedule.PerformanceScreen
 import id.clipmi.android.ui.schedule.ReadyScreen
 import id.clipmi.android.ui.schedule.ScheduleEditScreen
 import id.clipmi.android.ui.schedule.ScheduleScreen
@@ -99,6 +101,8 @@ import kotlinx.serialization.Serializable
 @Serializable object AccountsRoute
 @Serializable data class ScheduleEditRoute(val id: Long = 0, val clipId: Long = 0, val date: String? = null)
 @Serializable data class ReadyRoute(val id: Long)
+@Serializable object PerformanceRoute
+@Serializable object DataRoute
 
 private data class Tab(val route: Any, val label: String, val icon: ImageVector)
 
@@ -153,8 +157,10 @@ fun ClipMiNavigation(container: AppContainer, shared: SharedResult?, onSharedHan
                         onNewSchedule = { clip, date -> nav.navigate(ScheduleEditRoute(clipId = clip, date = date)) },
                     )
                 }
-                composable<StatsRoute> { StatsScreen(container, onOpenSchedule = { nav.navigate(ReadyRoute(it)) }) }
+                composable<StatsRoute> { StatsScreen(container, onOpenSchedule = { nav.navigate(ReadyRoute(it)) }, onOpenPerformance = { nav.navigate(PerformanceRoute) }) }
+                composable<PerformanceRoute> { PerformanceScreen(container, onBack = { nav.popBackStack() }, onOpenSchedule = { nav.navigate(ReadyRoute(it)) }) }
                 composable<AccountsRoute> { AccountsScreen(container, onBack = { nav.popBackStack() }) }
+                composable<DataRoute> { DataScreen(container, onBack = { nav.popBackStack() }) }
                 composable<ScheduleEditRoute> {
                     val route = it.toRoute<ScheduleEditRoute>()
                     ScheduleEditScreen(container, route.id, route.clipId, route.date, onBack = { nav.popBackStack() }, onSaved = { saved ->
@@ -180,6 +186,7 @@ fun ClipMiNavigation(container: AppContainer, shared: SharedResult?, onSharedHan
                         onOpenFrameStyles = { nav.navigate(FrameStylesRoute) },
                         onOpenBumpers = { nav.navigate(BumpersRoute) },
                         onOpenResults = { nav.navigate(ResultsRoute) },
+                        onOpenData = { nav.navigate(DataRoute) },
                     )
                 }
                 composable<TranscriptionSettingsRoute> { TranscriptionSettingsScreen(container, onBack = { nav.popBackStack() }) }

@@ -137,6 +137,10 @@ fun ProjectDetailScreen(container: AppContainer, projectId: Long, onBack: () -> 
         }
     }
 
+    val pickSource = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        if (uri != null) scope.launch { container.actions.recoverVideo(projectId, uri); notifier.show("Video disalin ulang ke folder kerja.") }
+    }
+
     val pickSubtitle = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         if (uri != null) scope.launch {
             notifier.show(
@@ -200,7 +204,10 @@ fun ProjectDetailScreen(container: AppContainer, projectId: Long, onBack: () -> 
                             color = c.textMuted,
                         )
                     }
-                    StatusCard(p, transcriptionReady, onRetry = { scope.launch { container.actions.retry(projectId) } })
+                    StatusCard(p, transcriptionReady, onRetry = { scope.launch { container.actions.retry(projectId) } }, onRecover = {
+                        if (p.isYouTube) scope.launch { container.actions.recoverVideo(projectId); notifier.show("Video diunduh ulang di latar.") }
+                        else pickSource.launch(arrayOf("video/*"))
+                    })
                     val active = clips.count { it.review != ReviewStatus.Rejected }
                     SegmentedTabs(listOf("Transkrip", if (active > 0) "Klip · $active" else "Klip"), tab, onSelect = { tab = it })
                 }
@@ -389,12 +396,26 @@ fun ProjectDetailScreen(container: AppContainer, projectId: Long, onBack: () -> 
 
 /** Kartu status unduhan/transkrip; tidak tampil bila semuanya siap tanpa pesan. */
 @Composable
-private fun StatusCard(p: ProjectEntity, transcriptionReady: Boolean, onRetry: () -> Unit) {
+private fun StatusCard(p: ProjectEntity, transcriptionReady: Boolean, onRetry: () -> Unit, onRecover: () -> Unit = {}) {
     val c = ClipMi.colors
     val message = p.transcriptionMessage
     val needsTranscript = p.transcript == TranscriptStatus.NeedsTranscript
     val busyVideo = p.video == VideoStatus.Downloading || p.video == VideoStatus.Processing || p.video == VideoStatus.Pending
     val fetching = p.transcript == TranscriptStatus.Fetching
+    if (p.video == VideoStatus.Deleted) {
+        ClipMiCard {
+            Row(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically) {
+                IconBadge(ClipMiIcons.Alert, Tone.Warn)
+                Text("Video sumber dihapus", style = MaterialTheme.typography.titleSmall, color = c.text, modifier = Modifier.weight(1f))
+            }
+            Text(
+                "Transkrip dan klip tetap ada. Untuk memutar atau merender ulang, " + if (p.isYouTube) "unduh ulang videonya." else "pilih ulang video sumbernya dari galeri.",
+                style = MaterialTheme.typography.bodySmall, color = c.textBody,
+            )
+            SecondaryButton(if (p.isYouTube) "Unduh ulang video" else "Pilih ulang video", onClick = onRecover, height = 40.dp, icon = ClipMiIcons.Refresh)
+        }
+        return
+    }
     if (!busyVideo && !fetching && !needsTranscript && message == null && p.errorMessage == null) return
 
     val (icon, tone, title) = when {

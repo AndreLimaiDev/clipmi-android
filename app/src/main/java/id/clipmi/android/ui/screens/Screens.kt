@@ -66,6 +66,7 @@ fun SettingsScreen(
     onOpenFrameStyles: () -> Unit = {},
     onOpenBumpers: () -> Unit = {},
     onOpenResults: () -> Unit = {},
+    onOpenData: () -> Unit = {},
 ) {
     val scope = rememberCoroutineScope()
     val notifier = LocalNotifier.current
@@ -86,6 +87,8 @@ fun SettingsScreen(
     LaunchedEffect(Unit) { ytdlp = runCatching { container.ytDlp.version() }.getOrNull() }
     var hasYoutubeKey by remember { mutableStateOf(container.settings.hasYoutubeKey()) }
     var editingYoutubeKey by remember { mutableStateOf(false) }
+    var checkingUpdate by remember { mutableStateOf(false) }
+    if (checkingUpdate) UpdateSheet(onDone = { checkingUpdate = false })
     if (editingYoutubeKey) YoutubeKeySheet(container, hasYoutubeKey, onDone = { editingYoutubeKey = false; hasYoutubeKey = container.settings.hasYoutubeKey() })
 
     Column(
@@ -140,6 +143,10 @@ fun SettingsScreen(
             )
         }
 
+        SettingsGroup("Data") {
+            SettingsRow("Data & penyimpanan", "Ruang HP, video sumber, cadangan, dan Paket Standar Tim", onClick = onOpenData)
+        }
+
         SettingsGroup("Aplikasi") {
             SettingsRow(
                 "Pengunduh YouTube",
@@ -162,6 +169,12 @@ fun SettingsScreen(
             )
             GroupDivider()
             SettingsRow("Uji Fase 0", "Uji teknis yt-dlp, libass, dan render", onClick = onOpenLab)
+            GroupDivider()
+            SettingsRow(
+                "Pembaruan aplikasi",
+                if (BuildConfig.UPDATE_REPO.isNotBlank()) "Versi ${BuildConfig.VERSION_NAME} · periksa rilis baru di GitHub" else "Versi ${BuildConfig.VERSION_NAME} · pembaruan dalam aplikasi belum aktif di build ini",
+                onClick = if (BuildConfig.UPDATE_REPO.isNotBlank()) ({ checkingUpdate = true }) else null,
+            )
             GroupDivider()
             SettingsRow("Tentang ClipMI", "Versi ${BuildConfig.VERSION_NAME} · data hanya di HP ini · huruf Plus Jakarta Sans (OFL)")
         }
@@ -286,5 +299,54 @@ private fun YoutubeKeySheet(container: AppContainer, hasKey: Boolean, onDone: ()
             notifier.show("API key YouTube dihapus. Statistik YouTube kembali lewat yt-dlp.")
             onDone()
         })
+    }
+}
+
+/**
+ * Pembaruan aplikasi: rilis terbaru di GitHub diperiksa, APK-nya diunduh dan diperiksa, lalu pemasang sistem dibuka.
+ * Izin "Pasang aplikasi tidak dikenal" dinyalakan pengguna sendiri di halaman sistem yang dibuka.
+ */
+@Composable
+private fun UpdateSheet(onDone: () -> Unit) {
+    val context = androidx.compose.ui.platform.LocalContext.current
+    val updater = remember { id.clipmi.android.domain.AppUpdater(context) }
+    val scope = rememberCoroutineScope()
+    var state by remember { mutableStateOf<String?>("Memeriksa rilis terbaru…") }
+    var release by remember { mutableStateOf<id.clipmi.android.domain.AppUpdater.Release?>(null) }
+    var progress by remember { mutableStateOf<Int?>(null) }
+    var apk by remember { mutableStateOf<java.io.File?>(null) }
+    var error by remember { mutableStateOf<String?>(null) }
+    LaunchedEffect(Unit) {
+        runCatching { updater.check() }
+            .onSuccess { release = it; state = if (it == null) "ClipMI ${updater.currentVersion} sudah versi terbaru." else null }
+            .onFailure { error = it.message; state = null }
+    }
+    id.clipmi.android.ui.components.ClipMiSheet(onDone, title = "Pembaruan aplikasi", subtitle = "Terpasang: versi ${updater.currentVersion}") {
+        state?.let { Text(it, style = MaterialTheme.typography.bodyMedium, color = ClipMi.colors.text) }
+        error?.let { Text(it, style = MaterialTheme.typography.bodyMedium, color = ClipMi.colors.bad) }
+        release?.let { r ->
+            Text("Versi ${r.version} tersedia" + (r.size?.let { " (${id.clipmi.android.ui.components.formatBytes(it)})" } ?: ""), style = MaterialTheme.typography.titleMedium, color = ClipMi.colors.text)
+            if (r.notes.isNotBlank()) Text(r.notes.take(1200), style = MaterialTheme.typography.bodySmall, color = ClipMi.colors.textMuted)
+            progress?.let { id.clipmi.android.ui.components.ProgressBar(it / 100f) }
+            val file = apk
+            when {
+                file != null && !updater.canInstall() -> {
+                    Text("Izinkan ClipMI memasang aplikasi (\"Pasang aplikasi tidak dikenal\") di halaman sistem, lalu kembali dan ketuk Pasang.", style = MaterialTheme.typography.bodySmall, color = ClipMi.colors.warn)
+                    SecondaryButton("Buka izin pemasangan", onClick = { context.startActivity(updater.permissionIntent()) })
+                    PrimaryButton("Pasang", onClick = { if (updater.canInstall()) context.startActivity(updater.installIntent(file)) }, modifier = Modifier.fillMaxWidth())
+                }
+                file != null -> PrimaryButton("Pasang versi ${r.version}", onClick = { context.startActivity(updater.installIntent(file)) }, modifier = Modifier.fillMaxWidth())
+                else -> PrimaryButton(if (progress != null) "Mengunduh…" else "Unduh pembaruan", enabled = progress == null, modifier = Modifier.fillMaxWidth(), onClick = {
+                    progress = 0
+                    error = null
+                    scope.launch {
+                        runCatching { updater.download(r) { p -> progress = p } }
+                            .onSuccess { apk = it }
+                            .onFailure { error = it.message }
+                        progress = null
+                    }
+                })
+            }
+        }
     }
 }

@@ -102,6 +102,7 @@ Urutan pengembangan disusun agar risiko teknis terbesar dibuktikan lebih dulu, l
     *   *Tampilan Statistik:* Total, median, dan tayangan terbaik per akun, engagement, serta tayangan hari ke-1/7/30.
 
 ### Fase 5: Analisis, Standar Tim & Distribusi
+*Berjalan (18 November 2026): Analisis Performa dan Paket Standar Tim diport ke core dan identik dengan desktop (360 balasan, 304 paket); Cadangkan & Pulihkan, Penyimpanan & perawatan, kunci rilis, dan pembaruan dalam aplikasi sudah dibuat. Cadangan, pratinjau pulihkan, Paket Standar Tim (juga dibaca desktop), hapus/pilih ulang video sumber, dan Analisis Performa mode chat AI diuji di HP. Catatan di `docs/fase5-catatan.md`.*
 *   **Analisis Performa AI** [medium] — Kekuatan, kelemahan, dan strategi dari postingan sendiri.
     *   *Angka Diolah Aplikasi:* Postingan dibandingkan dengan median akunnya pada umur yang sama, lalu dikelompokkan per faktor (durasi, jam posting, model hook, dan lainnya).
     *   *Laporan dengan Bukti:* AI menafsirkan ringkasan itu dan setiap poin menyebut postingan buktinya, lewat Mode API atau chat AI, dengan laporan tersimpan bertanggal.

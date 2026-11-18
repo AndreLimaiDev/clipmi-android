@@ -1,3 +1,5 @@
+import java.util.Properties
+
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.compose)
@@ -8,6 +10,14 @@ plugins {
 
 // Hasil scripts/build-native.sh: library statis libass dkk. (prefix/) dan executable qjs/ffmpeg (jniLibs/).
 val nativeOut = rootProject.file("native/out/arm64-v8a")
+
+// Kunci tanda tangan rilis tim (dibuat sekali dengan scripts/make-keystore.ps1; tidak pernah di-commit). Tanpa file ini
+// APK rilis tidak ditandatangani.
+val signing = rootProject.file("signing.properties").takeIf { it.isFile }?.let { file -> Properties().apply { file.inputStream().use { load(it) } } }
+
+// Repo GitHub rilis APK ("pemilik/nama") untuk pembaruan dalam aplikasi, misalnya: -Pclipmi.updateRepo=tim/clipmi-android
+// atau di gradle.properties. Kosong = pemeriksaan pembaruan tidak aktif.
+val updateRepo = providers.gradleProperty("clipmi.updateRepo").getOrElse("")
 
 android {
     namespace = "id.clipmi.android"
@@ -21,6 +31,7 @@ android {
         versionCode = 1
         versionName = "0.0.1"
         ndk { abiFilters += listOf("arm64-v8a") }
+        buildConfigField("String", "UPDATE_REPO", "\"$updateRepo\"")
 
         externalNativeBuild {
             cmake {
@@ -33,8 +44,20 @@ android {
         }
     }
 
+    signingConfigs {
+        if (signing != null) {
+            create("release") {
+                storeFile = rootProject.file(signing.getProperty("storeFile"))
+                storePassword = signing.getProperty("storePassword")
+                keyAlias = signing.getProperty("keyAlias")
+                keyPassword = signing.getProperty("keyPassword")
+            }
+        }
+    }
+
     buildTypes {
         release {
+            signingConfig = signingConfigs.findByName("release")
             isMinifyEnabled = true
             isShrinkResources = true
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")

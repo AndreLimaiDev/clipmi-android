@@ -82,6 +82,9 @@ interface SegmentDao {
 @Dao
 interface CorrectionDao {
     @Query("SELECT * FROM correction_entries ORDER BY wrong_text COLLATE NOCASE")
+    suspend fun all(): List<CorrectionEntryEntity>
+
+    @Query("SELECT * FROM correction_entries ORDER BY wrong_text COLLATE NOCASE")
     fun observeAll(): Flow<List<CorrectionEntryEntity>>
 
     /** Urutan id sama dengan pluck() desktop, menentukan aturan yang dipakai bila panjangnya sama. */
@@ -240,6 +243,18 @@ interface AiUsageDao {
 
 @Dao
 interface StyleDao {
+    @Query("SELECT * FROM caption_styles ORDER BY name COLLATE NOCASE")
+    suspend fun captionStyles(): List<CaptionStyleEntity>
+
+    @Query("SELECT * FROM frame_styles ORDER BY name COLLATE NOCASE")
+    suspend fun frameStyles(): List<FrameStyleEntity>
+
+    @Query("SELECT * FROM caption_styles WHERE name = :name COLLATE NOCASE LIMIT 1")
+    suspend fun captionByName(name: String): CaptionStyleEntity?
+
+    @Query("SELECT * FROM frame_styles WHERE name = :name COLLATE NOCASE LIMIT 1")
+    suspend fun frameByName(name: String): FrameStyleEntity?
+
     @Query("SELECT * FROM caption_styles ORDER BY is_default DESC, name")
     fun observeCaptionStyles(): Flow<List<CaptionStyleEntity>>
 
@@ -318,6 +333,12 @@ interface StyleDao {
 
 @Dao
 interface BumperDao {
+    @Query("SELECT * FROM bumpers ORDER BY kind, name")
+    suspend fun all(): List<BumperEntity>
+
+    @Query("SELECT * FROM bumpers WHERE kind = :kind AND name = :name LIMIT 1")
+    suspend fun byName(kind: String, name: String): BumperEntity?
+
     /** Terakhir dipakai di atas, lalu terbaru. */
     @Query("SELECT * FROM bumpers ORDER BY last_used_at IS NULL, last_used_at DESC, id DESC")
     fun observeAll(): Flow<List<BumperEntity>>
@@ -445,9 +466,37 @@ interface ScheduleDao {
     @Query("SELECT * FROM post_stats ORDER BY recorded_at, id")
     fun observeStats(): Flow<List<PostStatEntity>>
 
+    @Query("SELECT * FROM post_stats ORDER BY recorded_at, id")
+    suspend fun allStats(): List<PostStatEntity>
+
     @Query("SELECT * FROM post_stats WHERE schedule_account_id = :targetId ORDER BY recorded_at DESC, id DESC LIMIT 1")
     suspend fun latestStat(targetId: Long): PostStatEntity?
 
     @Insert
     suspend fun insertStat(stat: PostStatEntity): Long
+}
+
+/** Laporan Analisis Performa AI. */
+@Dao
+interface ReportDao {
+    @Query("SELECT * FROM performance_reports ORDER BY id DESC LIMIT 20")
+    fun observeRecent(): Flow<List<PerformanceReportEntity>>
+
+    @Query("SELECT * FROM performance_reports WHERE id = :id")
+    fun observe(id: Long): Flow<PerformanceReportEntity?>
+
+    @Query("SELECT * FROM performance_reports WHERE id = :id")
+    suspend fun find(id: Long): PerformanceReportEntity?
+
+    @Query("SELECT * FROM performance_reports ORDER BY id DESC")
+    suspend fun all(): List<PerformanceReportEntity>
+
+    @Insert
+    suspend fun insert(report: PerformanceReportEntity): Long
+
+    @Update
+    suspend fun update(report: PerformanceReportEntity)
+
+    @Query("DELETE FROM performance_reports WHERE id = :id")
+    suspend fun delete(id: Long)
 }

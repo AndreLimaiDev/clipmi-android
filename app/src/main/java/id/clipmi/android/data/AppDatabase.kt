@@ -17,8 +17,9 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         ProjectEntity::class, TranscriptSegmentEntity::class, CorrectionEntryEntity::class, AppSettingEntity::class,
         ClipSeriesEntity::class, ClipEntity::class, AiUsageEntity::class, CaptionStyleEntity::class, FrameStyleEntity::class,
         BumperEntity::class, SocialAccountEntity::class, ScheduleEntity::class, ScheduleAccountEntity::class, PostStatEntity::class,
+        PerformanceReportEntity::class,
     ],
-    version = 6,
+    version = 7,
     exportSchema = true,
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -32,6 +33,7 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun bumpers(): BumperDao
     abstract fun styles(): StyleDao
     abstract fun schedules(): ScheduleDao
+    abstract fun reports(): ReportDao
 
     companion object {
         const val NAME = "clipmi.db"
@@ -207,5 +209,16 @@ object Migrations {
         }
     }
 
-    val ALL: Array<Migration> = arrayOf(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6)
+    /** Fase 5: laporan Analisis Performa AI (tabel baru saja). */
+    val MIGRATION_6_7 = object : Migration(6, 7) {
+        override fun migrate(db: SupportSQLiteDatabase) {
+            db.execSQL(
+                "CREATE TABLE IF NOT EXISTS `performance_reports` (`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `status` TEXT NOT NULL, " +
+                    "`source` TEXT NOT NULL, `posts_count` INTEGER NOT NULL, `digest` TEXT NOT NULL, `result` TEXT, `error` TEXT, `provider` TEXT, " +
+                    "`model` TEXT, `input_tokens` INTEGER, `output_tokens` INTEGER, `cost` REAL, `created_at` INTEGER NOT NULL, `updated_at` INTEGER NOT NULL)",
+            )
+        }
+    }
+
+    val ALL: Array<Migration> = arrayOf(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7)
 }

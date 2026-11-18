@@ -446,3 +446,31 @@ data class PostStatEntity(
     @ColumnInfo(name = "created_at") val createdAt: Long = System.currentTimeMillis(),
     @ColumnInfo(name = "updated_at") val updatedAt: Long = System.currentTimeMillis(),
 )
+
+/**
+ * Satu laporan Analisis Performa AI (tabel performance_reports, kolom sama dengan desktop): angka yang dikirim
+ * (digest, JSON), hasil yang sudah dibaca (result, JSON), dan pemakaiannya.
+ */
+@Entity(tableName = "performance_reports")
+data class PerformanceReportEntity(
+    @PrimaryKey(autoGenerate = true) val id: Long = 0,
+    /** queued, running, done, failed */
+    val status: String,
+    /** api atau manual */
+    val source: String,
+    @ColumnInfo(name = "posts_count") val postsCount: Int,
+    val digest: String,
+    val result: String? = null,
+    val error: String? = null,
+    val provider: String? = null,
+    val model: String? = null,
+    @ColumnInfo(name = "input_tokens") val inputTokens: Int? = null,
+    @ColumnInfo(name = "output_tokens") val outputTokens: Int? = null,
+    val cost: Double? = null,
+    @ColumnInfo(name = "created_at") val createdAt: Long = System.currentTimeMillis(),
+    @ColumnInfo(name = "updated_at") val updatedAt: Long = System.currentTimeMillis(),
+) {
+    /** Masih antre atau berjalan, dan ada kabar dalam 15 menit terakhir (`PerformanceReport::isBusy`). */
+    val isBusy: Boolean
+        get() = (status == "queued" || status == "running") && updatedAt > System.currentTimeMillis() - 15 * 60_000L
+}

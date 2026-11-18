@@ -65,7 +65,7 @@ private data class Post(val schedule: ScheduleView, val target: TargetView, val 
  * postingan dengan tayangan dibanding median akunnya, engagement, serta tayangan hari ke-1/7/30.
  */
 @Composable
-fun StatsScreen(container: AppContainer, onOpenSchedule: (Long) -> Unit) {
+fun StatsScreen(container: AppContainer, onOpenSchedule: (Long) -> Unit, onOpenPerformance: () -> Unit = {}) {
     val data by rememberScheduleData(container)
     val scope = rememberCoroutineScope()
     var hidden by rememberSaveable { mutableStateOf(listOf<Long>()) }
@@ -102,6 +102,7 @@ fun StatsScreen(container: AppContainer, onOpenSchedule: (Long) -> Unit) {
 
         ScreenHeader("Statistik", Modifier.padding(horizontal = ScreenGutter), eyebrow = "ClipMI") {
             if (posts.isNotEmpty()) {
+                IconCircle(ClipMiIcons.Sparkle, "Analisis performa", onOpenPerformance)
                 if (rows.isNotEmpty()) Box(Modifier.size(44.dp), contentAlignment = Alignment.Center) { CircularProgressIndicator(Modifier.size(22.dp), color = c.accent, strokeWidth = 2.dp) }
                 else IconCircle(ClipMiIcons.Refresh, "Perbarui semua statistik", {
                     scope.launch {

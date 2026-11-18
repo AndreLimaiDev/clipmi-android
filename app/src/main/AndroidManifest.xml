@@ -17,6 +17,8 @@
     <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" android:maxSdkVersion="32" />
     <!-- Alarm pengingat dipasang lagi setelah HP menyala ulang. -->
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+    <!-- Pembaruan dalam aplikasi: meminta sistem memasang APK rilis baru (pengguna tetap mengetuk Pasang). -->
+    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
 
     <!--
         allowBackup="false": data hanya dicadangkan lewat fitur Cadangkan milik aplikasi (Fase 5), dan API key di
@@ -74,6 +76,14 @@
                 <action android:name="android.intent.action.TIMEZONE_CHANGED" />
             </intent-filter>
         </receiver>
+
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="${applicationId}.files"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data android:name="android.support.FILE_PROVIDER_PATHS" android:resource="@xml/file_paths" />
+        </provider>
 
         <!-- Foreground service milik WorkManager: tipe untuk unduh/AI (dataSync) dan render (mediaProcessing). -->
         <service

@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Berkas yang boleh dibuka aplikasi lain lewat FileProvider: hanya APK pembaruan yang diunduh ClipMI. -->
+<paths>
+    <cache-path name="update" path="update/" />
+</paths>

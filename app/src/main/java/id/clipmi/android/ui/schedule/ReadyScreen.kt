@@ -268,6 +268,8 @@ private fun TargetCard(
                 SecondaryButton("Tandai terbit", { scope.launch { container.scheduler.markTarget(row.id, TargetStatus.PUBLISHED) } }, icon = ClipMiIcons.Check, height = 40.dp, modifier = Modifier.weight(1f))
                 SecondaryButton("Lewati", { scope.launch { container.scheduler.markTarget(row.id, TargetStatus.SKIPPED) } }, height = 40.dp, modifier = Modifier.weight(1f))
             }
+            // Statistik manual (misalnya angka dari aplikasi Instagram) sekaligus menandai akun ini terbit, sama dengan desktop.
+            GhostButton("Isi statistik manual", onManual)
         } else {
             row.publishedAt?.let { Text("Terbit ${IdDate.full(Wall.of(it))}", style = MaterialTheme.typography.bodySmall, color = c.textMuted) }
         }
