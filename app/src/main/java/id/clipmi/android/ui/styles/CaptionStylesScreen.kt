@@ -190,46 +190,17 @@ fun CaptionStyleEditScreen(container: AppContainer, id: Long, copyOf: Long, onBa
         SubScreenHeader(if (id == 0L) "Gaya subtitle baru" else "Ubah gaya subtitle", leave) {
             PrimaryButton("Simpan", onClick = { save() }, enabled = dirty || style.id == 0L, height = 40.dp)
         }
+        // Pratinjau tetap di atas; hanya isian di bawahnya yang bergulir.
+        StickyPreview(expandedWidth = 190.dp, compactWidth = 112.dp) { width ->
+            CaptionStylePreview(container, style.toCore(), sample, Modifier.width(width))
+        }
         Column(
-            Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = ScreenGutter).navigationBarsPadding().padding(bottom = 32.dp),
+            Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = ScreenGutter).navigationBarsPadding().padding(top = 12.dp, bottom = 32.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp),
         ) {
-            Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
-                CaptionStylePreview(container, style.toCore(), sample, Modifier.width(200.dp))
-            }
             Field(style.name, { v -> update { it.copy(name = v) }; nameError = null }, label = "Nama gaya", singleLine = true, error = nameError)
 
-            FieldGroup("Huruf") {
-                ChoiceRow("Font", Fonts.AVAILABLE.mapValues { it.value.label }, style.fontFamily) { v -> update { it.copy(fontFamily = v) } }
-                IntSlider("Ukuran", style.fontSize, 40..140, { v -> update { it.copy(fontSize = v) } })
-                ToggleField("Huruf kapital semua", null, style.uppercase) { v -> update { it.copy(uppercase = v) } }
-                ColorField("Warna teks", style.primaryColor) { v -> update { it.copy(primaryColor = v) } }
-                ChoiceRow("Efek", CaptionStyle.EFFECTS, style.effect) { v -> update { it.copy(effect = v) } }
-                ColorField("Warna garis tepi", style.outlineColor) { v -> update { it.copy(outlineColor = v) } }
-            }
-
-            FieldGroup("Tampilan") {
-                ChoiceRow("Posisi", CaptionStyle.POSITIONS, style.position) { v -> update { it.copy(position = v) } }
-                IntSlider("Kata per tampilan", style.wordsPerLine, 1..8, { v -> update { it.copy(wordsPerLine = v) } })
-                ChoiceRow("Animasi", CaptionStyle.ANIMATIONS, style.animation) { v -> update { it.copy(animation = v) } }
-                ToggleField("Kotak latar per baris", null, style.lineBox) { v -> update { it.copy(lineBox = v) } }
-                if (style.lineBox) {
-                    ColorField("Warna kotak", style.lineBoxColor) { v -> update { it.copy(lineBoxColor = v) } }
-                    IntSlider("Kepekatan kotak", style.lineBoxOpacity, 10..100, { v -> update { it.copy(lineBoxOpacity = v) } }, suffix = "%")
-                }
-            }
-
-            FieldGroup("Sorotan") {
-                ToggleField("Sorot kata yang diucapkan", "Karaoke", style.highlightActiveWord) { v -> update { it.copy(highlightActiveWord = v) } }
-                if (style.highlightActiveWord) {
-                    ChoiceRow("Cara sorot", CaptionStyle.HIGHLIGHT_STYLES, style.highlightStyle) { v -> update { it.copy(highlightStyle = v) } }
-                    ColorField("Warna sorotan", style.highlightColor) { v -> update { it.copy(highlightColor = v) } }
-                }
-                ToggleField("Redupkan kata berikutnya", null, style.upcomingColor != null) { v -> update { it.copy(upcomingColor = if (v) "#9CA3AF" else null) } }
-                style.upcomingColor?.let { color -> ColorField("Warna kata berikutnya", color) { v -> update { it.copy(upcomingColor = v) } } }
-                ToggleField("Warnai kata kunci", "Dari AI atau ditandai di editor", style.keywordHighlight) { v -> update { it.copy(keywordHighlight = v) } }
-                if (style.keywordHighlight) ColorField("Warna kata kunci", style.keywordColor) { v -> update { it.copy(keywordColor = v) } }
-            }
+            CaptionStyleFields(style, ::update)
 
             if (style.id != 0L) {
                 FieldGroup("Gaya ini") {
@@ -274,4 +245,40 @@ suspend fun freeName(name: String, taken: suspend (String) -> Boolean): String {
         i++
     }
     return candidate
+}
+
+/** Isian gaya subtitle (dipakai halaman Gaya subtitle dan sheet edit gaya di editor). */
+@Composable
+fun CaptionStyleFields(style: CaptionStyleEntity, update: ((CaptionStyleEntity) -> CaptionStyleEntity) -> Unit) {
+    FieldGroup("Huruf") {
+        ChoiceRow("Font", Fonts.AVAILABLE.mapValues { it.value.label }, style.fontFamily) { v -> update { it.copy(fontFamily = v) } }
+        IntSlider("Ukuran", style.fontSize, 40..140, { v -> update { it.copy(fontSize = v) } })
+        ToggleField("Huruf kapital semua", null, style.uppercase) { v -> update { it.copy(uppercase = v) } }
+        ColorField("Warna teks", style.primaryColor) { v -> update { it.copy(primaryColor = v) } }
+        ChoiceRow("Efek", CaptionStyle.EFFECTS, style.effect) { v -> update { it.copy(effect = v) } }
+        ColorField("Warna garis tepi", style.outlineColor) { v -> update { it.copy(outlineColor = v) } }
+    }
+
+    FieldGroup("Tampilan") {
+        ChoiceRow("Posisi", CaptionStyle.POSITIONS, style.position) { v -> update { it.copy(position = v) } }
+        IntSlider("Kata per tampilan", style.wordsPerLine, 1..8, { v -> update { it.copy(wordsPerLine = v) } })
+        ChoiceRow("Animasi", CaptionStyle.ANIMATIONS, style.animation) { v -> update { it.copy(animation = v) } }
+        ToggleField("Kotak latar per baris", null, style.lineBox) { v -> update { it.copy(lineBox = v) } }
+        if (style.lineBox) {
+            ColorField("Warna kotak", style.lineBoxColor) { v -> update { it.copy(lineBoxColor = v) } }
+            IntSlider("Kepekatan kotak", style.lineBoxOpacity, 10..100, { v -> update { it.copy(lineBoxOpacity = v) } }, suffix = "%")
+        }
+    }
+
+    FieldGroup("Sorotan") {
+        ToggleField("Sorot kata yang diucapkan", "Karaoke", style.highlightActiveWord) { v -> update { it.copy(highlightActiveWord = v) } }
+        if (style.highlightActiveWord) {
+            ChoiceRow("Cara sorot", CaptionStyle.HIGHLIGHT_STYLES, style.highlightStyle) { v -> update { it.copy(highlightStyle = v) } }
+            ColorField("Warna sorotan", style.highlightColor) { v -> update { it.copy(highlightColor = v) } }
+        }
+        ToggleField("Redupkan kata berikutnya", null, style.upcomingColor != null) { v -> update { it.copy(upcomingColor = if (v) "#9CA3AF" else null) } }
+        style.upcomingColor?.let { color -> ColorField("Warna kata berikutnya", color) { v -> update { it.copy(upcomingColor = v) } } }
+        ToggleField("Warnai kata kunci", "Dari AI atau ditandai di editor", style.keywordHighlight) { v -> update { it.copy(keywordHighlight = v) } }
+        if (style.keywordHighlight) ColorField("Warna kata kunci", style.keywordColor) { v -> update { it.copy(keywordColor = v) } }
+    }
 }

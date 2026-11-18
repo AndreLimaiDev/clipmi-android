@@ -1,5 +1,11 @@
 package id.clipmi.android.ui.editor
 
+import androidx.compose.foundation.shape.CircleShape
+import id.clipmi.android.ui.theme.ClipMiIcons
+import androidx.compose.material3.Icon
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
@@ -447,39 +453,76 @@ fun StylePanel(state: EditorState) {
     val captionId = state.snapshot.captionStyleId ?: state.captionStyles.firstOrNull { it.isDefault }?.id
     val frameId = state.snapshot.frameStyleId ?: state.frameStyles.firstOrNull { it.isDefault }?.id
     val fonts = remember { HashMap<String, FontFamily>() }
+    // Sheet edit gaya langsung di editor ("caption" atau "frame"); pratinjau di atas memakai isiannya.
+    var editing by rememberSaveable { mutableStateOf<String?>(null) }
+    editing?.let { kind ->
+        StyleEditPanel(state, kind, onClose = { editing = null })
+        return
+    }
 
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(vertical = 16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        Text("Gaya subtitle", style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.ExtraBold), color = c.text, modifier = Modifier.padding(horizontal = 16.dp))
+        SectionTitle("Gaya subtitle")
         ChipRow(gutter = 16.dp) {
             for (style in state.captionStyles) {
                 val family = fonts.getOrPut(style.fontFamily) {
                     runCatching { FontFamily(Font(File(state.fontsDir(), Fonts.file(style.fontFamily)))) }.getOrDefault(FontFamily.Default)
                 }
-                CaptionCard(style, family, selected = style.id == captionId) { state.apply { it.copy(captionStyleId = style.id) } }
+                val selected = style.id == captionId
+                // Ketuk kartu lain untuk memakainya; ketuk kartu terpilih (ikon pensil) untuk mengubah gayanya.
+                StyleCard(selected, "Ubah gaya ${style.name}", onClick = { if (selected) editing = "caption" else state.apply { it.copy(captionStyleId = style.id) } }) {
+                    CaptionSample(style, family, selected)
+                }
             }
         }
-        Text("Bingkai", style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.ExtraBold), color = c.text, modifier = Modifier.padding(start = 16.dp, top = 4.dp))
+        SectionTitle("Bingkai", Modifier.padding(top = 4.dp))
         ChipRow(gutter = 16.dp) {
-            for (frame in state.frameStyles) FrameCard(frame, selected = frame.id == frameId) { state.apply { it.copy(frameStyleId = frame.id) } }
+            for (frame in state.frameStyles) {
+                val selected = frame.id == frameId
+                StyleCard(selected, "Ubah bingkai ${frame.name}", onClick = { if (selected) editing = "frame" else state.apply { it.copy(frameStyleId = frame.id) } }) {
+                    FrameSample(frame, selected)
+                }
+            }
         }
+        Text(
+            "Ketuk gaya yang terpilih untuk mengubahnya.",
+            style = MaterialTheme.typography.bodySmall, color = ClipMi.colors.textMuted, modifier = Modifier.padding(horizontal = 16.dp),
+        )
     }
 }
 
 @Composable
-private fun CaptionCard(style: CaptionStyleEntity, family: FontFamily, selected: Boolean, onClick: () -> Unit) {
+private fun SectionTitle(title: String, modifier: Modifier = Modifier) {
+    Text(title, style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.ExtraBold), color = ClipMi.colors.text, modifier = modifier.padding(horizontal = 16.dp))
+}
+
+/** Kartu gaya; kartu terpilih menampilkan tombol pensil di tengah untuk mengubah gaya itu. */
+@Composable
+private fun StyleCard(selected: Boolean, editLabel: String, onClick: () -> Unit, content: @Composable () -> Unit) {
     val c = ClipMi.colors
-    val sample = if (style.uppercase) "SABAR" else "Sabar"
-    Column(
+    Box(
         Modifier
             .width(112.dp)
             .clip(RoundedCornerShape(18.dp))
             .background(EDITOR_CARD)
             .border(if (selected) 2.dp else 1.dp, if (selected) c.accent else c.line, RoundedCornerShape(18.dp))
-            .clickable(onClick = onClick)
-            .padding(10.dp),
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.spacedBy(8.dp),
+            .clickable(onClickLabel = if (selected) editLabel else null, onClick = onClick),
+        contentAlignment = Alignment.Center,
     ) {
+        content()
+        if (selected) {
+            Box(Modifier.matchParentSize().background(Color.Black.copy(alpha = 0.35f)))
+            Box(Modifier.size(40.dp).clip(CircleShape).background(c.accent), contentAlignment = Alignment.Center) {
+                Icon(ClipMiIcons.Edit, contentDescription = editLabel, tint = c.onAccent, modifier = Modifier.size(20.dp))
+            }
+        }
+    }
+}
+
+@Composable
+private fun CaptionSample(style: CaptionStyleEntity, family: FontFamily, selected: Boolean) {
+    val c = ClipMi.colors
+    val sample = if (style.uppercase) "SABAR" else "Sabar"
+    Column(Modifier.fillMaxWidth().padding(10.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Box(Modifier.height(40.dp), contentAlignment = Alignment.Center) {
             val color = hex(if (style.highlightActiveWord && style.highlightStyle == "color") style.highlightColor else style.primaryColor)
             Text(
@@ -493,19 +536,9 @@ private fun CaptionCard(style: CaptionStyleEntity, family: FontFamily, selected:
 }
 
 @Composable
-private fun FrameCard(frame: FrameStyleEntity, selected: Boolean, onClick: () -> Unit) {
+private fun FrameSample(frame: FrameStyleEntity, selected: Boolean) {
     val c = ClipMi.colors
-    Column(
-        Modifier
-            .width(112.dp)
-            .clip(RoundedCornerShape(18.dp))
-            .background(EDITOR_CARD)
-            .border(if (selected) 2.dp else 1.dp, if (selected) c.accent else c.line, RoundedCornerShape(18.dp))
-            .clickable(onClick = onClick)
-            .padding(10.dp),
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.spacedBy(8.dp),
-    ) {
+    Column(Modifier.fillMaxWidth().padding(10.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(8.dp)) {
         // Gambar kecil tata letak: latar dan letak video.
         val bg = when (frame.background) {
             "color" -> hex(frame.backgroundColor)

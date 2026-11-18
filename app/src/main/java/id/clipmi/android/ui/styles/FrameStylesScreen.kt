@@ -191,29 +191,19 @@ fun FrameStyleEditScreen(container: AppContainer, id: Long, copyOf: Long, onBack
         draft = change(style)
     }
 
-    fun pickInto(field: String, uri: android.net.Uri) = scope.launch {
-        busy = field
-        imageError = null
-        try {
-            when (field) {
-                "logo" -> media.importImage(uri, MediaLibrary.ImageKind.Logo).also { created += it }.let { path -> draft = draft?.copy(logoPath = path) }
-                "background" -> media.importImage(uri, MediaLibrary.ImageKind.Background).also { created += it }.let { path -> draft = draft?.copy(backgroundPath = path) }
-                "template" -> media.importTemplate(uri).also { created += it.path }.let { t ->
-                    // Rasio hasil mengikuti ukuran gambar template.
-                    draft = draft?.copy(templatePath = t.path, aspect = t.aspect, templateArea = Json.encodeToString(TemplateArea.serializer(), t.area))
-                }
+    val pick = rememberFrameImagePicker { field, uri ->
+        scope.launch {
+            busy = field
+            imageError = null
+            try {
+                draft = draft?.let { importFrameImage(media, field, uri, it) { path -> created += path } }
+            } catch (e: Exception) {
+                imageError = field to (e.message ?: "Gambar tidak bisa dipakai.")
+            } finally {
+                busy = null
             }
-        } catch (e: Exception) {
-            imageError = field to (e.message ?: "Gambar tidak bisa dipakai.")
-        } finally {
-            busy = null
         }
     }
-
-    val logoPicker = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri -> uri?.let { pickInto("logo", it) } }
-    val backgroundPicker = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri -> uri?.let { pickInto("background", it) } }
-    val templatePicker = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri -> uri?.let { pickInto("template", it) } }
-    val imageOnly = PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
 
     fun save() = scope.launch {
         val name = style.name.trim().replace(Regex("\\s+"), " ")
@@ -257,97 +247,17 @@ fun FrameStyleEditScreen(container: AppContainer, id: Long, copyOf: Long, onBack
         SubScreenHeader(if (id == 0L) "Gaya bingkai baru" else "Ubah gaya bingkai", leave) {
             PrimaryButton("Simpan", onClick = { save() }, enabled = (dirty || style.id == 0L) && busy == null, height = 40.dp)
         }
+        // Pratinjau tetap di atas; hanya isian di bawahnya yang bergulir.
+        StickyPreview(expandedWidth = if (core.canvasWidth() > core.canvasHeight()) 300.dp else 190.dp, compactWidth = if (core.canvasWidth() > core.canvasHeight()) 200.dp else 112.dp) { width ->
+            FrameStylePreview(container, core, caption, sample, Modifier.width(width))
+        }
         Column(
-            Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = ScreenGutter).navigationBarsPadding().padding(bottom = 32.dp),
+            Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = ScreenGutter).navigationBarsPadding().padding(top = 12.dp, bottom = 32.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp),
         ) {
-            Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
-                FrameStylePreview(container, core, caption, sample, Modifier.width(if (core.canvasWidth() > core.canvasHeight()) 300.dp else 200.dp))
-            }
             Field(style.name, { v -> update { it.copy(name = v) }; nameError = null }, label = "Nama gaya", singleLine = true, error = nameError)
 
-            FieldGroup("Tata letak") {
-                ChoiceRow("Video", FrameStyle.MODES, mode) { v ->
-                    // "Video + area teks" paling sering dipakai dengan video di atas.
-                    update { it.copy(mode = v, videoPosition = if (v == "top" && it.videoPosition == "center") "top" else it.videoPosition) }
-                }
-                if (mode == "template") {
-                    ImageField(
-                        "Gambar template", container.workspace.file(style.templatePath),
-                        "PNG atau WebP selayar penuh dengan bagian video dikosongkan (transparan). Rasio mengikuti ukuran gambar.",
-                        onPick = { templatePicker.launch(imageOnly) }, onRemove = null, busy = busy == "template",
-                        error = imageError?.takeIf { it.first == "template" }?.second,
-                    )
-                    val info = FrameStyle.ASPECTS[style.aspect]
-                    Text("Ukuran ${style.aspect}${info?.let { " (${it.width}×${it.height} piksel)" }.orEmpty()}", style = MaterialTheme.typography.bodySmall, color = ClipMi.colors.textMuted)
-                } else {
-                    AspectPicker(style.aspect) { v -> update { it.copy(aspect = v) } }
-                }
-                if (mode == "fit" || mode == "top") {
-                    ChoiceRow("Letak video", FrameStyle.VIDEO_POSITIONS, style.videoPosition) { v -> update { it.copy(videoPosition = v) } }
-                }
-                if (mode == "top") IntSlider("Tinggi area video", style.videoHeight, 30..85, { v -> update { it.copy(videoHeight = v) } }, suffix = "%")
-                IntSlider("Zoom", style.zoom, 100..200, { v -> update { it.copy(zoom = (v / 5) * 5) } }, suffix = "%")
-            }
-
-            if (mode != "crop" && mode != "template") {
-                FieldGroup("Bingkai video") {
-                    IntSlider("Sudut membulat", style.cornerRadius, 0..80, { v -> update { it.copy(cornerRadius = (v / 2) * 2) } })
-                    IntSlider("Garis tepi", style.borderWidth, 0..24, { v -> update { it.copy(borderWidth = v) } })
-                    if (style.borderWidth > 0) ColorField("Warna garis tepi", style.borderColor) { v -> update { it.copy(borderColor = v) } }
-                }
-                FieldGroup("Latar") {
-                    ChoiceRow(null, FrameStyle.BACKGROUNDS, style.background) { v -> update { it.copy(background = v) } }
-                    when (style.background) {
-                        "blur" -> IntSlider("Kekuatan blur", style.blurStrength, 1..30, { v -> update { it.copy(blurStrength = v) } })
-                        "color" -> ColorField("Warna latar", style.backgroundColor) { v -> update { it.copy(backgroundColor = v) } }
-                        "gradient" -> {
-                            ColorField("Warna atas", style.backgroundColor) { v -> update { it.copy(backgroundColor = v) } }
-                            ColorField("Warna bawah", style.backgroundColor2) { v -> update { it.copy(backgroundColor2 = v) } }
-                        }
-                        "image" -> ImageField(
-                            "Gambar latar", container.workspace.file(style.backgroundPath),
-                            "Misalnya desain tim. Dipotong memenuhi layar. Maksimal 5 MB.",
-                            onPick = { backgroundPicker.launch(imageOnly) }, onRemove = { update { it.copy(backgroundPath = null) } }, busy = busy == "background",
-                            error = imageError?.takeIf { it.first == "background" }?.second,
-                        )
-                    }
-                }
-            }
-
-            FieldGroup("Logo") {
-                ImageField(
-                    "Gambar logo", container.workspace.file(style.logoPath), "PNG berlatar transparan paling rapi. Maksimal 2 MB.",
-                    onPick = { logoPicker.launch(imageOnly) }, onRemove = { update { it.copy(logoPath = null) } }, busy = busy == "logo",
-                    error = imageError?.takeIf { it.first == "logo" }?.second,
-                )
-                if (style.logoPath != null) {
-                    AnchorPicker("Posisi logo", style.logoX, style.logoY) { x, y -> update { it.copy(logoX = x, logoY = y) } }
-                    IntSlider("Ukuran logo", style.logoSize, 5..40, { v -> update { it.copy(logoSize = v) } }, suffix = "%")
-                    IntSlider("Kepekatan logo", style.logoOpacity, 10..100, { v -> update { it.copy(logoOpacity = v) } }, suffix = "%")
-                }
-            }
-
-            FieldGroup("Watermark teks") {
-                Field(style.watermarkText.orEmpty(), { v -> update { it.copy(watermarkText = v.take(80)) } }, placeholder = "Misalnya @kajian.kita", singleLine = true)
-                if (!style.watermarkText.isNullOrBlank()) {
-                    ChoiceRow("Font", Fonts.AVAILABLE.mapValues { it.value.label }, style.watermarkFont) { v -> update { it.copy(watermarkFont = v) } }
-                    IntSlider("Ukuran", style.watermarkSize, 16..120, { v -> update { it.copy(watermarkSize = v) } })
-                    ColorField("Warna", style.watermarkColor) { v -> update { it.copy(watermarkColor = v) } }
-                    IntSlider("Kepekatan", style.watermarkOpacity, 10..100, { v -> update { it.copy(watermarkOpacity = v) } }, suffix = "%")
-                    AnchorPicker("Posisi watermark", style.watermarkX, style.watermarkY) { x, y -> update { it.copy(watermarkX = x, watermarkY = y) } }
-                }
-            }
-
-            FieldGroup("Judul dan subtitle") {
-                ToggleField("Bilah judul", "Judul klip di bagian atas layar", style.titleBar) { v -> update { it.copy(titleBar = v) } }
-                if (style.titleBar) {
-                    if (mode != "template") ColorField("Warna bilah", style.titleBarColor) { v -> update { it.copy(titleBarColor = v) } }
-                    ColorField("Warna judul", style.titleTextColor) { v -> update { it.copy(titleTextColor = v) } }
-                }
-                ToggleField("Posisi subtitle otomatis", "Mengikuti tata letak", style.subtitleY == null) { v -> update { it.copy(subtitleY = if (v) null else 75) } }
-                style.subtitleY?.let { y -> IntSlider("Posisi subtitle (dari atas)", y, 5..95, { v -> update { it.copy(subtitleY = v) } }, suffix = "%") }
-            }
+            FrameStyleFields(container, style, ::update, busy, imageError, pick)
 
             if (style.id != 0L) {
                 FieldGroup("Gaya ini") {
@@ -457,3 +367,129 @@ private fun AnchorPicker(label: String, x: Int, y: Int, onSelect: (Int, Int) -> 
         }
     }
 }
+
+/**
+ * Isian gaya bingkai (dipakai halaman Gaya bingkai dan sheet edit gaya di editor). [onPick] membuka pemilih gambar
+ * untuk "logo", "background", atau "template"; [busy] dan [imageError] menandai gambar yang sedang/gagal diproses.
+ */
+@Composable
+fun FrameStyleFields(
+    container: AppContainer,
+    style: FrameStyleEntity,
+    update: ((FrameStyleEntity) -> FrameStyleEntity) -> Unit,
+    busy: String?,
+    imageError: Pair<String, String>?,
+    onPick: (String) -> Unit,
+) {
+    val mode = style.mode
+    FieldGroup("Tata letak") {
+        ChoiceRow("Video", FrameStyle.MODES, mode) { v ->
+            // "Video + area teks" paling sering dipakai dengan video di atas.
+            update { it.copy(mode = v, videoPosition = if (v == "top" && it.videoPosition == "center") "top" else it.videoPosition) }
+        }
+        if (mode == "template") {
+            ImageField(
+                "Gambar template", container.workspace.file(style.templatePath),
+                "PNG atau WebP selayar penuh dengan bagian video dikosongkan (transparan). Rasio mengikuti ukuran gambar.",
+                onPick = { onPick("template") }, onRemove = null, busy = busy == "template",
+                error = imageError?.takeIf { it.first == "template" }?.second,
+            )
+            val info = FrameStyle.ASPECTS[style.aspect]
+            Text("Ukuran ${style.aspect}${info?.let { " (${it.width}×${it.height} piksel)" }.orEmpty()}", style = MaterialTheme.typography.bodySmall, color = ClipMi.colors.textMuted)
+        } else {
+            AspectPicker(style.aspect) { v -> update { it.copy(aspect = v) } }
+        }
+        if (mode == "fit" || mode == "top") {
+            ChoiceRow("Letak video", FrameStyle.VIDEO_POSITIONS, style.videoPosition) { v -> update { it.copy(videoPosition = v) } }
+        }
+        if (mode == "top") IntSlider("Tinggi area video", style.videoHeight, 30..85, { v -> update { it.copy(videoHeight = v) } }, suffix = "%")
+        IntSlider("Zoom", style.zoom, 100..200, { v -> update { it.copy(zoom = (v / 5) * 5) } }, suffix = "%")
+    }
+
+    if (mode != "crop" && mode != "template") {
+        FieldGroup("Bingkai video") {
+            IntSlider("Sudut membulat", style.cornerRadius, 0..80, { v -> update { it.copy(cornerRadius = (v / 2) * 2) } })
+            IntSlider("Garis tepi", style.borderWidth, 0..24, { v -> update { it.copy(borderWidth = v) } })
+            if (style.borderWidth > 0) ColorField("Warna garis tepi", style.borderColor) { v -> update { it.copy(borderColor = v) } }
+        }
+        FieldGroup("Latar") {
+            ChoiceRow(null, FrameStyle.BACKGROUNDS, style.background) { v -> update { it.copy(background = v) } }
+            when (style.background) {
+                "blur" -> IntSlider("Kekuatan blur", style.blurStrength, 1..30, { v -> update { it.copy(blurStrength = v) } })
+                "color" -> ColorField("Warna latar", style.backgroundColor) { v -> update { it.copy(backgroundColor = v) } }
+                "gradient" -> {
+                    ColorField("Warna atas", style.backgroundColor) { v -> update { it.copy(backgroundColor = v) } }
+                    ColorField("Warna bawah", style.backgroundColor2) { v -> update { it.copy(backgroundColor2 = v) } }
+                }
+                "image" -> ImageField(
+                    "Gambar latar", container.workspace.file(style.backgroundPath),
+                    "Misalnya desain tim. Dipotong memenuhi layar. Maksimal 5 MB.",
+                    onPick = { onPick("background") }, onRemove = { update { it.copy(backgroundPath = null) } }, busy = busy == "background",
+                    error = imageError?.takeIf { it.first == "background" }?.second,
+                )
+            }
+        }
+    }
+
+    FieldGroup("Logo") {
+        ImageField(
+            "Gambar logo", container.workspace.file(style.logoPath), "PNG berlatar transparan paling rapi. Maksimal 2 MB.",
+            onPick = { onPick("logo") }, onRemove = { update { it.copy(logoPath = null) } }, busy = busy == "logo",
+            error = imageError?.takeIf { it.first == "logo" }?.second,
+        )
+        if (style.logoPath != null) {
+            AnchorPicker("Posisi logo", style.logoX, style.logoY) { x, y -> update { it.copy(logoX = x, logoY = y) } }
+            IntSlider("Ukuran logo", style.logoSize, 5..40, { v -> update { it.copy(logoSize = v) } }, suffix = "%")
+            IntSlider("Kepekatan logo", style.logoOpacity, 10..100, { v -> update { it.copy(logoOpacity = v) } }, suffix = "%")
+        }
+    }
+
+    FieldGroup("Watermark teks") {
+        Field(style.watermarkText.orEmpty(), { v -> update { it.copy(watermarkText = v.take(80)) } }, placeholder = "Misalnya @kajian.kita", singleLine = true)
+        if (!style.watermarkText.isNullOrBlank()) {
+            ChoiceRow("Font", Fonts.AVAILABLE.mapValues { it.value.label }, style.watermarkFont) { v -> update { it.copy(watermarkFont = v) } }
+            IntSlider("Ukuran", style.watermarkSize, 16..120, { v -> update { it.copy(watermarkSize = v) } })
+            ColorField("Warna", style.watermarkColor) { v -> update { it.copy(watermarkColor = v) } }
+            IntSlider("Kepekatan", style.watermarkOpacity, 10..100, { v -> update { it.copy(watermarkOpacity = v) } }, suffix = "%")
+            AnchorPicker("Posisi watermark", style.watermarkX, style.watermarkY) { x, y -> update { it.copy(watermarkX = x, watermarkY = y) } }
+        }
+    }
+
+    FieldGroup("Judul dan subtitle") {
+        ToggleField("Bilah judul", "Judul klip di bagian atas layar", style.titleBar) { v -> update { it.copy(titleBar = v) } }
+        if (style.titleBar) {
+            if (mode != "template") ColorField("Warna bilah", style.titleBarColor) { v -> update { it.copy(titleBarColor = v) } }
+            ColorField("Warna judul", style.titleTextColor) { v -> update { it.copy(titleTextColor = v) } }
+        }
+        ToggleField("Posisi subtitle otomatis", "Mengikuti tata letak", style.subtitleY == null) { v -> update { it.copy(subtitleY = if (v) null else 75) } }
+        style.subtitleY?.let { y -> IntSlider("Posisi subtitle (dari atas)", y, 5..95, { v -> update { it.copy(subtitleY = v) } }, suffix = "%") }
+    }
+}
+
+/** Pemilih gambar galeri untuk gambar gaya bingkai; [onPicked] menerima jenis gambar dan URI-nya. */
+@Composable
+fun rememberFrameImagePicker(onPicked: (String, android.net.Uri) -> Unit): (String) -> Unit {
+    var field by remember { mutableStateOf<String?>(null) }
+    val launcher = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri ->
+        val target = field
+        field = null
+        if (uri != null && target != null) onPicked(target, uri)
+    }
+    return { target ->
+        field = target
+        launcher.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
+    }
+}
+
+/**
+ * Menyalin gambar pilihan ke workspace dan memasangnya di [draft] (template sekaligus menentukan rasio dan area video).
+ * [created] menerima path salinan, supaya yang tidak jadi disimpan bisa dihapus.
+ */
+suspend fun importFrameImage(media: MediaLibrary, field: String, uri: android.net.Uri, draft: FrameStyleEntity, created: (String) -> Unit): FrameStyleEntity =
+    when (field) {
+        "logo" -> media.importImage(uri, MediaLibrary.ImageKind.Logo).also(created).let { draft.copy(logoPath = it) }
+        "background" -> media.importImage(uri, MediaLibrary.ImageKind.Background).also(created).let { draft.copy(backgroundPath = it) }
+        else -> media.importTemplate(uri).also { created(it.path) }.let { t ->
+            draft.copy(templatePath = t.path, aspect = t.aspect, templateArea = Json.encodeToString(TemplateArea.serializer(), t.area))
+        }
+    }

@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
@@ -30,6 +31,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import id.clipmi.android.ui.components.ChipRow
 import id.clipmi.android.ui.components.ClipMiSheet
@@ -214,4 +216,35 @@ fun rememberDiscardGuard(dirty: Boolean, onBack: () -> Unit): () -> Unit {
         )
     }
     return { if (dirty) asking = true else onBack() }
+}
+
+/**
+ * Pratinjau yang tetap di atas halaman edit gaya (isian di bawahnya saja yang bergulir), dengan tombol perkecil/perbesar
+ * supaya isian tidak terlalu sempit di layar pendek. Ukurannya diingat selama aplikasi terbuka.
+ */
+@Composable
+fun StickyPreview(expandedWidth: Dp, compactWidth: Dp, content: @Composable (Dp) -> Unit) {
+    val c = ClipMi.colors
+    val width by androidx.compose.animation.core.animateDpAsState(if (PreviewSize.compact) compactWidth else expandedWidth, label = "pratinjau")
+    Box(Modifier.fillMaxWidth().background(c.bg).padding(top = 4.dp, bottom = 8.dp)) {
+        Box(Modifier.align(Alignment.Center)) { content(width) }
+        Box(
+            Modifier
+                .align(Alignment.BottomEnd)
+                .padding(end = 16.dp)
+                .clip(CircleShape)
+                .background(c.panel)
+                .border(1.dp, c.line, CircleShape)
+                .clickable(role = Role.Button, onClickLabel = if (PreviewSize.compact) "Perbesar pratinjau" else "Perkecil pratinjau") { PreviewSize.compact = !PreviewSize.compact }
+                .padding(horizontal = 12.dp, vertical = 6.dp),
+        ) {
+            Text(if (PreviewSize.compact) "Perbesar" else "Perkecil", style = MaterialTheme.typography.labelMedium, color = c.textBody)
+        }
+    }
+    Box(Modifier.fillMaxWidth().height(1.dp).background(c.line))
+}
+
+/** Ukuran pratinjau yang dipilih, sama untuk semua halaman edit gaya. */
+object PreviewSize {
+    var compact by mutableStateOf(false)
 }

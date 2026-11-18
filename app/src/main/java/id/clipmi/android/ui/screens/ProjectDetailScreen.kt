@@ -158,36 +158,45 @@ fun ProjectDetailScreen(container: AppContainer, projectId: Long, onBack: () -> 
     if (selecting) SnackbarInset(80.dp)
     LightStatusIcons()
 
+    // Segmen yang sedang diputar, untuk ditandai di transkrip (seperti transkrip YouTube).
+    var playingMs by remember { mutableStateOf<Long?>(null) }
+    LaunchedEffect(player) {
+        while (true) {
+            playingMs = if (player.isPlaying) player.currentPosition else playingMs.takeIf { player.playWhenReady }
+            kotlinx.coroutines.delay(300)
+        }
+    }
+
     Box(Modifier.fillMaxSize()) {
-        LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = if (selecting || tab == 1) 120.dp else 40.dp)) {
-            item {
-                Box(Modifier.fillMaxWidth().background(Color.Black).statusBarsPadding()) {
-                    if (videoFile != null) {
-                        AndroidView(
-                            factory = { PlayerView(it).apply { this.player = player } },
-                            modifier = Modifier.fillMaxWidth().aspectRatio(16f / 9f),
-                        )
-                    } else {
-                        FileImage(container.workspace.file(p.thumbnailPath), Modifier.fillMaxWidth().aspectRatio(16f / 9f))
-                    }
-                    IconCircle(
-                        ClipMiIcons.Back, "Kembali", onBack,
-                        modifier = Modifier.align(Alignment.TopStart).padding(12.dp),
-                        background = Color(0x990B0F0E), tint = Color.White, border = false,
-                    )
-                    IconCircle(
-                        ClipMiIcons.Trash, "Hapus project",
-                        onClick = {
-                            confirm = Confirm("Hapus project?", "Project, transkrip, klip, dan video sumbernya di HP ini dihapus permanen.", "Hapus", danger = true) {
-                                container.actions.delete(projectId)
-                                onBack()
-                            }
-                        },
-                        modifier = Modifier.align(Alignment.TopEnd).padding(12.dp),
-                        background = Color(0x990B0F0E), tint = Color.White, border = false,
-                    )
-                }
+      // Video tetap di atas; hanya isi di bawahnya yang bergulir.
+      Column(Modifier.fillMaxSize()) {
+        Box(Modifier.fillMaxWidth().background(Color.Black).statusBarsPadding()) {
+            if (videoFile != null) {
+                AndroidView(
+                    factory = { PlayerView(it).apply { this.player = player } },
+                    modifier = Modifier.fillMaxWidth().aspectRatio(16f / 9f),
+                )
+            } else {
+                FileImage(container.workspace.file(p.thumbnailPath), Modifier.fillMaxWidth().aspectRatio(16f / 9f))
             }
+            IconCircle(
+                ClipMiIcons.Back, "Kembali", onBack,
+                modifier = Modifier.align(Alignment.TopStart).padding(12.dp),
+                background = Color(0x990B0F0E), tint = Color.White, border = false,
+            )
+            IconCircle(
+                ClipMiIcons.Trash, "Hapus project",
+                onClick = {
+                    confirm = Confirm("Hapus project?", "Project, transkrip, klip, dan video sumbernya di HP ini dihapus permanen.", "Hapus", danger = true) {
+                        container.actions.delete(projectId)
+                        onBack()
+                    }
+                },
+                modifier = Modifier.align(Alignment.TopEnd).padding(12.dp),
+                background = Color(0x990B0F0E), tint = Color.White, border = false,
+            )
+        }
+        LazyColumn(Modifier.fillMaxWidth().weight(1f), contentPadding = PaddingValues(bottom = if (selecting || tab == 1) 120.dp else 40.dp)) {
             item {
                 Column(Modifier.padding(start = ScreenGutter, end = ScreenGutter, top = 16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
@@ -279,8 +288,10 @@ fun ProjectDetailScreen(container: AppContainer, projectId: Long, onBack: () -> 
                 items(shown, key = { it.id }) { segment ->
                     val start = selectStart
                     val selected = start != null && segment.sequence in start..(selectEnd ?: start)
+                    val now = playingMs
+                    val playing = now != null && now >= segment.startTime * 1000 && now < segment.endTime * 1000
                     SegmentRow(
-                        segment, query.trim(), selected,
+                        segment, query.trim(), selected, playing,
                         onClick = {
                             if (start == null) {
                                 playRange(segment.startTime, segments.last().endTime)
@@ -296,8 +307,7 @@ fun ProjectDetailScreen(container: AppContainer, projectId: Long, onBack: () -> 
                 }
             }
         }
-
-        StatusBarScrim(Modifier.align(Alignment.TopCenter), color = Color.Black)
+      }
 
         // Tab Klip: klip terpilih bisa dirender sekaligus (berurutan di antrean render).
         val selected = clips.filter { it.review == ReviewStatus.Selected }
@@ -464,7 +474,7 @@ private fun StatusCard(p: ProjectEntity, transcriptionReady: Boolean, onRetry: (
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
-private fun SegmentRow(segment: TranscriptSegmentEntity, query: String, selected: Boolean, onClick: () -> Unit, onLongClick: () -> Unit) {
+private fun SegmentRow(segment: TranscriptSegmentEntity, query: String, selected: Boolean, playing: Boolean, onClick: () -> Unit, onLongClick: () -> Unit) {
     val c = ClipMi.colors
     val shape = RoundedCornerShape(16.dp)
     Row(
@@ -472,7 +482,13 @@ private fun SegmentRow(segment: TranscriptSegmentEntity, query: String, selected
             .fillMaxWidth()
             .padding(horizontal = 12.dp, vertical = 2.dp)
             .clip(shape)
-            .then(if (selected) Modifier.background(c.accent.copy(alpha = 0.12f)).border(1.dp, c.accent.copy(alpha = 0.35f), shape) else Modifier)
+            .then(
+                when {
+                    selected -> Modifier.background(c.accent.copy(alpha = 0.12f)).border(1.dp, c.accent.copy(alpha = 0.35f), shape)
+                    playing -> Modifier.background(c.panel)
+                    else -> Modifier
+                },
+            )
             .combinedClickable(onClick = onClick, onLongClick = onLongClick)
             .padding(horizontal = 8.dp, vertical = 10.dp),
         horizontalArrangement = Arrangement.spacedBy(12.dp),

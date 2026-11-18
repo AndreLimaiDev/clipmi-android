@@ -78,7 +78,7 @@ fun EditorPreview(
     onGestureEnd: () -> Unit = {},
 ) {
     val sourceSize by produceState<Pair<Int, Int>?>(null, state.source) { value = withContext(Dispatchers.IO) { MediaInfo.videoSize(state.source) } }
-    val composition = remember(state.snapshot, state.captionStyles, state.frameStyles, sourceSize) {
+    val composition = remember(state.snapshot, state.captionStyles, state.frameStyles, state.frameDraft, sourceSize) {
         Composition.make(state.frameStyle(), sourceSize, state.spec().effectiveCropPosition(), state.spec().effectiveZoom(), state.spec().effectiveCropY())
     }
     val canvas = composition.canvas

@@ -110,13 +110,35 @@ class EditorState(
 
     val projectDuration: Double? get() = project.durationSeconds
 
-    fun captionStyle(): CaptionStyle =
-        (snapshot.captionStyleId?.let { id -> captionStyles.firstOrNull { it.id == id } } ?: captionStyles.firstOrNull { it.isDefault } ?: captionStyles.firstOrNull())
-            ?.toCore() ?: CaptionStyle.DEFAULT
+    /**
+     * Gaya yang sedang diedit di sheet "Edit gaya" (belum disimpan): pratinjau langsung memakainya. Null = memakai gaya
+     * tersimpan.
+     */
+    var captionDraft by mutableStateOf<CaptionStyleEntity?>(null)
+        private set
+    var frameDraft by mutableStateOf<FrameStyleEntity?>(null)
+        private set
 
-    fun frameStyle(): FrameStyle =
-        (snapshot.frameStyleId?.let { id -> frameStyles.firstOrNull { it.id == id } } ?: frameStyles.firstOrNull { it.isDefault } ?: frameStyles.firstOrNull())
-            ?.toCore() ?: FrameStyle.DEFAULT
+    /** Gaya subtitle tersimpan yang dipakai klip (gaya klip, bawaan, atau yang pertama). */
+    fun captionEntity(): CaptionStyleEntity? =
+        snapshot.captionStyleId?.let { id -> captionStyles.firstOrNull { it.id == id } } ?: captionStyles.firstOrNull { it.isDefault } ?: captionStyles.firstOrNull()
+
+    fun frameEntity(): FrameStyleEntity? =
+        snapshot.frameStyleId?.let { id -> frameStyles.firstOrNull { it.id == id } } ?: frameStyles.firstOrNull { it.isDefault } ?: frameStyles.firstOrNull()
+
+    fun captionStyle(): CaptionStyle = (captionDraft ?: captionEntity())?.toCore() ?: CaptionStyle.DEFAULT
+
+    fun frameStyle(): FrameStyle = (frameDraft ?: frameEntity())?.toCore() ?: FrameStyle.DEFAULT
+
+    fun editCaption(draft: CaptionStyleEntity?) {
+        captionDraft = draft
+        refreshTracks()
+    }
+
+    fun editFrame(draft: FrameStyleEntity?) {
+        frameDraft = draft
+        refreshTracks()
+    }
 
     fun editor() = ClipEditor(segments, captionStyle(), projectDuration)
 
