@@ -1,5 +1,8 @@
 package id.clipmi.android.ui.styles
 
+import id.clipmi.android.ui.components.bleed
+import androidx.compose.ui.unit.sp
+import androidx.compose.foundation.layout.width
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -84,9 +87,34 @@ fun IntSlider(label: String, value: Int, range: IntRange, onChange: (Int) -> Uni
 fun <T> ChoiceRow(label: String?, options: Map<T, String>, selected: T, onSelect: (T) -> Unit) {
     Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
         label?.let { FieldLabel(it) }
-        // Dibungkus ke baris berikutnya: pilihan di dalam kartu tidak boleh terpotong di tepi.
-        FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            options.forEach { (value, text) -> FilterPill(text, selected = value == selected, onClick = { onSelect(value) }) }
+        // Satu baris yang digeser ke samping (tidak menumpuk ke bawah), sampai tepi kartu.
+        id.clipmi.android.ui.components.ChipRow(Modifier.bleed(16.dp), gutter = 16.dp) {
+            options.forEach { (value, text) -> FilterPill(text, selected = value == selected, height = 36.dp, onClick = { onSelect(value) }) }
+        }
+    }
+}
+
+/** Pilihan font sebagai kartu kecil yang menampilkan contoh hurufnya, digeser ke samping. */
+@Composable
+fun FontChoiceRow(label: String, fontsDir: java.io.File, selected: String, onSelect: (String) -> Unit) {
+    val c = ClipMi.colors
+    val families = remember { HashMap<String, androidx.compose.ui.text.font.FontFamily>() }
+    Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        FieldLabel(label, id.clipmi.core.render.Fonts.AVAILABLE[selected]?.label)
+        id.clipmi.android.ui.components.ChipRow(Modifier.bleed(16.dp), gutter = 16.dp) {
+            id.clipmi.core.render.Fonts.AVAILABLE.forEach { (key, font) ->
+                val on = key == selected
+                val family = families.getOrPut(key) { fontFamily(fontsDir, key) }
+                Column(
+                    Modifier.width(84.dp).clip(RoundedCornerShape(12.dp)).background(if (on) c.text else c.panel)
+                        .clickable(onClickLabel = font.label) { onSelect(key) }.padding(vertical = 10.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(4.dp),
+                ) {
+                    Text("Aa", style = androidx.compose.ui.text.TextStyle(fontFamily = family, fontSize = 22.sp, color = if (on) c.bg else c.text))
+                    Text(font.label, style = MaterialTheme.typography.labelSmall, color = if (on) c.bg else c.textMuted, maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis, modifier = Modifier.padding(horizontal = 6.dp))
+                }
+            }
         }
     }
 }
@@ -230,13 +258,13 @@ fun StickyPreview(expandedWidth: Dp, compactWidth: Dp, content: @Composable (Dp)
             Modifier
                 .align(Alignment.BottomEnd)
                 .padding(end = 16.dp)
-                .clip(CircleShape)
+                .clip(RoundedCornerShape(10.dp))
                 .background(c.panel)
-                .border(1.dp, c.line, CircleShape)
+                .border(1.dp, c.line, RoundedCornerShape(10.dp))
                 .clickable(role = Role.Button, onClickLabel = if (PreviewSize.compact) "Perbesar pratinjau" else "Perkecil pratinjau") { PreviewSize.compact = !PreviewSize.compact }
-                .padding(horizontal = 12.dp, vertical = 6.dp),
+                .padding(8.dp),
         ) {
-            Text(if (PreviewSize.compact) "Perbesar" else "Perkecil", style = MaterialTheme.typography.labelMedium, color = c.textBody)
+            Icon(if (PreviewSize.compact) ClipMiIcons.Expand else ClipMiIcons.Collapse, contentDescription = null, tint = c.textBody, modifier = Modifier.size(18.dp))
         }
     }
     Box(Modifier.fillMaxWidth().height(1.dp).background(c.line))
@@ -244,7 +272,7 @@ fun StickyPreview(expandedWidth: Dp, compactWidth: Dp, content: @Composable (Dp)
 
 /** Ukuran pratinjau yang dipilih, sama untuk semua halaman edit gaya. */
 object PreviewSize {
-    var compact by mutableStateOf(false)
+    var compact by mutableStateOf(true)
 }
 
 /** Judul menu Gaya klip dengan tab Subtitle | Bingkai (satu menu di Pengaturan). */

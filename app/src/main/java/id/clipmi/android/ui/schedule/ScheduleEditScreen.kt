@@ -1,5 +1,6 @@
 package id.clipmi.android.ui.schedule
 
+import id.clipmi.android.ui.components.IconCircle
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -123,7 +124,7 @@ fun ScheduleEditScreen(container: AppContainer, scheduleId: Long, clipId: Long, 
                 ClipThumb(clip, Modifier.width(48.dp).height(84.dp))
                 Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
                     Text(title, style = MaterialTheme.typography.titleMedium, color = c.text, maxLines = 3, overflow = TextOverflow.Ellipsis)
-                    Text(listOfNotNull(d.projects[clip.projectId]?.title, Timecode.format(clip.duration)).joinToString(" · "), style = MaterialTheme.typography.bodySmall, color = c.textMuted, maxLines = 2)
+                    Text(Timecode.format(clip.duration), style = MaterialTheme.typography.bodySmall, color = c.textMuted)
                 }
             }
             Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -138,16 +139,20 @@ fun ScheduleEditScreen(container: AppContainer, scheduleId: Long, clipId: Long, 
                     Row(
                         Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)).background(if (on) c.accentSoft else c.card).border(1.dp, if (on) c.accent else c.line, RoundedCornerShape(14.dp))
                             .clickable(role = Role.Checkbox) { accounts = if (on) accounts - account.id else accounts + account.id }
-                            .padding(horizontal = 14.dp, vertical = 12.dp),
+                            .padding(horizontal = 10.dp, vertical = 8.dp),
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(10.dp),
                     ) {
-                        AccountDot(account.color, 12.dp)
+                        // Ikon platform di kotak warna akun (sama dengan halaman Akun sosmed).
+                        val color = runCatching { androidx.compose.ui.graphics.Color(android.graphics.Color.parseColor(account.color)) }.getOrDefault(c.textMuted)
+                        Box(Modifier.size(36.dp).clip(RoundedCornerShape(10.dp)).background(color), contentAlignment = Alignment.Center) {
+                            Icon(platformIcon(account.platform), contentDescription = null, tint = androidx.compose.ui.graphics.Color.White, modifier = Modifier.size(18.dp))
+                        }
                         Column(Modifier.weight(1f)) {
                             Text(account.name, style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.SemiBold), color = c.text)
                             Text(listOfNotNull(Platforms.label(account.platform), account.handle).joinToString(" · "), style = MaterialTheme.typography.bodySmall, color = c.textMuted)
                         }
-                        if (on) Icon(ClipMiIcons.Check, contentDescription = null, tint = c.accent, modifier = Modifier.size(18.dp))
+                        Icon(if (on) ClipMiIcons.CircleCheck else ClipMiIcons.Plus, contentDescription = null, tint = if (on) c.accent else c.textMuted, modifier = Modifier.size(22.dp))
                     }
                 }
                 if (tried && accounts.isEmpty()) Text("Pilih minimal satu akun tujuan.", style = MaterialTheme.typography.bodySmall, color = c.bad)
@@ -155,18 +160,17 @@ fun ScheduleEditScreen(container: AppContainer, scheduleId: Long, clipId: Long, 
             Field(caption, { caption = it.take(10_000) }, label = "Caption", minLines = 4, maxLines = 10)
             Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                 Field(hashtags, { hashtags = it }, label = "Hashtag", placeholder = "#kajian #sabar")
-                // Melewati batas hanya ditandai; tetap boleh disimpan (sama dengan desktop).
-                counters.forEach { counter ->
-                    FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Text(counter.platform, style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.Bold), color = c.textBody)
-                        counter.counts.forEach { count ->
-                            Text(
-                                "${count.label} ${count.value}/${count.limit}",
-                                style = MaterialTheme.typography.bodySmall.copy(fontWeight = if (count.over) FontWeight.Bold else FontWeight.Normal),
-                                color = if (count.over) c.bad else c.textMuted,
-                            )
-                        }
+                // Batas per platform: satu baris redup; yang melewati batas diberi warna (tetap boleh disimpan).
+                val over = counters.flatMap { counter -> counter.counts.filter { it.over }.map { counter.platform to it } }
+                if (over.isNotEmpty()) {
+                    over.forEach { (platform, count) ->
+                        Text("$platform: ${count.label} ${count.value}/${count.limit}, melewati batas", style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.SemiBold), color = c.bad)
                     }
+                } else if (counters.isNotEmpty()) {
+                    Text(
+                        counters.joinToString(" · ") { counter -> counter.platform + " " + counter.counts.joinToString(", ") { "${it.value}/${it.limit}" } },
+                        style = MaterialTheme.typography.bodySmall, color = c.textMuted, maxLines = 2, overflow = TextOverflow.Ellipsis,
+                    )
                 }
             }
             Field(note, { note = it.take(2000) }, label = "Catatan", placeholder = "Misalnya: pakai musik latar, tag akun pembicara", minLines = 2, maxLines = 5)
@@ -177,9 +181,9 @@ fun ScheduleEditScreen(container: AppContainer, scheduleId: Long, clipId: Long, 
             horizontalArrangement = Arrangement.spacedBy(10.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            if (scheduleId != 0L) GhostButton("Hapus jadwal", { confirmDelete = true }, danger = true)
-            Box(Modifier.weight(1f))
-            PrimaryButton(if (scheduleId == 0L) "Jadwalkan" else "Simpan", icon = ClipMiIcons.Calendar, onClick = {
+            if (scheduleId != 0L) IconCircle(ClipMiIcons.Trash, "Hapus jadwal", { confirmDelete = true }, size = 48.dp, tint = c.bad)
+            // Tombol utama selebar sisa baris di bawah form (bukan pil melayang yang menutupi isian).
+            PrimaryButton(if (scheduleId == 0L) "Jadwalkan" else "Simpan", modifier = Modifier.weight(1f), icon = ClipMiIcons.Calendar, onClick = {
                 tried = true
                 if (accounts.isEmpty()) return@PrimaryButton
                 val (h, m) = Slots.parseTime(time) ?: return@PrimaryButton

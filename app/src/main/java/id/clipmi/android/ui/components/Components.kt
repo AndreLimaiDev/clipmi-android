@@ -284,19 +284,19 @@ fun <T> OptionList(title: String?, options: List<T>, selected: T, label: (T) -> 
                 Modifier
                     .fillMaxWidth()
                     .clickable(role = Role.RadioButton) { onSelect(option) }
-                    .heightIn(min = 52.dp)
-                    .padding(horizontal = 16.dp, vertical = 10.dp),
+                    .heightIn(min = 44.dp)
+                    .padding(horizontal = 16.dp, vertical = 6.dp),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(12.dp),
             ) {
                 Text(
                     label(option),
-                    style = MaterialTheme.typography.bodyLarge.copy(fontWeight = if (active) FontWeight.Bold else FontWeight.Medium),
+                    style = MaterialTheme.typography.bodyMedium.copy(fontWeight = if (active) FontWeight.Bold else FontWeight.Medium),
                     color = if (active) c.text else c.textBody,
                     modifier = Modifier.weight(1f),
                 )
                 Box(
-                    Modifier.size(22.dp).clip(CircleShape).background(if (active) c.accent else Color.Transparent)
+                    Modifier.size(20.dp).clip(CircleShape).background(if (active) c.accent else Color.Transparent)
                         .then(if (active) Modifier else Modifier.border(2.dp, c.lineStrong, CircleShape)),
                     contentAlignment = Alignment.Center,
                 ) {

@@ -1,5 +1,11 @@
 package id.clipmi.android.ui.screens
 
+import androidx.compose.foundation.layout.widthIn
+import id.clipmi.android.ui.components.IconCircle
+import androidx.compose.foundation.layout.size
+import androidx.compose.material3.Icon
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.DropdownMenu
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -62,47 +68,49 @@ fun CorrectionsScreen(container: AppContainer, onBack: () -> Unit) {
     Box(Modifier.fillMaxSize()) {
         Column(Modifier.fillMaxSize()) {
             SubScreenHeader("Kamus koreksi", onBack) {
-                if (!entries.isNullOrEmpty()) {
-                    GhostButton("Terapkan ulang", onClick = {
-                        scope.launch {
-                            val (projects, total) = container.transcripts.applyCorrectionsToAll()
-                            notifier.show(if (total > 0) "$total kata dikoreksi di $projects project." else "Semua transkrip sudah sesuai kamus.")
+                Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                    if (!entries.isNullOrEmpty()) {
+                        Box {
+                            var menu by remember { mutableStateOf(false) }
+                            IconCircle(ClipMiIcons.More, "Lainnya", { menu = true }, background = androidx.compose.ui.graphics.Color.Transparent, border = false)
+                            DropdownMenu(menu, onDismissRequest = { menu = false }, containerColor = c.card) {
+                                DropdownMenuItem(text = { Text("Terapkan ke semua transkrip") }, leadingIcon = { Icon(ClipMiIcons.Refresh, null, Modifier.size(18.dp)) }, onClick = {
+                                    menu = false
+                                    scope.launch {
+                                        val (projects, total) = container.transcripts.applyCorrectionsToAll()
+                                        notifier.show(if (total > 0) "$total kata dikoreksi di $projects project." else "Semua transkrip sudah sesuai kamus.")
+                                    }
+                                })
+                            }
                         }
-                    })
+                    }
+                    IconCircle(ClipMiIcons.Plus, "Tambah kata", { adding = true })
                 }
             }
             val list = entries ?: return@Column
             if (list.isEmpty()) {
                 EmptyState(
                     "Kamus masih kosong",
-                    "Tambahkan kata yang sering salah di subtitle otomatis, misalnya istilah agama dan nama tokoh. Kamus diterapkan otomatis pada transkrip baru.",
+                    "Contoh: allah → Allah. Diterapkan otomatis pada transkrip baru.",
                     icon = ClipMiIcons.Book,
                 )
                 return@Column
             }
-            LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(start = ScreenGutter, end = ScreenGutter, top = 8.dp, bottom = 120.dp)) {
-                item {
-                    Text(
-                        "Cocok per kata utuh, tanpa membedakan huruf besar/kecil. Ketuk untuk mengubah.",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = c.textMuted,
-                        modifier = Modifier.padding(start = 4.dp, bottom = 10.dp),
-                    )
-                }
+            LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(start = ScreenGutter, end = ScreenGutter, top = 8.dp, bottom = 48.dp)) {
                 itemsIndexed(list, key = { _, it -> it.id }) { i, entry ->
                     val top = if (i == 0) 24.dp else 0.dp
                     val bottom = if (i == list.lastIndex) 24.dp else 0.dp
                     val shape = RoundedCornerShape(top, top, bottom, bottom)
                     Column(Modifier.clip(shape).background(c.card)) {
                         Row(
-                            Modifier.fillMaxWidth().clickable { editing = entry }.heightIn(min = 64.dp).padding(horizontal = 16.dp, vertical = 10.dp),
+                            Modifier.fillMaxWidth().clickable { editing = entry }.heightIn(min = 56.dp).padding(horizontal = 16.dp, vertical = 8.dp),
                             verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(12.dp),
+                            horizontalArrangement = Arrangement.spacedBy(10.dp),
                         ) {
-                            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                                Text(entry.wrongText, style = MaterialTheme.typography.bodySmall, color = c.textMuted)
-                                Text("→ ${entry.correctText}", style = MaterialTheme.typography.titleMedium, color = if (entry.isActive) c.text else c.textMuted)
-                            }
+                            // Satu baris: kata salah → kata benar.
+                            Text(entry.wrongText, style = MaterialTheme.typography.bodyMedium, color = c.textMuted, maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis, modifier = Modifier.widthIn(max = 140.dp))
+                            Icon(ClipMiIcons.Chevron, null, tint = c.textMuted, modifier = Modifier.size(14.dp))
+                            Text(entry.correctText, style = MaterialTheme.typography.bodyMedium.copy(fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold), color = if (entry.isActive) c.text else c.textMuted, maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
                             ClipMiSwitch(entry.isActive, onCheckedChange = { active ->
                                 scope.launch { container.database.corrections().update(entry.copy(isActive = active, updatedAt = System.currentTimeMillis())) }
                             })
@@ -112,10 +120,6 @@ fun CorrectionsScreen(container: AppContainer, onBack: () -> Unit) {
                 }
             }
         }
-        FloatingPill(
-            "Tambah", ClipMiIcons.Plus, onClick = { adding = true },
-            modifier = Modifier.align(Alignment.BottomEnd).navigationBarsPadding().padding(end = ScreenGutter, bottom = 24.dp),
-        )
     }
 
     if (adding || editing != null) {

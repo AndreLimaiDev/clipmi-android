@@ -1,5 +1,6 @@
 package id.clipmi.android.ui.styles
 
+import id.clipmi.android.ui.components.ActionChip
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -186,7 +187,7 @@ fun CaptionStyleEditScreen(container: AppContainer, id: Long, copyOf: Long, onBa
 
     Column(Modifier.fillMaxSize().background(ClipMi.colors.bg).statusBarsPadding()) {
         SubScreenHeader(if (id == 0L) "Gaya subtitle baru" else "Ubah gaya subtitle", leave) {
-            PrimaryButton("Simpan", onClick = { save() }, enabled = dirty || style.id == 0L, height = 40.dp)
+            ActionChip("Simpan", { save() }, height = 40.dp, enabled = dirty || style.id == 0L, primary = true)
         }
         // Pratinjau tetap di atas; hanya isian di bawahnya yang bergulir.
         StickyPreview(expandedWidth = 190.dp, compactWidth = 112.dp) { width ->
@@ -248,8 +249,9 @@ suspend fun freeName(name: String, taken: suspend (String) -> Boolean): String {
 /** Isian gaya subtitle (dipakai halaman Gaya subtitle dan sheet edit gaya di editor). */
 @Composable
 fun CaptionStyleFields(style: CaptionStyleEntity, update: ((CaptionStyleEntity) -> CaptionStyleEntity) -> Unit) {
+    val fontsDir = id.clipmi.android.nativebridge.AssRenderer.installFonts(androidx.compose.ui.platform.LocalContext.current)
     FieldGroup("Huruf") {
-        ChoiceRow("Font", Fonts.AVAILABLE.mapValues { it.value.label }, style.fontFamily) { v -> update { it.copy(fontFamily = v) } }
+        FontChoiceRow("Font", fontsDir, style.fontFamily) { v -> update { it.copy(fontFamily = v) } }
         IntSlider("Ukuran", style.fontSize, 40..140, { v -> update { it.copy(fontSize = v) } })
         ToggleField("Huruf kapital semua", null, style.uppercase) { v -> update { it.copy(uppercase = v) } }
         ColorField("Warna teks", style.primaryColor) { v -> update { it.copy(primaryColor = v) } }

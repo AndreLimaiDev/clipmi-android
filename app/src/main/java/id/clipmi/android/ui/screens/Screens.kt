@@ -223,11 +223,11 @@ fun TranscriptionSettingsScreen(container: AppContainer, onBack: () -> Unit) {
     Column(Modifier.fillMaxSize()) {
         SubScreenHeader("Transkripsi API", onBack)
         Column(
-            Modifier.weight(1f).verticalScroll(rememberScrollState()).imePadding().navigationBarsPadding().padding(start = ScreenGutter, end = ScreenGutter, top = 8.dp, bottom = 32.dp),
+            Modifier.weight(1f).verticalScroll(rememberScrollState()).imePadding().padding(start = ScreenGutter, end = ScreenGutter, top = 8.dp, bottom = 24.dp),
             verticalArrangement = Arrangement.spacedBy(18.dp),
         ) {
             Text(
-                "Untuk video tanpa subtitle Indonesia. Audio dikirim per 20 menit ke penyedia (Groq Whisper paling murah, ada paket gratis).",
+                "Untuk video tanpa subtitle Indonesia · Groq paling murah",
                 style = MaterialTheme.typography.bodyMedium,
                 color = ClipMi.colors.textMuted,
             )
@@ -238,29 +238,20 @@ fun TranscriptionSettingsScreen(container: AppContainer, onBack: () -> Unit) {
                 label = { it.label },
                 onSelect = { provider = it; hasKey = container.settings.hasKey(it) },
             )
-            Field(baseUrl, { baseUrl = it }, label = "Alamat API", placeholder = provider.baseUrl ?: "https://…/v1", singleLine = true, supporting = "Kosongkan untuk alamat bawaan penyedia.")
+            Field(baseUrl, { baseUrl = it }, label = "Alamat API", placeholder = provider.baseUrl ?: "https://…/v1", singleLine = true, supporting = "Kosong = alamat bawaan")
             Field(model, { model = it }, label = "Model", placeholder = provider.defaultModel ?: "nama model Whisper", singleLine = true)
             Field(
                 apiKey, { apiKey = it },
                 label = "API key",
                 placeholder = if (hasKey) "Tersimpan (isi untuk mengganti)" else provider.keyPlaceholder,
-                supporting = "Disimpan terenkripsi di Android Keystore; tidak ikut cadangan.",
+                supporting = "Terenkripsi di HP · tidak ikut cadangan",
                 singleLine = true,
                 visualTransformation = PasswordVisualTransformation(),
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
             )
             ClipMiCard(padding = androidx.compose.foundation.layout.PaddingValues(0.dp), spacing = 0.dp) {
-                SwitchRow("Transkripsi otomatis", "Untuk video tanpa subtitle, langsung setelah video selesai diunduh.", auto, onCheckedChange = { auto = it })
+                SwitchRow("Transkripsi otomatis", "Setelah video tanpa subtitle selesai diunduh", auto, onCheckedChange = { auto = it })
             }
-            PrimaryButton("Simpan", modifier = Modifier.fillMaxWidth(), onClick = {
-                scope.launch {
-                    container.settings.saveTranscription(provider, baseUrl, model, apiKey)
-                    container.settings.setAutoTranscribe(auto)
-                    apiKey = ""
-                    hasKey = container.settings.hasKey(provider)
-                    notifier.show(if (container.settings.transcription() != null) "Tersimpan. Transkripsi API siap dipakai." else "Tersimpan, tetapi belum lengkap (alamat, model, atau API key).")
-                }
-            })
             if (hasKey) {
                 GhostButton("Hapus API key ${provider.label}", danger = true, modifier = Modifier.fillMaxWidth(), onClick = {
                     container.settings.removeKey(provider)
@@ -269,6 +260,18 @@ fun TranscriptionSettingsScreen(container: AppContainer, onBack: () -> Unit) {
                 })
             }
             Spacer(Modifier.height(8.dp))
+        }
+        // Simpan tetap di bawah layar.
+        Box(Modifier.fillMaxWidth().navigationBarsPadding().padding(horizontal = ScreenGutter, vertical = 12.dp)) {
+        PrimaryButton("Simpan", modifier = Modifier.fillMaxWidth(), onClick = {
+            scope.launch {
+                container.settings.saveTranscription(provider, baseUrl, model, apiKey)
+                container.settings.setAutoTranscribe(auto)
+                apiKey = ""
+                hasKey = container.settings.hasKey(provider)
+                notifier.show(if (container.settings.transcription() != null) "Tersimpan. Transkripsi API siap dipakai." else "Tersimpan, tetapi belum lengkap (alamat, model, atau API key).")
+            }
+        })
         }
     }
 }

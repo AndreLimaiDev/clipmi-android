@@ -45,6 +45,8 @@ object ClipMiIcons {
     val YouTube by lazy { stroke("M4 7a3 3 0 0 1 3-3h10a3 3 0 0 1 3 3v10a3 3 0 0 1-3 3H7a3 3 0 0 1-3-3z", "M10 9l5 3-5 3z") }
     val Facebook by lazy { stroke("M15 3h-2.5A3.5 3.5 0 0 0 9 6.5V21", "M6 11h8") }
     val Globe by lazy { stroke(circle(12f, 12f, 9f), "M3 12h18M12 3a14 14 0 0 1 0 18M12 3a14 14 0 0 0 0 18") }
+    val Expand by lazy { stroke("M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7") }
+    val Collapse by lazy { stroke("M4 14h6v6M20 10h-6V4M14 10l7-7M3 21l7-7") }
     val Eye by lazy { stroke("M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z", "M15 12a3 3 0 1 1-6 0 3 3 0 0 1 6 0z") }
     val Magnet by lazy { stroke("M6 15V9a6 6 0 0 1 12 0v6", "M6 15a6 6 0 0 0 12 0", "M6 11h4M14 11h4") }
     val Link by lazy { stroke("M10 14a5 5 0 0 0 7 0l3-3a5 5 0 0 0-7-7l-1 1", "M14 10a5 5 0 0 0-7 0l-3 3a5 5 0 0 0 7 7l1-1") }

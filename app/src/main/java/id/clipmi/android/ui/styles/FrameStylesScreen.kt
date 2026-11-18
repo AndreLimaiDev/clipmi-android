@@ -1,5 +1,6 @@
 package id.clipmi.android.ui.styles
 
+import id.clipmi.android.ui.components.ActionChip
 import kotlin.math.roundToInt
 import androidx.compose.foundation.layout.offset
 import androidx.compose.ui.input.pointer.pointerInput
@@ -247,7 +248,7 @@ fun FrameStyleEditScreen(container: AppContainer, id: Long, copyOf: Long, onBack
 
     Column(Modifier.fillMaxSize().background(ClipMi.colors.bg).statusBarsPadding()) {
         SubScreenHeader(if (id == 0L) "Gaya bingkai baru" else "Ubah gaya bingkai", leave) {
-            PrimaryButton("Simpan", onClick = { save() }, enabled = (dirty || style.id == 0L) && busy == null, height = 40.dp)
+            ActionChip("Simpan", { save() }, height = 40.dp, enabled = (dirty || style.id == 0L) && busy == null, primary = true)
         }
         // Pratinjau tetap di atas; hanya isian di bawahnya yang bergulir.
         StickyPreview(expandedWidth = if (core.canvasWidth() > core.canvasHeight()) 300.dp else 190.dp, compactWidth = if (core.canvasWidth() > core.canvasHeight()) 200.dp else 112.dp) { width ->

@@ -225,6 +225,7 @@ fun ClipMiNavigation(container: AppContainer, shared: SharedResult?, onSharedHan
                         onOpenProject = { nav.navigate(ProjectDetailRoute(it)) },
                         onOpenEditor = { nav.navigate(EditorRoute(it)) },
                         onSchedule = { nav.navigate(ScheduleEditRoute(clipId = it)) },
+                        onOpenSchedule = { nav.navigate(ReadyRoute(it)) },
                     )
                 }
             }

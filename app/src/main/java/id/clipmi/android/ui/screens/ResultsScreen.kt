@@ -93,10 +93,19 @@ private enum class ResultFilter(val label: String) { All("Semua"), Ready("Siap u
  * status) dengan Jadwalkan, Bagikan, dan menu ⋯; filter per status bila ada isinya.
  */
 @Composable
-fun ResultsScreen(container: AppContainer, onBack: () -> Unit, onOpenProject: (Long) -> Unit, onOpenEditor: (Long) -> Unit, onSchedule: (Long) -> Unit = {}) {
+fun ResultsScreen(
+    container: AppContainer,
+    onBack: () -> Unit,
+    onOpenProject: (Long) -> Unit,
+    onOpenEditor: (Long) -> Unit,
+    onSchedule: (Long) -> Unit = {},
+    onOpenSchedule: (Long) -> Unit = {},
+) {
     val clips by container.database.clips().observeRendered().collectAsState(initial = null)
     val schedule by id.clipmi.android.ui.schedule.rememberScheduleData(container)
     val scheduled = schedule?.scheduledClipIds.orEmpty()
+    // Klip yang sudah dijadwalkan: "Lihat jadwal" membuka jadwal terdekatnya (Siap unggah), bukan form baru.
+    val scheduleOf = schedule?.schedules.orEmpty().sortedBy { it.at }.groupBy { it.clip.id }.mapValues { it.value.first().id }
     val context = LocalContext.current
     val c = ClipMi.colors
     val installed = remember {
@@ -142,7 +151,7 @@ fun ResultsScreen(container: AppContainer, onBack: () -> Unit, onOpenProject: (L
                 }
             }
             items(shown, key = { it.id }) { clip ->
-                ResultCard(container, clip, installed, clip.id in scheduled, onOpenProject, onOpenEditor, onSchedule)
+                ResultCard(container, clip, installed, clip.id in scheduled, onOpenProject, onOpenEditor) { id -> scheduleOf[id]?.let(onOpenSchedule) ?: onSchedule(id) }
             }
         }
     }

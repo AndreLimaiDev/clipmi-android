@@ -272,3 +272,24 @@ potongan kamera; (2) potongan kamera dicari di 15 gambar/detik sehingga titik pi
   (FileProvider kini juga membagikan `workspace/bumpers/` saja), Hapus di menu ⋯. **Gaya klip**: "+ Gaya baru"
   juga pindah ke ikon + di kanan atas.
 - Dicek di HP: keempat halaman dan Gaya klip. Belum dicoba: memutar intro dari kartu, menu ⋯ hasil render.
+- Perbaikan: "Lihat jadwal" di Hasil render kini membuka jadwal terdekat klip itu (Siap unggah), bukan form jadwal
+  baru. Dicek di HP (klip "Jin Bisa Menyamar…").
+- Catatan uji: saat audit, satu ketukan mengenai "Render ulang" klip 55 (Amalan Rahasia) yang berstatus Hasil lama
+  karena uji simpan otomatis hook; render ulang berjalan (isi klip sama), sempat terputus oleh pemasangan APK lalu
+  dilanjutkan WorkManager.
+
+## Tahap 12: halaman sisa
+
+- **Jadwalkan / Ubah jadwal**: judul project di bawah judul klip diganti durasi; akun tujuan dengan ikon platform,
+  lebih rendah, centang lingkaran di kanan; batas karakter per platform satu baris redup (merah hanya bila lewat
+  batas); tombol Jadwalkan/Simpan selebar layar di bawah, Hapus jadwal jadi ikon tempat sampah.
+- **Edit gaya subtitle/bingkai**: pratinjau kecil secara bawaan dengan ikon perbesar/perkecil; pilihan font sebagai
+  kartu "Aa" dengan huruf aslinya; semua pilihan (`ChoiceRow`: efek, posisi, animasi, dll.) satu baris yang digeser
+  ke samping; Simpan tombol kotak.
+- **Kamus koreksi**: satu baris "allah › Allah" dengan sakelar; Terapkan ke semua di menu ⋯; tambah lewat ikon +;
+  petunjuk dipindah ke kartu kosong (contoh).
+- **Pemakaian AI**: ringkasan total token besar dengan perkiraan biaya; daftar per tanggal, tiap pemakaian satu baris
+  berikon (analisis/transkripsi) dengan token ringkas ("12,8 rb token").
+- **Analisis AI / Transkripsi API**: pembuka dan keterangan dipendekkan; daftar penyedia lebih rendah; Simpan (dan Uji
+  koneksi) tetap di bawah layar.
+- Dicek di HP: semua halaman di atas (form jadwal dibuka tanpa disimpan).
