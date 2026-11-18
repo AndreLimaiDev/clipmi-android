@@ -1,5 +1,8 @@
 package id.clipmi.android.ui.screens
 
+import androidx.compose.ui.Alignment
+import androidx.compose.foundation.layout.Row
+import id.clipmi.core.schedule.IdDate
 import androidx.compose.foundation.layout.size
 import androidx.compose.material3.Icon
 import kotlinx.coroutines.withContext
@@ -95,7 +98,9 @@ fun SettingsScreen(
     var hasYoutubeKey by remember { mutableStateOf(container.settings.hasYoutubeKey()) }
     var editingYoutubeKey by remember { mutableStateOf(false) }
     var checkingUpdate by remember { mutableStateOf(false) }
-    if (checkingUpdate) UpdateSheet(onDone = { checkingUpdate = false })
+    if (checkingUpdate) UpdateSheet(container, onDone = { checkingUpdate = false })
+    val newer by container.updates.latest.collectAsState(initial = null)
+    val checkedAt by container.updates.checkedAt.collectAsState(initial = null)
     if (editingYoutubeKey) YoutubeKeySheet(container, hasYoutubeKey, onDone = { editingYoutubeKey = false; hasYoutubeKey = container.settings.hasYoutubeKey() })
 
     Column(
@@ -177,7 +182,13 @@ fun SettingsScreen(
             // Pembaruan dalam aplikasi hanya tampil di build yang punya repo rilis; alat uji hanya di build debug.
             if (BuildConfig.UPDATE_REPO.isNotBlank()) {
                 GroupDivider()
-                SettingsRow("Pembaruan aplikasi", "Periksa rilis baru", onClick = { checkingUpdate = true })
+                SettingsRow(
+                    "Pembaruan aplikasi",
+                    newer?.let { "Versi ${it.version} tersedia" }
+                        ?: ("Versi ${BuildConfig.VERSION_NAME}" + (checkedAt?.toLongOrNull()?.let { " · dicek ${IdDate.dayMonthTime(id.clipmi.android.domain.Wall.of(it))}" } ?: "")),
+                    onClick = { checkingUpdate = true },
+                    trailing = if (newer != null) ({ StatusBadge("Baru", Tone.Good) }) else ({ id.clipmi.android.ui.components.ChevronIcon() }),
+                )
             }
             if (BuildConfig.DEBUG) {
                 GroupDivider()
@@ -325,46 +336,84 @@ private fun YoutubeKeySheet(container: AppContainer, hasKey: Boolean, onDone: ()
  * Izin "Pasang aplikasi tidak dikenal" dinyalakan pengguna sendiri di halaman sistem yang dibuka.
  */
 @Composable
-private fun UpdateSheet(onDone: () -> Unit) {
+internal fun UpdateSheet(container: AppContainer, onDone: () -> Unit) {
     val context = androidx.compose.ui.platform.LocalContext.current
     val updater = remember { id.clipmi.android.domain.AppUpdater(context) }
     val scope = rememberCoroutineScope()
-    var state by remember { mutableStateOf<String?>("Memeriksa rilis terbaru…") }
+    val c = ClipMi.colors
+    var checking by remember { mutableStateOf(true) }
     var release by remember { mutableStateOf<id.clipmi.android.domain.AppUpdater.Release?>(null) }
-    var progress by remember { mutableStateOf<Int?>(null) }
-    var apk by remember { mutableStateOf<java.io.File?>(null) }
     var error by remember { mutableStateOf<String?>(null) }
+    var canInstall by remember { mutableStateOf(updater.canInstall()) }
+    // Unduhan berjalan di latar (WorkManager); progres dan hasilnya dibaca dari sini.
+    val work by remember { androidx.work.WorkManager.getInstance(context).getWorkInfosForUniqueWorkFlow(id.clipmi.android.work.UpdateQueue.DOWNLOAD) }
+        .collectAsState(initial = emptyList())
+    val info = work.lastOrNull()
+    val running = info?.state == androidx.work.WorkInfo.State.RUNNING || info?.state == androidx.work.WorkInfo.State.ENQUEUED
+    val progress = info?.progress?.getInt(id.clipmi.android.work.UpdateQueue.KEY_PROGRESS, -1)?.takeIf { it >= 0 }
+    val failed = info?.takeIf { it.state == androidx.work.WorkInfo.State.FAILED }?.outputData?.getString(id.clipmi.android.work.UpdateQueue.KEY_ERROR)
     LaunchedEffect(Unit) {
         runCatching { updater.check() }
-            .onSuccess { release = it; state = if (it == null) "ClipMI ${updater.currentVersion} sudah versi terbaru." else null }
-            .onFailure { error = it.message; state = null }
+            .onSuccess { release = it; container.updates.saveCheck(it) }
+            .onFailure { error = it.message }
+        checking = false
+    }
+    // Kembali dari halaman izin sistem: periksa ulang izinnya.
+    androidx.lifecycle.compose.LifecycleResumeEffect(Unit) {
+        canInstall = updater.canInstall()
+        onPauseOrDispose { }
     }
     id.clipmi.android.ui.components.ClipMiSheet(onDone, title = "Pembaruan aplikasi", subtitle = "Terpasang: versi ${updater.currentVersion}") {
-        state?.let { Text(it, style = MaterialTheme.typography.bodyMedium, color = ClipMi.colors.text) }
-        error?.let { Text(it, style = MaterialTheme.typography.bodyMedium, color = ClipMi.colors.bad) }
-        release?.let { r ->
-            Text("Versi ${r.version} tersedia" + (r.size?.let { " (${id.clipmi.android.ui.components.formatBytes(it)})" } ?: ""), style = MaterialTheme.typography.titleMedium, color = ClipMi.colors.text)
-            if (r.notes.isNotBlank()) Text(r.notes.take(1200), style = MaterialTheme.typography.bodySmall, color = ClipMi.colors.textMuted)
-            progress?.let { id.clipmi.android.ui.components.ProgressBar(it / 100f) }
-            val file = apk
-            when {
-                file != null && !updater.canInstall() -> {
-                    Text("Izinkan ClipMI memasang aplikasi (\"Pasang aplikasi tidak dikenal\") di halaman sistem, lalu kembali dan ketuk Pasang.", style = MaterialTheme.typography.bodySmall, color = ClipMi.colors.warn)
-                    SecondaryButton("Buka izin pemasangan", onClick = { context.startActivity(updater.permissionIntent()) })
-                    PrimaryButton("Pasang", onClick = { if (updater.canInstall()) context.startActivity(updater.installIntent(file)) }, modifier = Modifier.fillMaxWidth())
-                }
-                file != null -> PrimaryButton("Pasang versi ${r.version}", onClick = { context.startActivity(updater.installIntent(file)) }, modifier = Modifier.fillMaxWidth())
-                else -> PrimaryButton(if (progress != null) "Mengunduh…" else "Unduh pembaruan", enabled = progress == null, modifier = Modifier.fillMaxWidth(), onClick = {
-                    progress = 0
-                    error = null
-                    scope.launch {
-                        runCatching { updater.download(r) { p -> progress = p } }
-                            .onSuccess { apk = it }
-                            .onFailure { error = it.message }
-                        progress = null
-                    }
-                })
+        when {
+            checking -> Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                androidx.compose.material3.CircularProgressIndicator(Modifier.size(18.dp), color = c.accent, strokeWidth = 2.dp)
+                Text("Memeriksa rilis terbaru…", style = MaterialTheme.typography.bodyMedium, color = c.text)
+            }
+            error != null -> Text(error.orEmpty(), style = MaterialTheme.typography.bodyMedium, color = c.bad)
+            release == null -> Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                Icon(ClipMiIcons.CircleCheck, null, tint = c.accent, modifier = Modifier.size(22.dp))
+                Text("Sudah versi terbaru.", style = MaterialTheme.typography.bodyMedium, color = c.text)
             }
         }
+        release?.let { r ->
+            val apk = if (running) null else updater.downloaded(r.version)
+            Text("Versi ${r.version}" + (r.size?.let { " · ${id.clipmi.android.ui.components.formatBytes(it)}" } ?: ""), style = MaterialTheme.typography.titleMedium, color = c.text)
+            ReleaseNotes(r.notes)
+            failed?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = c.bad) }
+            when {
+                running -> Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Text(progress?.let { "Mengunduh $it%" } ?: "Menyiapkan unduhan…", style = MaterialTheme.typography.bodySmall, color = c.textMuted)
+                    id.clipmi.android.ui.components.ProgressBar(progress?.let { it / 100f })
+                }
+                apk != null && !canInstall -> {
+                    Text("Izinkan ClipMI memasang aplikasi di halaman sistem, lalu kembali ke sini.", style = MaterialTheme.typography.bodySmall, color = c.warn)
+                    PrimaryButton("Buka izin pemasangan", onClick = { context.startActivity(updater.permissionIntent()) }, modifier = Modifier.fillMaxWidth())
+                }
+                apk != null -> PrimaryButton("Pasang versi ${r.version}", onClick = { context.startActivity(updater.installIntent(apk)) }, modifier = Modifier.fillMaxWidth())
+                else -> Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    id.clipmi.android.ui.components.ActionChip("Nanti", {
+                        scope.launch { container.updates.dismiss(r.version) }
+                        onDone()
+                    }, Modifier.weight(1f), height = 48.dp)
+                    PrimaryButton("Unduh", onClick = { id.clipmi.android.work.UpdateQueue.download(context, r) }, icon = ClipMiIcons.Download, modifier = Modifier.weight(1.4f))
+                }
+            }
+        }
+    }
+}
+
+/** Catatan rilis tanpa baris SHA-256 (hanya untuk pemeriksaan berkas). */
+@Composable
+private fun ReleaseNotes(notes: String) {
+    val clean = notes.lines().filterNot { Regex("\b[0-9a-fA-F]{64}\b").containsMatchIn(it) }.joinToString("\n").trim()
+    if (clean.isNotBlank()) Text(clean.take(1500), style = MaterialTheme.typography.bodySmall, color = ClipMi.colors.textBody)
+}
+
+/** Catatan "yang baru" sekali setelah aplikasi diperbarui. */
+@Composable
+internal fun WhatsNewSheet(release: id.clipmi.android.domain.AppUpdater.Release, onDone: () -> Unit) {
+    id.clipmi.android.ui.components.ClipMiSheet(onDone, title = "Yang baru di ${release.version}") {
+        ReleaseNotes(release.notes)
+        PrimaryButton("Oke", onClick = onDone, modifier = Modifier.fillMaxWidth())
     }
 }

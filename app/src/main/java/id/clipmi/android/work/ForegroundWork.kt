@@ -19,6 +19,7 @@ enum class WorkQueue(val uniqueName: String, val notificationId: Int) {
     DOWNLOAD("queue-download", 1001),
     AI("queue-ai", 1002),
     RENDER("queue-render", 1003),
+    UPDATE("update-download", 1004),
     LAB("queue-lab", 1009);
 
     /** Tipe foreground service: render memakai mediaProcessing (Android 15+), sisanya dataSync. */

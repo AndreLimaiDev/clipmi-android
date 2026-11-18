@@ -30,8 +30,8 @@ android {
         applicationId = "id.clipmi.android"
         minSdk = 29
         targetSdk = 37
-        versionCode = 1
-        versionName = "0.0.1"
+        versionCode = providers.gradleProperty("clipmi.versionCode").getOrElse("1").toInt()
+        versionName = providers.gradleProperty("clipmi.versionName").getOrElse("0.0.1")
         ndk { abiFilters += listOf("arm64-v8a") }
         buildConfigField("String", "UPDATE_REPO", "\"$updateRepo\"")
 

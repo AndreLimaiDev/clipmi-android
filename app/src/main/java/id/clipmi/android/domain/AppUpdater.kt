@@ -31,6 +31,7 @@ class UpdateException(message: String) : Exception(message)
  * SHA-256 bila tertulis di catatan rilis), lalu pemasangan diminta ke sistem. Pengguna tetap mengetuk "Pasang".
  */
 class AppUpdater(private val context: Context) {
+    @kotlinx.serialization.Serializable
     data class Release(val version: String, val notes: String, val apkUrl: String, val apkName: String, val size: Long?, val sha256: String?)
 
     val repo: String get() = BuildConfig.UPDATE_REPO
@@ -69,10 +70,14 @@ class AppUpdater(private val context: Context) {
         )
     }
 
+    /** APK rilis [version] yang sudah diunduh dan lolos pemeriksaan (sisa unduhan sebelumnya), atau null. */
+    fun downloaded(version: String): File? = File(context.cacheDir, "update/ClipMI-$version.apk").takeIf { it.isFile && it.length() > 0 }
+
     /** Mengunduh dan memeriksa APK rilis; [progress] 0–100 (null bila ukuran tidak diketahui). */
     suspend fun download(release: Release, progress: (Int?) -> Unit): File = withContext(Dispatchers.IO) {
         val dir = File(context.cacheDir, "update").apply { deleteRecursively(); mkdirs() }
-        val file = File(dir, "ClipMI-${release.version}.apk")
+        // Ditulis ke .part dulu: berkas akhir hanya ada bila unduhan lengkap dan lolos pemeriksaan.
+        val file = File(dir, "ClipMI-${release.version}.apk.part")
         val request = Request.Builder().url(release.apkUrl).header("User-Agent", "ClipMI-Android").build()
         val digest = MessageDigest.getInstance("SHA-256")
         try {
@@ -104,7 +109,7 @@ class AppUpdater(private val context: Context) {
             throw UpdateException("File APK tidak cocok dengan SHA-256 di catatan rilis. Jangan dipasang; hubungi koordinator tim.")
         }
         verify(file)
-        file
+        File(dir, "ClipMI-${release.version}.apk").also { file.renameTo(it) }
     }
 
     /** APK harus ClipMI, versinya lebih baru, dan ditandatangani kunci yang sama dengan aplikasi terpasang. */

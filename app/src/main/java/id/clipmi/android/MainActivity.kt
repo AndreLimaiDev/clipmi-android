@@ -22,6 +22,7 @@ import kotlinx.coroutines.launch
 class MainActivity : ComponentActivity() {
     companion object {
         const val EXTRA_OPEN_SCHEDULE = "open_schedule"
+        const val EXTRA_OPEN_UPDATE = "open_update"
     }
 
     private val notificationPermission = registerForActivityResult(ActivityResultContracts.RequestPermission()) {}
@@ -45,6 +46,9 @@ class MainActivity : ComponentActivity() {
                 id.clipmi.android.work.RenderQueue.resumeInterrupted(this@MainActivity)
                 id.clipmi.android.reminders.ReminderAlarm.arm(this@MainActivity)
                 id.clipmi.android.work.StatsQueue.schedulePeriodic(this@MainActivity)
+                id.clipmi.android.work.UpdateQueue.schedulePeriodic(this@MainActivity)
+                // Baru diperbarui: catatan "yang baru" sekali.
+                container.updates.takeWhatsNew()?.let { shared = SharedResult(whatsNew = it) }
             }
         }
     }
@@ -76,6 +80,12 @@ class MainActivity : ComponentActivity() {
         if (intent.action == Intent.ACTION_SEND && intent.type?.startsWith("text/") == true) {
             handleSharedText(intent.getStringExtra(Intent.EXTRA_TEXT).orEmpty())
             intent.action = null
+            return
+        }
+        // Notifikasi pembaruan: lembar pembaruan.
+        if (intent.getBooleanExtra(EXTRA_OPEN_UPDATE, false)) {
+            shared = SharedResult(openUpdate = true)
+            intent.removeExtra(EXTRA_OPEN_UPDATE)
             return
         }
         // Notifikasi pengingat: jadwal tertentu (layar Siap Unggah) atau daftar Jadwal (0).

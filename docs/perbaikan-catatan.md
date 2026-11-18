@@ -4,7 +4,7 @@ Setelah Fase 5, dari audit UI dan permintaan pengguna. Urutan tahap:
 
 1. Pratinjau tetap terlihat dan edit gaya di editor (selesai, di bawah).
 2. Ikuti pembicara (deteksi pembicara aktif di HP) dan koreksi manual per adegan (selesai, di bawah).
-3. B-roll dari video stok (Pexels/Pixabay, key gratis milik pengguna) — perlu keputusan sumber dan aturan konten.
+3. B-roll dari video stok — rancangan di `docs/rancangan-broll.md`, ditunda.
 4. Perapian UI lain dari audit: Project, Kandidat klip, Jadwal, Statistik (selesai, di bawah).
 
 Tombol Render di editor tetap di tempatnya (permintaan pengguna).
@@ -293,3 +293,16 @@ potongan kamera; (2) potongan kamera dicari di 15 gambar/detik sehingga titik pi
 - **Analisis AI / Transkripsi API**: pembuka dan keterangan dipendekkan; daftar penyedia lebih rendah; Simpan (dan Uji
   koneksi) tetap di bawah layar.
 - Dicek di HP: semua halaman di atas (form jadwal dibuka tanpa disimpan).
+
+## Tahap 13: pembaruan dalam aplikasi disiapkan
+
+Panduan rilis: `docs/rilis.md`. Repo rilis Android terpisah dari desktop (`clipmi.updateRepo` di
+`gradle.properties`); versi juga dipindah ke `gradle.properties` dan dinaikkan `scripts/release.ps1`.
+
+- Cek otomatis harian lewat Wi-Fi (`UpdateCheckWorker`), notifikasi sekali per versi (kanal "Pembaruan aplikasi"),
+  kartu "ClipMI x tersedia" di tab Project (Lihat / Nanti), status di Pengaturan (versi, waktu cek, "Baru").
+- Unduhan di latar dengan progres di notifikasi (`UpdateDownloadWorker`, berkas `.part` lalu diganti nama setelah
+  lolos pemeriksaan), notifikasi "siap dipasang"; lembar pembaruan bisa dibuka dari notifikasi, kartu, atau Pengaturan.
+- Catatan "Yang baru di <versi>" sekali setelah pembaruan (baris SHA-256 disembunyikan).
+- Dicek di HP: baris Pengaturan dan lembar pembaruan ("Belum ada rilis di GitHub" karena repo belum dibuat).
+  Belum diuji: unduh, pasang, dan catatan versi baru (butuh rilis bertanda tangan kunci tim).

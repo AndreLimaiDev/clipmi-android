@@ -43,6 +43,7 @@ class AppContainer(app: Application) {
     val performance: PerformanceReports by lazy { PerformanceReports(app, database, renderer, analysis, settings) }
     val teamPacks: TeamPacks by lazy { TeamPacks(app, database, workspace, settings, media) }
     val backup: Backup by lazy { Backup(app, database, workspace) }
+    val updates: id.clipmi.android.domain.Updates by lazy { id.clipmi.android.domain.Updates(database.settings()) }
 }
 
 class ClipMiApp : Application() {
@@ -60,11 +61,14 @@ class ClipMiApp : Application() {
             .apply { description = getString(R.string.channel_work_desc) }
         val reminder = NotificationChannel(CHANNEL_REMINDER, getString(R.string.channel_reminder), NotificationManager.IMPORTANCE_HIGH)
             .apply { description = getString(R.string.channel_reminder_desc) }
-        getSystemService(NotificationManager::class.java).createNotificationChannels(listOf(work, reminder))
+        val update = NotificationChannel(CHANNEL_UPDATE, getString(R.string.channel_update), NotificationManager.IMPORTANCE_DEFAULT)
+            .apply { description = getString(R.string.channel_update_desc) }
+        getSystemService(NotificationManager::class.java).createNotificationChannels(listOf(work, reminder, update))
     }
 
     companion object {
         const val CHANNEL_WORK = "work"
         const val CHANNEL_REMINDER = "reminder"
+        const val CHANNEL_UPDATE = "update"
     }
 }

@@ -1,5 +1,7 @@
 package id.clipmi.android.ui.screens
 
+import id.clipmi.android.ui.components.ActionChip
+import id.clipmi.android.ui.components.GhostButton
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.offset
 import id.clipmi.android.domain.Wall
@@ -112,7 +114,8 @@ private fun ProjectEntity.isBusy() =
 private fun ProjectEntity.isFailed() = video == VideoStatus.Failed || transcript == TranscriptStatus.Failed
 
 @Composable
-fun ProjectListScreen(container: AppContainer, onOpen: (Long) -> Unit, onOpenResults: () -> Unit = {}) {
+fun ProjectListScreen(container: AppContainer, onOpen: (Long) -> Unit, onOpenResults: () -> Unit = {}, onOpenUpdate: () -> Unit = {}) {
+    val update by container.updates.available.collectAsState(initial = null)
     val projects by container.database.projects().observeAll().collectAsState(initial = null)
     val clipCounts by container.database.clips().observeCounts().collectAsState(initial = emptyList())
     val rendered by container.database.clips().observeRendered().collectAsState(initial = emptyList())
@@ -151,6 +154,21 @@ fun ProjectListScreen(container: AppContainer, onOpen: (Long) -> Unit, onOpenRes
                                     contentAlignment = Alignment.Center,
                                 ) { Text(if (busy && done == 0) "…" else "$done", style = MaterialTheme.typography.labelSmall, color = Color.White) }
                             }
+                        }
+                    }
+                }
+                // Versi baru tersedia: kartu kecil dengan Lihat dan Nanti.
+                update?.let { r ->
+                    val scope = rememberCoroutineScope()
+                    ClipMiCard(Modifier.padding(horizontal = ScreenGutter), padding = PaddingValues(horizontal = 14.dp, vertical = 12.dp)) {
+                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                            IconBadge(ClipMiIcons.Download, size = 36.dp)
+                            Column(Modifier.weight(1f)) {
+                                Text("ClipMI ${r.version} tersedia", style = MaterialTheme.typography.titleSmall, color = ClipMi.colors.text)
+                                Text("Pembaruan aplikasi", style = MaterialTheme.typography.bodySmall, color = ClipMi.colors.textMuted)
+                            }
+                            GhostButton("Nanti", onClick = { scope.launch { container.updates.dismiss(r.version) } })
+                            ActionChip("Lihat", onOpenUpdate, height = 36.dp, primary = true)
                         }
                     }
                 }

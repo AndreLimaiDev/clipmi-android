@@ -1,5 +1,7 @@
 package id.clipmi.android.ui
 
+import androidx.compose.runtime.setValue
+import androidx.compose.runtime.mutableStateOf
 import id.clipmi.android.ui.styles.StylesHeader
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
@@ -126,6 +128,9 @@ fun ClipMiNavigation(container: AppContainer, shared: SharedResult?, onSharedHan
     val notifier = remember { Notifier(SnackbarHostState(), scope) }
     val topLevel = tabs.any { tab -> entry?.destination?.chain()?.any { it.hasRoute(tab.route::class) } == true }
 
+    // Lembar pembaruan (dari notifikasi, kartu di Project, atau Pengaturan) dan catatan "yang baru" setelah pembaruan.
+    var updateOpen by remember { mutableStateOf(false) }
+    var whatsNew by remember { mutableStateOf<id.clipmi.android.domain.AppUpdater.Release?>(null) }
     LaunchedEffect(shared) {
         val result = shared ?: return@LaunchedEffect
         result.openProject?.let { nav.navigate(ProjectDetailRoute(it)) { launchSingleTop = true } }
@@ -139,13 +144,15 @@ fun ClipMiNavigation(container: AppContainer, shared: SharedResult?, onSharedHan
         }
         result.openSchedule?.let { nav.navigate(ReadyRoute(it)) { launchSingleTop = true } }
         result.message?.let { notifier.show(it) }
+        if (result.openUpdate) updateOpen = true
+        result.whatsNew?.let { whatsNew = it }
         onSharedHandled()
     }
 
     CompositionLocalProvider(LocalNotifier provides notifier) {
         Box(Modifier.fillMaxSize().background(ClipMi.colors.bg)) {
             NavHost(nav, startDestination = ProjectRoute, modifier = Modifier.fillMaxSize()) {
-                composable<ProjectRoute> { ProjectListScreen(container, onOpen = { nav.navigate(ProjectDetailRoute(it)) }, onOpenResults = { nav.navigate(ResultsRoute) }) }
+                composable<ProjectRoute> { ProjectListScreen(container, onOpen = { nav.navigate(ProjectDetailRoute(it)) }, onOpenResults = { nav.navigate(ResultsRoute) }, onOpenUpdate = { updateOpen = true }) }
                 composable<ProjectDetailRoute> {
                     ProjectDetailScreen(container, it.toRoute<ProjectDetailRoute>().id, onBack = { nav.popBackStack() }, onOpenEditor = { clip -> nav.navigate(EditorRoute(clip)) }, onSchedule = { clip -> nav.navigate(ScheduleEditRoute(clipId = clip)) })
                 }
@@ -248,6 +255,8 @@ fun ClipMiNavigation(container: AppContainer, shared: SharedResult?, onSharedHan
             if (topLevel) SnackbarInset(FloatingNavSpace - 16.dp)
             ClipMiSnackbarHost(notifier, Modifier.align(Alignment.BottomCenter))
         }
+        if (updateOpen) id.clipmi.android.ui.screens.UpdateSheet(container, onDone = { updateOpen = false })
+        whatsNew?.let { r -> id.clipmi.android.ui.screens.WhatsNewSheet(r, onDone = { whatsNew = null }) }
     }
 }
 
@@ -303,6 +312,8 @@ data class SharedResult(
     val openEditor: Long? = null,
     val openSchedule: Long? = null,
     val openScheduleList: Boolean = false,
+    val openUpdate: Boolean = false,
+    val whatsNew: id.clipmi.android.domain.AppUpdater.Release? = null,
 )
 
 private fun NavDestination.chain(): Sequence<NavDestination> = generateSequence(this) { it.parent }
