@@ -30,6 +30,7 @@ import id.clipmi.core.render.Fonts
 import id.clipmi.core.render.FrameStyle
 import id.clipmi.core.render.RenderGraph
 import id.clipmi.core.render.SegmentWords
+import id.clipmi.core.render.SpeakerTrack
 import id.clipmi.core.render.SubtitleEdits
 import id.clipmi.core.render.TemplateArea
 import id.clipmi.core.render.TextMeasurer
@@ -148,6 +149,7 @@ class Renderer(
         frame = frameStyle(clip.frameStyleId),
         introSeconds = bumper(clip.introId)?.duration,
         outroSeconds = bumper(clip.outroId)?.duration,
+        speakerKeyframes = clip.speakerKeyframes(),
     )
 
     suspend fun segments(projectId: Long): List<SegmentWords> = database.segments().forProject(projectId).map {
@@ -263,7 +265,7 @@ class Renderer(
                     val lead = spec.leadSeconds()
                     parts["intro"] = RenderGraph.BumperPart(
                         next, false, lead,
-                        RenderGraph.opener(next, frame, null, spec.effectiveCropPosition(), fps, lead + RenderGraph.OPENER_FADE),
+                        RenderGraph.opener(next, frame, spec.speakerKeyframes?.let { SpeakerTrack.positionAt(it, 0.0) }, spec.effectiveCropPosition(), fps, lead + RenderGraph.OPENER_FADE),
                         RenderGraph.OPENER_FADE,
                     )
                     total += lead
@@ -380,7 +382,7 @@ class Renderer(
     private fun coverKey(clip: ClipEntity, project: ProjectEntity, spec: ClipSpec): String {
         val parts = listOf(
             clip.coverTime, clip.coverPath, clip.coverTitle, spec.displayTitle(), spec.frame, spec.style,
-            spec.effectiveCropPosition(), spec.effectiveZoom(), spec.effectiveCropY(), clip.startTime, project.videoPath,
+            spec.speakerKeyframes, spec.effectiveCropPosition(), spec.effectiveZoom(), spec.effectiveCropY(), clip.startTime, project.videoPath,
         )
         val digest = java.security.MessageDigest.getInstance("MD5").digest(parts.toString().toByteArray())
         return digest.joinToString("") { "%02x".format(it) }.take(12)
@@ -415,7 +417,9 @@ class Renderer(
                     "[0:v]scale=$width:$height:force_original_aspect_ratio=increase,crop=$width:$height,setsar=1,ass=subs.ass:fontsdir=fonts[v]"
             } else {
                 val time = clip.coverTime ?: clip.startTime
-                val composition = Composition.make(frame, sourceSize(frame, video!!), spec.effectiveCropPosition(), spec.effectiveZoom(), spec.effectiveCropY())
+                // Posisi pembicara pada detik sampul, sebagai crop tetap.
+                val speaker = spec.speakerKeyframes?.let { listOf(listOf(0.0, SpeakerTrack.positionAt(it, time - clip.startTime))) }
+                val composition = Composition.make(frame, sourceSize(frame, video!!), spec.effectiveCropPosition(), spec.effectiveZoom(), spec.effectiveCropY(), speaker)
                 val (inputs, imageArgs) = prepare(core, spec, composition, workDir, emptyList(), 2.0, title, titleTop, COVER_TITLE_SIZE)
                 (listOf("-ss", RenderGraph.seconds(maxOf(0.0, time - 0.4)), "-t", "1.5", "-i", video.absolutePath) + imageArgs) to RenderGraph.filter(composition, inputs)
             }

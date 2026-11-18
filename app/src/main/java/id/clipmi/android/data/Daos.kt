@@ -182,6 +182,10 @@ interface ClipDao {
         coverTitle: Boolean, coverInVideo: Boolean, introId: Long?, outroId: Long?, now: Long = System.currentTimeMillis(),
     )
 
+    /** Jalur "ikuti pembicara" (JSON [id.clipmi.core.render.SpeakerTrackData]); null = belum dideteksi. */
+    @Query("UPDATE clips SET speaker_track = :track, updated_at = :now WHERE id = :id")
+    suspend fun setSpeakerTrack(id: Long, track: String?, now: Long = System.currentTimeMillis())
+
     /** Hanya kolom teks, supaya status render yang berubah di latar tidak tertimpa salinan lama. */
     @Query(
         """UPDATE clips SET title = :title, hook = :hook, caption = :caption, hashtags = :hashtags, keywords = :keywords,

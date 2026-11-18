@@ -1,5 +1,12 @@
 package id.clipmi.android.ui.schedule
 
+import androidx.compose.ui.draw.clip
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.border
+import androidx.compose.foundation.background
+import androidx.compose.material3.Icon
+import id.clipmi.android.ui.components.IconBadge
+import id.clipmi.android.ui.components.ActionChip
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -72,9 +79,10 @@ fun StatsScreen(container: AppContainer, onOpenSchedule: (Long) -> Unit, onOpenP
     var since by rememberSaveable { mutableStateOf(0L) }
     var rows by rememberSaveable { mutableStateOf(listOf<Long>()) }
     var banner by rememberSaveable { mutableStateOf<String?>(null) }
+    var best by rememberSaveable { mutableStateOf(false) }
     val c = ClipMi.colors
 
-    Column(Modifier.fillMaxSize().statusBarsPadding().padding(top = 20.dp)) {
+    Column(Modifier.fillMaxSize().statusBarsPadding().padding(top = 12.dp)) {
         val d = data
         val posts = d?.schedules.orEmpty()
             .flatMap { s -> s.targets.filter { it.status == TargetStatus.PUBLISHED }.map { Post(s, it, d?.stats?.get(it.row.id).orEmpty()) } }
@@ -100,9 +108,8 @@ fun StatsScreen(container: AppContainer, onOpenSchedule: (Long) -> Unit, onOpenP
             }
         }
 
-        ScreenHeader("Statistik", Modifier.padding(horizontal = ScreenGutter), eyebrow = "ClipMI") {
+        ScreenHeader("Statistik", Modifier.padding(horizontal = ScreenGutter)) {
             if (posts.isNotEmpty()) {
-                IconCircle(ClipMiIcons.Sparkle, "Analisis performa", onOpenPerformance)
                 if (rows.isNotEmpty()) Box(Modifier.size(44.dp), contentAlignment = Alignment.Center) { CircularProgressIndicator(Modifier.size(22.dp), color = c.accent, strokeWidth = 2.dp) }
                 else IconCircle(ClipMiIcons.Refresh, "Perbarui semua statistik", {
                     scope.launch {
@@ -127,10 +134,11 @@ fun StatsScreen(container: AppContainer, onOpenSchedule: (Long) -> Unit, onOpenP
         }
         val byAccount = posts.groupBy { it.target.account.id }
         val summaries = byAccount.mapValues { (_, list) -> PostStats.summary(list.map { it.latest?.views }) }
+        val shown = if (best) posts.sortedByDescending { it.latest?.views ?: -1 } else posts
 
         LazyColumn(
             Modifier.fillMaxSize(),
-            contentPadding = PaddingValues(start = ScreenGutter, end = ScreenGutter, top = 16.dp, bottom = FloatingNavSpace),
+            contentPadding = PaddingValues(start = ScreenGutter, end = ScreenGutter, top = 12.dp, bottom = FloatingNavSpace),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             if (rows.isNotEmpty()) {
@@ -161,11 +169,56 @@ fun StatsScreen(container: AppContainer, onOpenSchedule: (Long) -> Unit, onOpenP
                     }
                 }
             }
-            items(byAccount.keys.toList(), key = { "sum-$it" }) { accountId ->
-                val account = byAccount.getValue(accountId).first().target.account
-                SummaryCard(account.name, account.color, Platforms.label(account.platform), summaries.getValue(accountId))
+            // Empat angka ringkas dari postingan yang tampil (angka terbaru tiap postingan).
+            item(key = "totals") {
+                val latest = posts.mapNotNull { it.latest }
+                fun total(value: (PostStatEntity) -> Long?) = latest.mapNotNull(value).takeIf { it.isNotEmpty() }?.sum()
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Tile("Tayangan", PostStats.number(total { it.views }), Modifier.weight(1f))
+                    Tile("Suka", PostStats.number(total { it.likes }), Modifier.weight(1f))
+                    Tile("Komentar", PostStats.number(total { it.comments }), Modifier.weight(1f))
+                    Tile("Share", PostStats.number(total { it.shares }), Modifier.weight(1f))
+                }
             }
-            items(posts, key = { "post-${it.row.id}" }) { post ->
+            item(key = "accounts") {
+                ClipMiCard(spacing = 10.dp) {
+                    byAccount.keys.forEach { accountId ->
+                        val account = byAccount.getValue(accountId).first().target.account
+                        val summary = summaries.getValue(accountId)
+                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                            AccountDot(account.color, 10.dp)
+                            Column(Modifier.weight(1f)) {
+                                Text(account.name, style = MaterialTheme.typography.titleSmall, color = c.text)
+                                Text(
+                                    "${summary.count} postingan · median ${PostStats.number(summary.median)} · terbaik ${PostStats.number(summary.best)}",
+                                    style = MaterialTheme.typography.bodySmall, color = c.textMuted, maxLines = 1, overflow = TextOverflow.Ellipsis,
+                                )
+                            }
+                            Text(PostStats.number(summary.total), style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.ExtraBold), color = c.text)
+                        }
+                    }
+                }
+            }
+            item(key = "performance") {
+                ClipMiCard(onClick = onOpenPerformance, padding = PaddingValues(horizontal = 14.dp, vertical = 12.dp)) {
+                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                        IconBadge(ClipMiIcons.Sparkle, size = 36.dp)
+                        Column(Modifier.weight(1f)) {
+                            Text("Analisis performa", style = MaterialTheme.typography.titleSmall, color = c.text)
+                            Text("Saran AI dari postingan yang sudah terbit", style = MaterialTheme.typography.bodySmall, color = c.textMuted)
+                        }
+                        Icon(ClipMiIcons.Chevron, null, tint = c.textMuted, modifier = Modifier.size(20.dp))
+                    }
+                }
+            }
+            item(key = "sort") {
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text("Postingan", style = MaterialTheme.typography.titleSmall, color = c.textBody, modifier = Modifier.weight(1f))
+                    FilterPill("Terbaru", selected = !best, height = 32.dp, onClick = { best = false })
+                    FilterPill("Terbaik", selected = best, height = 32.dp, onClick = { best = true })
+                }
+            }
+            items(shown, key = { "post-${it.row.id}" }) { post ->
                 PostCard(post, summaries.getValue(post.target.account.id), fetching = post.row.id in fetchingRows, onOpen = { onOpenSchedule(post.schedule.id) }, onRefresh = {
                     scope.launch {
                         val start = System.currentTimeMillis() / 1000 * 1000
@@ -175,9 +228,8 @@ fun StatsScreen(container: AppContainer, onOpenSchedule: (Long) -> Unit, onOpenP
             }
             item(key = "note") {
                 Text(
-                    "Statistik diambil otomatis di latar tiap beberapa jam (makin muda postingan, makin sering), sampai ${PostStats.MAX_AGE_DAYS} hari setelah terbit. " +
-                        "Angka \"×\" membandingkan tayangan dengan median akunnya (mulai ${PostStats.MIN_MEASURED} postingan terukur). Hari 1/7/30 kosong bila statistik belum diambil di sekitar umur itu. " +
-                        "Instagram dan Facebook biasanya harus diisi manual.",
+                    "Statistik diambil otomatis di latar sampai ${PostStats.MAX_AGE_DAYS} hari setelah terbit. Instagram dan Facebook biasanya diisi manual. " +
+                        "Ketuk postingan untuk detail (engagement, tayangan hari 1/7/30).",
                     style = MaterialTheme.typography.bodySmall, color = c.textMuted, modifier = Modifier.padding(horizontal = 4.dp),
                 )
             }
@@ -186,26 +238,22 @@ fun StatsScreen(container: AppContainer, onOpenSchedule: (Long) -> Unit, onOpenP
 }
 
 @Composable
-private fun SummaryCard(name: String, color: String, platform: String, summary: AccountSummary) {
+private fun Tile(label: String, value: String, modifier: Modifier = Modifier) {
     val c = ClipMi.colors
-    ClipMiCard(spacing = 4.dp) {
-        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            AccountDot(color, 10.dp)
-            Text(name, style = MaterialTheme.typography.titleSmall, color = c.text)
-            Text("· $platform", style = MaterialTheme.typography.bodySmall, color = c.textMuted)
-        }
-        Row(verticalAlignment = Alignment.Bottom, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-            Text(PostStats.number(summary.total), style = MaterialTheme.typography.headlineSmall, color = c.text)
-            Text("total tayangan", style = MaterialTheme.typography.bodySmall, color = c.textMuted, modifier = Modifier.padding(bottom = 4.dp))
-        }
-        Text(
-            "${summary.count} postingan" + (if (summary.measured < summary.count) " (${summary.measured} terukur)" else "") +
-                " · median ${PostStats.number(summary.median)} · terbaik ${PostStats.number(summary.best)}",
-            style = MaterialTheme.typography.bodySmall, color = c.textMuted,
+    Column(
+        modifier.clip(RoundedCornerShape(16.dp)).background(c.card).border(1.dp, c.line, RoundedCornerShape(16.dp)).padding(horizontal = 10.dp, vertical = 10.dp),
+        verticalArrangement = Arrangement.spacedBy(2.dp),
+    ) {
+        val style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.ExtraBold, color = c.text)
+        androidx.compose.foundation.text.BasicText(
+            value, style = style, maxLines = 1,
+            autoSize = androidx.compose.foundation.text.TextAutoSize.StepBased(minFontSize = 10.sp, maxFontSize = style.fontSize, stepSize = 0.5.sp),
         )
+        Text(label, style = MaterialTheme.typography.labelSmall, color = c.textMuted, maxLines = 1)
     }
 }
 
+/** Postingan ringkas: tayangan dan perbandingan median; ketuk untuk detail (angka lain, hari 1/7/30, buka jadwal). */
 @Composable
 private fun PostCard(post: Post, summary: AccountSummary, fetching: Boolean, onOpen: () -> Unit, onRefresh: () -> Unit) {
     val c = ClipMi.colors
@@ -213,38 +261,45 @@ private fun PostCard(post: Post, summary: AccountSummary, fetching: Boolean, onO
     val published = post.row.publishedAt?.let(Wall::of)
     val points = post.stats.points()
     val ratio = PostStats.ratio(latest?.views, summary)
-    ClipMiCard(onClick = onOpen) {
-        Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-            ClipThumb(post.schedule.clip, Modifier.width(40.dp).height(70.dp))
+    var expanded by rememberSaveable(post.row.id) { mutableStateOf(false) }
+    val checkedAt = post.row.statsCheckedAt
+    val failed = post.row.statsError != null && checkedAt != null && (latest == null || checkedAt > latest.recordedAt)
+    ClipMiCard(onClick = { expanded = !expanded }, padding = PaddingValues(12.dp), spacing = 10.dp) {
+        Row(horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
+            ClipThumb(post.schedule.clip, Modifier.width(36.dp).height(64.dp))
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
                 Text(post.schedule.title, style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.SemiBold), color = c.text, maxLines = 2, overflow = TextOverflow.Ellipsis)
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                     AccountDot(post.target.account.color, 8.dp)
                     Text(
-                        listOfNotNull(post.target.account.name, published?.let { IdDate.full(it) }).joinToString(" · "),
-                        style = MaterialTheme.typography.bodySmall, color = c.textMuted, maxLines = 1, overflow = TextOverflow.Ellipsis,
+                        listOfNotNull(post.target.account.name, published?.let { IdDate.dayMonth(it) }).joinToString(" · ") +
+                            when {
+                                fetching -> " · mengambil…"
+                                failed -> " · gagal diambil"
+                                latest == null && post.row.url == null -> " · belum ada link"
+                                else -> ""
+                            },
+                        style = MaterialTheme.typography.bodySmall, color = if (failed) c.warn else c.textMuted, maxLines = 1, overflow = TextOverflow.Ellipsis,
                     )
                 }
             }
-            if (post.row.url != null) {
-                if (fetching) Box(Modifier.size(36.dp), contentAlignment = Alignment.Center) { CircularProgressIndicator(Modifier.size(18.dp), color = c.accent, strokeWidth = 2.dp) }
-                else IconCircle(ClipMiIcons.Refresh, "Ambil ulang statistik ${post.schedule.title} di ${post.target.account.name}", onRefresh, size = 36.dp, background = Color.Transparent)
+            Column(horizontalAlignment = Alignment.End) {
+                Text(PostStats.number(latest?.views), style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.ExtraBold), color = c.text)
+                Text(ratio?.let { PostStats.decimal(it) + "× median" } ?: "tayangan", style = MaterialTheme.typography.labelSmall, color = ratioColor(ratio))
             }
         }
+        if (!expanded) return@ClipMiCard
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            Metric("Tayangan", PostStats.number(latest?.views), ratio?.let { PostStats.decimal(it) + "×" }, ratioColor(ratio), Modifier.weight(1.3f))
             Metric("Suka", PostStats.number(latest?.likes), modifier = Modifier.weight(1f))
             Metric("Komentar", PostStats.number(latest?.comments), modifier = Modifier.weight(1f))
             Metric("Share", PostStats.number(latest?.shares), modifier = Modifier.weight(1f))
+            Metric("Engagement", PostStats.rate(latest?.numbers()?.engagementRate), modifier = Modifier.weight(1.2f))
         }
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            Metric("Engagement", PostStats.rate(latest?.numbers()?.engagementRate), modifier = Modifier.weight(1.3f))
             PostStats.AGES.forEach { age ->
-                Metric("Hari $age", PostStats.number(PostStats.statAt(published, points, age)?.numbers?.views), modifier = Modifier.weight(1f))
+                Metric("Tayangan hari $age", PostStats.number(PostStats.statAt(published, points, age)?.numbers?.views), modifier = Modifier.weight(1f))
             }
         }
-        val checkedAt = post.row.statsCheckedAt
-        val failed = post.row.statsError != null && checkedAt != null && (latest == null || checkedAt > latest.recordedAt)
         Text(
             when {
                 fetching -> "Mengambil…"
@@ -257,6 +312,10 @@ private fun PostCard(post: Post, summary: AccountSummary, fetching: Boolean, onO
             color = if (failed) c.warn else c.textMuted,
             maxLines = 3, overflow = TextOverflow.Ellipsis,
         )
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            ActionChip("Buka jadwal", onOpen, icon = ClipMiIcons.Calendar)
+            if (post.row.url != null && !fetching) ActionChip("Ambil ulang", onRefresh, icon = ClipMiIcons.Refresh)
+        }
     }
 }
 

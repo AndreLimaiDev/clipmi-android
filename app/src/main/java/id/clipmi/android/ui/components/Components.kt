@@ -112,7 +112,7 @@ fun ScreenHeader(title: String, modifier: Modifier = Modifier, eyebrow: String? 
     Row(modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
         Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
             eyebrow?.let { Eyebrow(it) }
-            Text(title, style = MaterialTheme.typography.headlineLarge, color = ClipMi.colors.text)
+            Text(title, style = MaterialTheme.typography.headlineMedium, color = ClipMi.colors.text)
         }
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp), content = actions)
     }
@@ -466,7 +466,31 @@ fun StatusBadge(label: String, tone: Tone, modifier: Modifier = Modifier) {
     )
 }
 
-/** Chip filter/aksi: terpilih = warna kebalikan latar, lainnya bergaris tepi. */
+/** Tombol aksi kecil (impor, salin, terapkan): kotak membulat berlatar, berbeda dari pil filter. */
+@Composable
+fun ActionChip(label: String, onClick: () -> Unit, modifier: Modifier = Modifier, height: Dp = 36.dp, enabled: Boolean = true, icon: ImageVector? = null) {
+    val c = ClipMi.colors
+    val shape = RoundedCornerShape(12.dp)
+    Row(
+        modifier
+            .height(height)
+            .clip(shape)
+            .background(c.panel)
+            .clickable(enabled = enabled, role = Role.Button, onClick = onClick)
+            .padding(horizontal = 12.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(6.dp, Alignment.CenterHorizontally),
+    ) {
+        val color = if (enabled) c.text else c.textMuted.copy(alpha = 0.6f)
+        icon?.let { Icon(it, null, tint = color, modifier = Modifier.size(16.dp)) }
+        Text(label, style = MaterialTheme.typography.labelLarge.copy(fontSize = 13.sp), color = color, maxLines = 1)
+    }
+}
+
+/**
+ * Pil untuk memilih atau memfilter (terpilih = gelap). Untuk menjalankan aksi pakai [ActionChip], supaya pengguna bisa
+ * membedakan mana yang memfilter dan mana yang menjalankan sesuatu.
+ */
 @Composable
 fun FilterPill(label: String, selected: Boolean, onClick: () -> Unit, modifier: Modifier = Modifier, height: Dp = 36.dp, enabled: Boolean = true) {
     val c = ClipMi.colors

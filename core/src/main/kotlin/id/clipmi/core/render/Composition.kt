@@ -28,7 +28,7 @@ data class Composition(
 
     /**
      * @property fill "cover": video menutupi areanya lalu dipotong di posisi crop; "contain": video utuh diperkecil.
-     * @property keyframes jalur "ikuti penceramah" (belum ada di HP); null = posisi crop tetap.
+     * @property keyframes jalur "ikuti penceramah" ([SpeakerTrack]); null = posisi crop tetap.
      */
     @Serializable
     data class Video(

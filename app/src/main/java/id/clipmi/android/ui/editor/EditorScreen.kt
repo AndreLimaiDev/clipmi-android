@@ -54,6 +54,7 @@ import id.clipmi.android.ui.theme.ClipMiIcons
 import id.clipmi.android.work.RenderQueue
 import id.clipmi.core.analysis.ClipText
 import id.clipmi.core.render.ClipCuts
+import id.clipmi.core.render.SpeakerTrack
 import id.clipmi.core.render.HookLayout
 import id.clipmi.core.transcript.Timecode
 import kotlinx.coroutines.android.awaitFrame
@@ -187,7 +188,7 @@ private fun Editor(container: AppContainer, state: EditorState, onClose: () -> U
             // Di tab Hook, hook selalu terlihat walau video tidak di waktu tampilnya.
             hookTime = if (tab == 4 && !playing) hookLayout.start + lead + minOf(0.6, (hookLayout.end - hookLayout.start) / 2) else null,
             gesture = when (tab) {
-                2 -> PreviewGesture { pan, zoom, _, size, overflow -> crop(state, pan.x / size.width, pan.y / size.height, zoom, overflow) }
+                2 -> PreviewGesture { pan, zoom, _, size, overflow -> crop(state, pan.x / size.width, pan.y / size.height, zoom, overflow, player.currentPosition / 1000.0) }
                 4 -> PreviewGesture { _, _, centroid, size, _ ->
                     val x = (centroid.x / size.width * 100).roundToInt().coerceIn(0, 100)
                     val y = (centroid.y / size.height * 100).roundToInt().coerceIn(0, 100)
@@ -215,7 +216,7 @@ private fun Editor(container: AppContainer, state: EditorState, onClose: () -> U
             Text("${Timecode.format(t)} / ${Timecode.format(spec.outputDuration())}", style = MaterialTheme.typography.labelMedium, color = c.textMuted)
             Text(
                 when (tab) {
-                    2 -> "Geser video untuk posisi · cubit untuk zoom"
+                    2 -> if (state.speakerKeyframes() != null) "Geser video untuk adegan ini · cubit untuk zoom" else "Geser video untuk posisi · cubit untuk zoom"
                     4 -> "Seret di pratinjau untuk memindah hook"
                     else -> ""
                 },
@@ -240,7 +241,7 @@ private fun Editor(container: AppContainer, state: EditorState, onClose: () -> U
                 when (tab) {
                     0 -> TrimPanel(state, position, seek)
                     1 -> TextPanel(state, seek)
-                    2 -> CropPanel(state)
+                    2 -> CropPanel(state, position, seek)
                     3 -> StylePanel(state)
                     4 -> HookPanel(state)
                     5 -> CoverPanel(state, position)
@@ -270,8 +271,11 @@ private fun Editor(container: AppContainer, state: EditorState, onClose: () -> U
     }
 }
 
-/** Geser dan cubit di tab Crop: posisi 0–100 dan zoom 100–250% (padanan crop editor desktop). */
-private fun crop(state: EditorState, dx: Float, dy: Float, zoom: Float, overflow: Offset) {
+/**
+ * Geser dan cubit di tab Crop: posisi 0–100 dan zoom 100–250% (padanan crop editor desktop). Saat mengikuti pembicara,
+ * geser kiri–kanan mengatur posisi manual adegan yang sedang tampil (adegan lain tetap otomatis).
+ */
+private fun crop(state: EditorState, dx: Float, dy: Float, zoom: Float, overflow: Offset, position: Double) {
     state.drag { _ ->
         // Dihitung dari keadaan awal gerakan, jadi geser pelan pun terhitung (tidak hilang oleh pembulatan).
         val base = state.gestureBase
@@ -279,10 +283,25 @@ private fun crop(state: EditorState, dx: Float, dy: Float, zoom: Float, overflow
         val baseZoom = base.cropZoom ?: (spec.frame.zoomFactor() * 100).roundToInt()
         // Video mengikuti jari: menggeser sejauh seluruh sisa video = posisi 0 ke 100.
         fun move(start: Int, delta: Float, rest: Float) = (start - delta / rest * 100).roundToInt().coerceIn(0, 100)
+        val track = if (state.followsSpeaker(base)) state.speakerTrack(base) else null
+        val time = position - base.clip.startTime
+        val shot = track?.shotAt(time)
+        var manual = base.speakerManual
+        if (track != null && shot != null && dx != 0f && overflow.x > 0f) {
+            val composition = state.composition()
+            val area = (composition.video.rect?.width ?: composition.canvas.width).toFloat() / composition.canvas.width
+            // Lebar video yang tampil, dalam pecahan lebar layar hasil; tengah crop dibatasi supaya crop tetap di dalam video.
+            val videoWidth = overflow.x + area
+            val half = area / 2 / videoWidth
+            val start = shot.manual ?: track.keyframes.takeIf { it.isNotEmpty() }?.let { SpeakerTrack.positionAt(it, time) } ?: (spec.effectiveCropPosition() / 100.0)
+            val visible = start.coerceIn(half.toDouble(), 1.0 - half)
+            manual = track.withManual(shot, (visible - dx / videoWidth).coerceIn(half.toDouble(), 1.0 - half)).manual
+        }
         base.copy(
-            cropPosition = if (dx != 0f && overflow.x > 0f) move(spec.effectiveCropPosition(), dx, overflow.x) else base.cropPosition,
+            cropPosition = if (shot == null && dx != 0f && overflow.x > 0f) move(spec.effectiveCropPosition(), dx, overflow.x) else base.cropPosition,
             cropY = if (dy != 0f && overflow.y > 0f) move(spec.effectiveCropY(), dy, overflow.y) else base.cropY,
             cropZoom = if (zoom != 1f) (baseZoom * zoom).roundToInt().coerceIn(100, 250) else base.cropZoom,
+            speakerManual = manual,
         )
     }
 }

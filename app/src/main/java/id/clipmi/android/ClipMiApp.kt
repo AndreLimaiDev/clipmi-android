@@ -13,6 +13,8 @@ import id.clipmi.android.domain.PerformanceReports
 import id.clipmi.android.domain.Renderer
 import id.clipmi.android.domain.ProjectActions
 import id.clipmi.android.domain.Scheduler
+import id.clipmi.android.domain.SpeakerDetector
+import id.clipmi.android.domain.SpeakerTracks
 import id.clipmi.android.domain.Settings
 import id.clipmi.android.domain.TeamPacks
 import id.clipmi.android.domain.Transcriber
@@ -35,6 +37,7 @@ class AppContainer(app: Application) {
     val aiClient: AiClient by lazy { AiClient() }
     val analysis: Analysis by lazy { Analysis(app, database, settings, transcripts) }
     val renderer: Renderer by lazy { Renderer(app, database, workspace, transcripts, settings, ffmpeg) }
+    val speakers: SpeakerTracks by lazy { SpeakerTracks(database, workspace, SpeakerDetector(app, ffmpeg)) }
     val media: MediaLibrary by lazy { MediaLibrary(app, database, workspace, ffmpeg) }
     val scheduler: Scheduler by lazy { Scheduler(app, database, analysis) }
     val performance: PerformanceReports by lazy { PerformanceReports(app, database, renderer, analysis, settings) }

@@ -1,5 +1,9 @@
 package id.clipmi.android.ui.schedule
 
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.draw.rotate
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.DropdownMenu
 import android.net.Uri
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
@@ -41,6 +45,7 @@ import androidx.compose.ui.unit.dp
 import id.clipmi.android.AppContainer
 import id.clipmi.android.data.RenderStatus
 import id.clipmi.android.domain.Wall
+import id.clipmi.android.ui.components.ActionChip
 import id.clipmi.android.ui.components.ClipMiCard
 import id.clipmi.android.ui.components.ClipMiSheet
 import id.clipmi.android.ui.components.EmptyState
@@ -185,9 +190,9 @@ fun ReadyScreen(container: AppContainer, scheduleId: Long, onBack: () -> Unit, o
                         "Salin hashtag" to hashtags.joinToString(" "),
                         "Salin semua" to uploadText,
                     ).forEach { (label, text) ->
-                        FilterPill(label, selected = false, enabled = text.isNotBlank(), onClick = { if (copy(context, text)) notifier.show("Tersalin.") })
+                        ActionChip(label, enabled = text.isNotBlank(), onClick = { if (copy(context, text)) notifier.show("Tersalin.") })
                     }
-                    if (fileOk == true) FilterPill("Putar video", selected = false, onClick = { openVideo(context, clip.outputPath) })
+                    if (fileOk == true) ActionChip("Putar video", onClick = { openVideo(context, clip.outputPath) })
                 }
                 s.entity.note?.let { Text("Catatan: $it", style = MaterialTheme.typography.bodySmall, color = c.warn) }
             }
@@ -246,31 +251,56 @@ private fun TargetCard(
     val latest = stats.lastOrNull()
     val app = remember(account.platform) { installedApp(context, account.platform) }
 
-    ClipMiCard {
+    // Akun yang sudah terbit/dilewati diringkas jadi satu baris (link dan angka); ketuk untuk detail.
+    var expanded by remember(row.id, row.status) { mutableStateOf(row.status == TargetStatus.PENDING) }
+
+    ClipMiCard(onClick = if (row.status != TargetStatus.PENDING) ({ expanded = !expanded }) else null) {
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
             AccountDot(account.color, 12.dp)
             Column(Modifier.weight(1f)) {
                 Text(account.name, style = MaterialTheme.typography.titleSmall, color = c.text)
-                Text(listOfNotNull(Platforms.label(account.platform), account.handle).joinToString(" · "), style = MaterialTheme.typography.bodySmall, color = c.textMuted)
+                Text(
+                    if (row.status == TargetStatus.PUBLISHED && latest != null) {
+                        "${PostStats.number(latest.views)} tayangan · ${PostStats.number(latest.likes)} suka"
+                    } else {
+                        listOfNotNull(Platforms.label(account.platform), account.handle).joinToString(" · ")
+                    },
+                    style = MaterialTheme.typography.bodySmall,
+                    color = c.textMuted,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
             }
             StatusBadge(
                 TargetStatus.LABELS[row.status] ?: row.status,
                 when (row.status) { TargetStatus.PUBLISHED -> Tone.Good; TargetStatus.SKIPPED -> Tone.Idle; else -> Tone.Warn },
             )
+            if (row.status == TargetStatus.PENDING) {
+                Box {
+                    var menu by remember { mutableStateOf(false) }
+                    IconCircle(ClipMiIcons.More, "Lainnya", { menu = true }, size = 36.dp, background = Color.Transparent, border = false)
+                    DropdownMenu(menu, onDismissRequest = { menu = false }, containerColor = c.card) {
+                        DropdownMenuItem(text = { Text("Lewati akun ini") }, onClick = { menu = false; scope.launch { container.scheduler.markTarget(row.id, TargetStatus.SKIPPED) } })
+                        // Statistik manual (misalnya angka dari aplikasi Instagram) sekaligus menandai akun ini terbit, sama dengan desktop.
+                        DropdownMenuItem(text = { Text("Isi statistik manual") }, onClick = { menu = false; onManual() })
+                    }
+                }
+            } else {
+                Icon(ClipMiIcons.Chevron, null, tint = c.textMuted, modifier = Modifier.size(18.dp).rotate(if (expanded) -90f else 90f))
+            }
         }
         if (row.status == TargetStatus.PENDING) {
-            PrimaryButton(
-                if (app != null) "Bagikan ke ${Platforms.label(account.platform)}" else "Bagikan…",
-                { notifier.show(shareTo(context, s.clip, uploadText, account.platform)) },
-                icon = ClipMiIcons.Share, modifier = Modifier.fillMaxWidth(),
-            )
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                SecondaryButton("Tandai terbit", { scope.launch { container.scheduler.markTarget(row.id, TargetStatus.PUBLISHED) } }, icon = ClipMiIcons.Check, height = 40.dp, modifier = Modifier.weight(1f))
-                SecondaryButton("Lewati", { scope.launch { container.scheduler.markTarget(row.id, TargetStatus.SKIPPED) } }, height = 40.dp, modifier = Modifier.weight(1f))
+                PrimaryButton(
+                    if (app != null) "Bagikan ke ${Platforms.label(account.platform)}" else "Bagikan…",
+                    { notifier.show(shareTo(context, s.clip, uploadText, account.platform)) },
+                    icon = ClipMiIcons.Share, height = 44.dp, modifier = Modifier.weight(1f),
+                )
+                SecondaryButton("Terbit", { scope.launch { container.scheduler.markTarget(row.id, TargetStatus.PUBLISHED) } }, icon = ClipMiIcons.Check, height = 44.dp)
             }
-            // Statistik manual (misalnya angka dari aplikasi Instagram) sekaligus menandai akun ini terbit, sama dengan desktop.
-            GhostButton("Isi statistik manual", onManual)
-        } else {
+        }
+        if (!expanded) return@ClipMiCard
+        if (row.status != TargetStatus.PENDING) {
             row.publishedAt?.let { Text("Terbit ${IdDate.full(Wall.of(it))}", style = MaterialTheme.typography.bodySmall, color = c.textMuted) }
         }
         Field(

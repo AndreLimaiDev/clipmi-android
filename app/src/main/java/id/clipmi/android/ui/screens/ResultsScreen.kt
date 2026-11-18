@@ -43,6 +43,7 @@ import androidx.compose.ui.unit.dp
 import id.clipmi.android.AppContainer
 import id.clipmi.android.data.ClipEntity
 import id.clipmi.android.data.RenderStatus
+import id.clipmi.android.ui.components.ActionChip
 import id.clipmi.android.ui.components.ChipRow
 import id.clipmi.android.ui.components.ClipMiCard
 import id.clipmi.android.ui.components.EmptyState
@@ -191,9 +192,9 @@ private fun ResultCard(
                     Text("Bagikan ke", style = MaterialTheme.typography.labelMedium, color = c.textBody)
                     ChipRow(gutter = 0.dp) {
                         installed.forEach { (label, pkg) ->
-                            FilterPill(label, selected = false, onClick = { share(context, container, clip, pkg) { notifier.show(it) } })
+                            ActionChip(label, onClick = { share(context, container, clip, pkg) { notifier.show(it) } })
                         }
-                        FilterPill("Lainnya…", selected = false, onClick = { share(context, container, clip, null) { notifier.show(it) } })
+                        ActionChip("Lainnya…", onClick = { share(context, container, clip, null) { notifier.show(it) } })
                     }
                 }
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {

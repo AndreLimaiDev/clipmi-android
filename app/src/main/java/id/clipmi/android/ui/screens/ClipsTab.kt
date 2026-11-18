@@ -1,5 +1,7 @@
 package id.clipmi.android.ui.screens
 
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.DropdownMenu
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
@@ -85,7 +87,7 @@ private val number = NumberFormat.getIntegerInstance(Locale.forLanguageTag("id")
 
 /** Tab Klip: analisis (Mode API dan lewat chat AI), lalu kandidat klip untuk ditinjau (padanan halaman Klip desktop). */
 @Composable
-fun ClipsTab(container: AppContainer, project: ProjectEntity, hasTranscript: Boolean, playRange: (Double, Double) -> Unit, onOpenEditor: (Long) -> Unit = {}) {
+fun ClipsTab(container: AppContainer, project: ProjectEntity, hasTranscript: Boolean, playRange: (Double, Double) -> Unit, onOpenEditor: (Long) -> Unit = {}, onSchedule: (Long) -> Unit = {}) {
     val clips by container.database.clips().observe(project.id).collectAsState(initial = emptyList())
     val series by container.database.series().observe(project.id).collectAsState(initial = emptyList())
     var filter by rememberSaveable { mutableStateOf(ReviewFilter.Active) }
@@ -123,6 +125,7 @@ fun ClipsTab(container: AppContainer, project: ProjectEntity, hasTranscript: Boo
                 onPlay = { playRange(clip.startTime, clip.endTime) },
                 onEdit = { editing = clip },
                 onOpen = { onOpenEditor(clip.id) },
+                onSchedule = { onSchedule(clip.id) },
                 onCopy = {
                     copy(context, ClipText.shareText(clip.title, clip.partNumber, clip.caption, container.analysis.decodeList(clip.hashtags)))
                     notifier.show("Judul, caption, dan hashtag disalin.")
@@ -333,6 +336,7 @@ private fun ClipCard(
     onCopy: () -> Unit,
     onReview: (ReviewStatus) -> Unit,
     onOpen: () -> Unit = {},
+    onSchedule: () -> Unit = {},
 ) {
     val scope = rememberCoroutineScope()
     val swipe = rememberSwipeToDismissBoxState()
@@ -379,45 +383,47 @@ private fun ClipCard(
                             color = c.textMuted,
                         )
                         when (clip.review) {
-                            ReviewStatus.Selected -> StatusBadge("Terpilih", Tone.Good)
                             ReviewStatus.Rejected -> StatusBadge("Dibuang", Tone.Bad)
-                            ReviewStatus.Candidate -> Unit
+                            else -> Unit
                         }
                         if (clip.source == ClipSource.MANUAL) StatusBadge("Manual", Tone.Idle)
                     }
                     seriesTitle?.let { Text("Seri: $it", style = MaterialTheme.typography.labelMedium, color = c.accent) }
                 }
             }
-            clip.hook?.let { Text("“$it”", style = MaterialTheme.typography.bodyMedium.copy(fontSize = 13.sp, fontWeight = FontWeight.SemiBold), color = c.textBody) }
-            clip.caption?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = c.textBody, maxLines = 4, overflow = TextOverflow.Ellipsis) }
-            container.analysis.decodeList(clip.hashtags).takeIf { it.isNotEmpty() }?.let {
-                Text(it.joinToString(" "), style = MaterialTheme.typography.bodySmall, color = c.accent)
+            // Ringkas: hook dan alasan AI (dasar memilih); caption, hashtag, dan kata kunci ada di Sunting teks.
+            clip.hook?.let { Text("“$it”", style = MaterialTheme.typography.bodyMedium.copy(fontSize = 13.sp, fontWeight = FontWeight.SemiBold), color = c.textBody, maxLines = 2, overflow = TextOverflow.Ellipsis) }
+            (clip.reason ?: clip.caption)?.let {
+                Text(it, style = MaterialTheme.typography.bodySmall, fontStyle = if (clip.reason != null) FontStyle.Italic else FontStyle.Normal, color = c.textMuted, maxLines = 2, overflow = TextOverflow.Ellipsis)
             }
-            container.analysis.decodeList(clip.keywords).takeIf { it.isNotEmpty() }?.let {
-                Text("Kata kunci: " + it.joinToString(", "), style = MaterialTheme.typography.bodySmall, color = c.textMuted)
-            }
-            clip.reason?.let { Text(it, style = MaterialTheme.typography.bodySmall, fontStyle = FontStyle.Italic, color = c.textMuted) }
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
                 IconCircle(ClipMiIcons.Play, "Putar klip", onPlay, size = 40.dp, background = c.panel)
                 when (clip.review) {
                     ReviewStatus.Candidate -> {
-                        SecondaryButton("Pilih", onClick = { onReview(ReviewStatus.Selected) }, icon = ClipMiIcons.Check, height = 40.dp, contentColor = c.accent, modifier = Modifier.weight(1f))
+                        PrimaryButton("Pilih", onClick = { onReview(ReviewStatus.Selected) }, icon = ClipMiIcons.Check, height = 40.dp, modifier = Modifier.weight(1f))
                         IconCircle(ClipMiIcons.Close, "Buang klip", { onReview(ReviewStatus.Rejected) }, size = 40.dp, background = c.panel)
                     }
-                    ReviewStatus.Selected -> SecondaryButton("Batal pilih", onClick = { onReview(ReviewStatus.Candidate) }, height = 40.dp, modifier = Modifier.weight(1f))
+                    ReviewStatus.Selected -> SecondaryButton("Terpilih", onClick = { onReview(ReviewStatus.Candidate) }, icon = ClipMiIcons.Check, contentColor = c.accent, height = 40.dp, modifier = Modifier.weight(1f))
                     ReviewStatus.Rejected -> SecondaryButton("Pulihkan", onClick = { onReview(ReviewStatus.Candidate) }, height = 40.dp, modifier = Modifier.weight(1f))
                 }
-                IconCircle(ClipMiIcons.Edit, "Sunting teks klip", onEdit, size = 40.dp, background = c.panel)
-                IconCircle(ClipMiIcons.Copy, "Salin judul, caption, dan hashtag", onCopy, size = 40.dp, background = c.panel)
+                Box {
+                    var menu by remember { mutableStateOf(false) }
+                    IconCircle(ClipMiIcons.More, "Lainnya", { menu = true }, size = 40.dp, background = c.panel)
+                    DropdownMenu(menu, onDismissRequest = { menu = false }, containerColor = c.card) {
+                        DropdownMenuItem(text = { Text("Buka editor") }, leadingIcon = { Icon(ClipMiIcons.Scissors, null, Modifier.size(18.dp)) }, onClick = { menu = false; onOpen() })
+                        DropdownMenuItem(text = { Text("Sunting teks") }, leadingIcon = { Icon(ClipMiIcons.Edit, null, Modifier.size(18.dp)) }, onClick = { menu = false; onEdit() })
+                        DropdownMenuItem(text = { Text("Salin judul & caption") }, leadingIcon = { Icon(ClipMiIcons.Copy, null, Modifier.size(18.dp)) }, onClick = { menu = false; onCopy() })
+                    }
+                }
             }
-            if (clip.review == ReviewStatus.Selected || clip.render != RenderStatus.NotRendered) RenderRow(container, clip)
+            if (clip.review == ReviewStatus.Selected || clip.render != RenderStatus.NotRendered) RenderRow(container, clip, onSchedule)
         }
     }
 }
 
 /** Status render klip: render, antre/progres (bisa dibatalkan), gagal, atau hasil siap dibagikan. */
 @Composable
-private fun RenderRow(container: AppContainer, clip: ClipEntity) {
+private fun RenderRow(container: AppContainer, clip: ClipEntity, onSchedule: () -> Unit) {
     val c = ClipMi.colors
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -446,13 +452,18 @@ private fun RenderRow(container: AppContainer, clip: ClipEntity) {
                 if (clip.changedAfterRender) {
                     Text("Klip diubah setelah dirender; render ulang agar videonya ikut berubah.", style = MaterialTheme.typography.bodySmall, color = c.warn)
                 }
+                // Setelah render: langsung jadwalkan atau bagikan sekarang.
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-                    PrimaryButton("Bagikan", icon = ClipMiIcons.Share, height = 44.dp, modifier = Modifier.weight(1f), onClick = {
+                    PrimaryButton("Jadwalkan", icon = ClipMiIcons.Calendar, height = 44.dp, modifier = Modifier.weight(1f), onClick = onSchedule)
+                    SecondaryButton("Bagikan", icon = ClipMiIcons.Share, height = 44.dp, modifier = Modifier.weight(1f), onClick = {
                         val text = ClipText.shareText(clip.title, clip.partNumber, clip.caption, container.analysis.decodeList(clip.hashtags))
                         copy(context, text)
                         if (shareVideo(context, clip.outputPath, clip.title)) notifier.show("Caption & hashtag disalin. Tempel di aplikasi tujuan.")
                         else notifier.show("File hasil tidak ditemukan. Render ulang klip ini.")
                     })
+                }
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Text("Putar atau render ulang", style = MaterialTheme.typography.bodySmall, color = c.textMuted, modifier = Modifier.weight(1f))
                     IconCircle(ClipMiIcons.Play, "Putar hasil", { if (!openVideo(context, clip.outputPath)) notifier.show("File hasil tidak ditemukan. Render ulang klip ini.") }, size = 44.dp, background = c.panel)
                     IconCircle(ClipMiIcons.Refresh, "Render ulang", { scope.launch { RenderQueue.render(context, clip) } }, size = 44.dp, background = c.panel)
                 }

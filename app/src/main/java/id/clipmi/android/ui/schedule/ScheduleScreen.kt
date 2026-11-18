@@ -1,5 +1,7 @@
 package id.clipmi.android.ui.schedule
 
+import id.clipmi.android.ui.components.ActionChip
+import androidx.compose.ui.draw.rotate
 import android.content.Intent
 import android.graphics.Bitmap
 import android.net.Uri
@@ -71,7 +73,6 @@ import id.clipmi.android.ui.components.ProgressBar
 import id.clipmi.android.ui.components.ScreenGutter
 import id.clipmi.android.ui.components.ScreenHeader
 import id.clipmi.android.ui.components.SecondaryButton
-import id.clipmi.android.ui.components.SegmentedTabs
 import id.clipmi.android.ui.components.StatusBadge
 import id.clipmi.android.ui.components.Tone
 import id.clipmi.android.ui.styles.hexColor
@@ -104,17 +105,16 @@ fun ScheduleScreen(
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val notifier = LocalNotifier.current
-    var tab by rememberSaveable { mutableStateOf(0) }
-    var anchorDay by rememberSaveable { mutableStateOf(LocalDate.now().toEpochDay()) }
+    var monthOpen by rememberSaveable { mutableStateOf(false) }
     var selectedDay by rememberSaveable { mutableStateOf(LocalDate.now().toEpochDay()) }
     var hidden by rememberSaveable { mutableStateOf(listOf<Long>()) }
     var banner by rememberSaveable { mutableStateOf<String?>(null) }
     var pickFor by rememberSaveable { mutableStateOf<Long?>(null) }
-    val anchor = LocalDate.ofEpochDay(anchorDay)
+    val selected = LocalDate.ofEpochDay(selectedDay)
     val notificationsOn = remember { NotificationManagerCompat.from(context).areNotificationsEnabled() }
 
-    Column(Modifier.fillMaxSize().statusBarsPadding().padding(top = 20.dp)) {
-        ScreenHeader("Jadwal", Modifier.padding(horizontal = ScreenGutter), eyebrow = "ClipMI") {
+    Column(Modifier.fillMaxSize().statusBarsPadding().padding(top = 12.dp)) {
+        ScreenHeader("Jadwal", Modifier.padding(horizontal = ScreenGutter)) {
             IconCircle(ClipMiIcons.Users, "Akun sosmed", onOpenAccounts)
         }
         val d = data ?: return@Column
@@ -132,6 +132,7 @@ fun ScheduleScreen(
         val now = Wall.now()
         val overdue = d.schedules.filter { it.isOverdue(now) }
         val visible = d.schedules.filter { s -> hidden.isEmpty() || s.targets.any { it.account.id !in hidden } }
+        val byDay = visible.groupBy { it.at.toLocalDate() }
         val listState = rememberLazyListState()
         // Pesan hasil (Isi otomatis, jadwal ulang) ada di paling atas: gulir ke sana supaya terbaca.
         LaunchedEffect(banner) { if (banner != null) listState.animateScrollToItem(0) }
@@ -173,8 +174,20 @@ fun ScheduleScreen(
                     })
                 }
             }
-            item(key = "tabs") { SegmentedTabs(listOf("Minggu", "Bulan", "Antrean"), tab, { tab = it }) }
-            if (tab != 2 && d.accounts.size > 1) {
+            item(key = "calendar") {
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    if (monthOpen) {
+                        PeriodNav(IdDate.monthYear(selected), true, { monthOpen = false }, onShift = { selectedDay = selected.plusMonths(it.toLong()).toEpochDay() }, onToday = { selectedDay = LocalDate.now().toEpochDay() })
+                        MonthGrid(selected, selected, byDay) { selectedDay = it.toEpochDay(); monthOpen = false }
+                    } else {
+                        val (start, end) = Schedules.weekRange(selected)
+                        val label = if (start.month == end.month) "${start.dayOfMonth} – ${IdDate.dayMonth(end)}" else "${IdDate.dayMonth(start)} – ${IdDate.dayMonth(end)}"
+                        PeriodNav(label, false, { monthOpen = true }, onShift = { selectedDay = selected.plusWeeks(it.toLong()).toEpochDay() }, onToday = { selectedDay = LocalDate.now().toEpochDay() })
+                        WeekStrip(start, selected, byDay) { selectedDay = it.toEpochDay() }
+                    }
+                }
+            }
+            if (d.accounts.size > 1) {
                 item(key = "filter") {
                     ChipRow(gutter = 0.dp) {
                         d.accounts.forEach { account ->
@@ -184,19 +197,16 @@ fun ScheduleScreen(
                     }
                 }
             }
-            when (tab) {
-                0 -> weekView(anchor, visible, now, onShift = { anchorDay = anchor.plusWeeks(it.toLong()).toEpochDay() }, onToday = { anchorDay = LocalDate.now().toEpochDay() }, onOpen = onOpenSchedule, onAdd = { pickFor = it.toEpochDay() })
-                1 -> monthView(anchor, LocalDate.ofEpochDay(selectedDay), visible, now, onShift = { anchorDay = anchor.plusMonths(it.toLong()).toEpochDay() }, onSelect = { selectedDay = it.toEpochDay() }, onOpen = onOpenSchedule, onAdd = { pickFor = it.toEpochDay() })
-                else -> queueView(container, d, onSchedule = { onNewSchedule(it, null) }, onAutoFill = {
-                    scope.launch {
-                        val outcome = container.scheduler.autoFill()
-                        banner = outcome.banner
-                        outcome.firstDate?.let { anchorDay = it.toEpochDay(); tab = 0 }
-                    }
-                }, onOpenAccounts = onOpenAccounts, onRender = { clip ->
-                    scope.launch { RenderQueue.render(context, clip); notifier.show("Klip masuk antrean render.") }
-                })
-            }
+            item(key = "agenda-$selected") { DaySection(selected, byDay[selected].orEmpty(), now, onOpenSchedule) { pickFor = it.toEpochDay() } }
+            queueView(container, d, onSchedule = { onNewSchedule(it, null) }, onAutoFill = {
+                scope.launch {
+                    val outcome = container.scheduler.autoFill()
+                    banner = outcome.banner
+                    outcome.firstDate?.let { selectedDay = it.toEpochDay() }
+                }
+            }, onOpenAccounts = onOpenAccounts, onRender = { clip ->
+                scope.launch { RenderQueue.render(context, clip); notifier.show("Klip masuk antrean render.") }
+            })
         }
     }
 
@@ -244,33 +254,60 @@ private fun OverdueCard(overdue: List<ScheduleView>, onOpen: (Long) -> Unit, onR
     }
 }
 
-/** Navigasi minggu/bulan: ‹ periode › dan Hari ini. */
+/** Navigasi periode: ‹ label › dan Hari ini; ketuk label untuk membuka/menutup kalender bulan. */
 @Composable
-private fun PeriodNav(label: String, onShift: (Int) -> Unit, onToday: (() -> Unit)?) {
-    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-        IconCircle(ClipMiIcons.Back, "Sebelumnya", { onShift(-1) }, size = 40.dp)
-        Text(label, style = MaterialTheme.typography.titleMedium, color = ClipMi.colors.text, textAlign = TextAlign.Center, modifier = Modifier.weight(1f))
-        IconCircle(ClipMiIcons.Chevron, "Berikutnya", { onShift(1) }, size = 40.dp)
-        onToday?.let { GhostButton("Hari ini", it) }
+private fun PeriodNav(label: String, monthOpen: Boolean, onToggle: () -> Unit, onShift: (Int) -> Unit, onToday: () -> Unit) {
+    val c = ClipMi.colors
+    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+        Row(
+            Modifier.weight(1f).clip(RoundedCornerShape(12.dp)).clickable(onClickLabel = if (monthOpen) "Tampilkan minggu" else "Tampilkan bulan", onClick = onToggle).padding(horizontal = 4.dp, vertical = 8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+        ) {
+            Text(label, style = MaterialTheme.typography.titleMedium, color = c.text)
+            Icon(ClipMiIcons.Chevron, null, tint = c.textMuted, modifier = Modifier.size(16.dp).rotate(if (monthOpen) -90f else 90f))
+        }
+        IconCircle(ClipMiIcons.Back, "Sebelumnya", { onShift(-1) }, size = 36.dp, background = Color.Transparent, border = false)
+        IconCircle(ClipMiIcons.Chevron, "Berikutnya", { onShift(1) }, size = 36.dp, background = Color.Transparent, border = false)
+        GhostButton("Hari ini", onToday)
     }
 }
 
-private fun LazyListScope.weekView(
-    anchor: LocalDate,
-    schedules: List<ScheduleView>,
-    now: java.time.LocalDateTime,
-    onShift: (Int) -> Unit,
-    onToday: () -> Unit,
-    onOpen: (Long) -> Unit,
-    onAdd: (LocalDate) -> Unit,
-) {
-    val (start, end) = Schedules.weekRange(anchor)
-    val label = if (start.month == end.month) "${start.dayOfMonth} – ${IdDate.dayMonth(end)} ${end.year}" else "${IdDate.dayMonth(start)} – ${IdDate.dayMonth(end)} ${end.year}"
-    item(key = "week-nav") { PeriodNav(label, onShift, onToday) }
-    val byDay = schedules.groupBy { it.at.toLocalDate() }
-    for (offset in 0..6) {
-        val day = start.plusDays(offset.toLong())
-        item(key = "day-$day") { DaySection(day, byDay[day].orEmpty(), now, onOpen, onAdd) }
+/** Tujuh hari mendatar (Sen–Min): tanggal, titik warna akun yang punya jadwal, hari terpilih disorot. */
+@Composable
+private fun WeekStrip(start: LocalDate, selected: LocalDate, byDay: Map<LocalDate, List<ScheduleView>>, onSelect: (LocalDate) -> Unit) {
+    val c = ClipMi.colors
+    val today = LocalDate.now()
+    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+        for (i in 0..6) {
+            val day = start.plusDays(i.toLong())
+            val isSelected = day == selected
+            val dots = byDay[day].orEmpty().flatMap { s -> s.targets.map { it.account.color } }.distinct().take(3)
+            Column(
+                Modifier.weight(1f).clip(RoundedCornerShape(16.dp))
+                    .background(if (isSelected) c.accent else c.card)
+                    .border(1.dp, if (isSelected) c.accent else c.line, RoundedCornerShape(16.dp))
+                    .clickable { onSelect(day) }
+                    .padding(vertical = 8.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(2.dp),
+            ) {
+                Text(IdDate.WEEKDAYS_SHORT[i], style = MaterialTheme.typography.labelSmall, color = if (isSelected) c.onAccent else c.textMuted)
+                Text(
+                    day.dayOfMonth.toString(),
+                    style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.ExtraBold),
+                    color = when {
+                        isSelected -> c.onAccent
+                        day == today -> c.accent
+                        day.isBefore(today) -> c.textMuted
+                        else -> c.text
+                    },
+                )
+                Row(Modifier.height(6.dp), horizontalArrangement = Arrangement.spacedBy(2.dp)) {
+                    dots.forEach { AccountDot(if (isSelected) "#FFFFFF" else it, 5.dp) }
+                }
+            }
+        }
     }
 }
 
@@ -281,61 +318,46 @@ private fun DaySection(day: LocalDate, schedules: List<ScheduleView>, now: java.
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             Text(
-                "${IdDate.WEEKDAYS[day.dayOfWeek.value - 1]}, ${IdDate.dayMonth(day)}",
+                (if (today) "Hari ini · " else "") + "${IdDate.WEEKDAYS[day.dayOfWeek.value - 1]}, ${IdDate.dayMonth(day)}",
                 style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
                 color = if (today) c.accent else c.textBody,
+                modifier = Modifier.weight(1f),
             )
-            if (today) StatusBadge("Hari ini", Tone.Good)
-            Spacer(Modifier.weight(1f))
-            // Hari yang sudah lewat tanpa tombol tambah, tetapi tinggi barisnya sama.
-            if (!day.isBefore(LocalDate.now())) IconCircle(ClipMiIcons.Plus, "Jadwalkan klip di hari ini", { onAdd(day) }, size = 32.dp, background = Color.Transparent)
-            else Spacer(Modifier.size(32.dp))
+            if (!day.isBefore(LocalDate.now())) ActionChip("Jadwalkan", { onAdd(day) }, icon = ClipMiIcons.Plus, height = 34.dp)
         }
         if (schedules.isEmpty()) {
-            Text("Belum ada jadwal", style = MaterialTheme.typography.bodySmall, color = c.textMuted, modifier = Modifier.padding(start = 2.dp, bottom = 4.dp))
+            Text("Belum ada jadwal di hari ini.", style = MaterialTheme.typography.bodySmall, color = c.textMuted, modifier = Modifier.padding(start = 2.dp, bottom = 4.dp))
         }
-        schedules.forEach { ScheduleRow(it, now) { onOpen(it.id) } }
+        schedules.sortedBy { it.at }.forEach { ScheduleRow(it, now) { onOpen(it.id) } }
     }
 }
 
-/** Satu jadwal di kalender: jam, judul, titik akun, dan status. */
+/** Satu jadwal di agenda: gambar kecil, jam, judul, titik akun, dan status. */
 @Composable
 fun ScheduleRow(s: ScheduleView, now: java.time.LocalDateTime, onClick: () -> Unit) {
     val c = ClipMi.colors
-    ClipMiCard(onClick = onClick, padding = PaddingValues(12.dp)) {
+    ClipMiCard(onClick = onClick, padding = PaddingValues(10.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-            Text(IdDate.time(s.at), style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.ExtraBold), color = c.text, modifier = Modifier.width(52.dp))
-            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            ClipThumb(s.clip, Modifier.width(36.dp).height(64.dp))
+            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text(IdDate.time(s.at), style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.ExtraBold), color = c.text)
+                    when {
+                        s.state == ScheduleState.Published -> StatusBadge("Terbit", Tone.Good)
+                        s.isOverdue(now) -> StatusBadge("Terlewat", Tone.Bad)
+                        s.state == ScheduleState.Partial -> StatusBadge("Sebagian", Tone.Busy)
+                        else -> Unit
+                    }
+                }
                 Text(s.title, style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.SemiBold), color = c.text, maxLines = 2, overflow = TextOverflow.Ellipsis)
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                     s.targets.forEach { AccountDot(it.account.color, 8.dp) }
                     Text(s.targets.joinToString(", ") { it.account.name }, style = MaterialTheme.typography.bodySmall, color = c.textMuted, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 }
             }
-            when {
-                s.state == ScheduleState.Published -> StatusBadge("Terbit", Tone.Good)
-                s.isOverdue(now) -> StatusBadge("Terlewat", Tone.Bad)
-                s.state == ScheduleState.Partial -> StatusBadge("Sebagian", Tone.Busy)
-                else -> StatusBadge("Terjadwal", Tone.Idle)
-            }
+            Icon(ClipMiIcons.Chevron, null, tint = c.textMuted, modifier = Modifier.size(18.dp))
         }
     }
-}
-
-private fun LazyListScope.monthView(
-    anchor: LocalDate,
-    selected: LocalDate,
-    schedules: List<ScheduleView>,
-    now: java.time.LocalDateTime,
-    onShift: (Int) -> Unit,
-    onSelect: (LocalDate) -> Unit,
-    onOpen: (Long) -> Unit,
-    onAdd: (LocalDate) -> Unit,
-) {
-    item(key = "month-nav") { PeriodNav(IdDate.monthYear(anchor), onShift, null) }
-    val byDay = schedules.groupBy { it.at.toLocalDate() }
-    item(key = "month-grid") { MonthGrid(anchor, selected, byDay, onSelect) }
-    item(key = "month-day") { DaySection(selected, byDay[selected].orEmpty(), now, onOpen, onAdd) }
 }
 
 @Composable
@@ -394,43 +416,65 @@ private fun LazyListScope.queueView(
     val queue = d.clips.filter { it.render == RenderStatus.Done && it.outputPath != null && it.id !in d.scheduledClipIds }
         .sortedByDescending { it.renderedAt ?: 0 }
     val waiting = d.clips.filter { it.review == ReviewStatus.Selected && it.render != RenderStatus.Done }.sortedByDescending { it.updatedAt }
-    item(key = "autofill") {
-        ClipMiCard {
-            if (d.hasSlots) {
-                Text("Isi otomatis", style = MaterialTheme.typography.titleMedium, color = ClipMi.colors.text)
-                Text("Klip antrean dibagikan ke slot rutin akun yang masih kosong, ${QueueFiller.DAYS} hari ke depan. Klip seri tetap berurutan.", style = MaterialTheme.typography.bodySmall, color = ClipMi.colors.textMuted)
-                PrimaryButton("Isi otomatis", onAutoFill, enabled = queue.isNotEmpty(), icon = ClipMiIcons.Sparkle, modifier = Modifier.fillMaxWidth())
-            } else {
-                Text("Slot rutin belum diatur", style = MaterialTheme.typography.titleMedium, color = ClipMi.colors.text)
-                Text("Atur jam posting rutin tiap akun (misalnya 19.00 setiap hari) supaya antrean bisa dijadwalkan sekaligus.", style = MaterialTheme.typography.bodySmall, color = ClipMi.colors.textMuted)
-                SecondaryButton("Atur slot", onOpenAccounts, height = 40.dp)
-            }
+    // Antrean di bawah agenda (bukan tab terpisah): klip siap unggah yang belum dijadwalkan, dengan Isi otomatis.
+    if (queue.isEmpty() && waiting.isEmpty()) return
+    item(key = "queue-label") {
+        Row(Modifier.padding(top = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+            Text(if (queue.isEmpty()) "Antrean" else "Antrean · ${queue.size} siap dijadwalkan", style = MaterialTheme.typography.titleSmall, color = ClipMi.colors.textBody, modifier = Modifier.weight(1f))
         }
     }
-    item(key = "queue-label") { Text("Siap dijadwalkan (${queue.size})", style = MaterialTheme.typography.titleSmall, color = ClipMi.colors.textBody) }
-    if (queue.isEmpty()) {
-        item(key = "queue-empty") {
-            Text("Semua klip yang sudah dirender sudah dijadwalkan.", style = MaterialTheme.typography.bodySmall, color = ClipMi.colors.textMuted)
+    if (queue.isNotEmpty()) {
+        item(key = "autofill") {
+            ClipMiCard(padding = PaddingValues(horizontal = 14.dp, vertical = 12.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Text(
+                        if (d.hasSlots) "Bagikan antrean ke slot rutin yang kosong, ${QueueFiller.DAYS} hari ke depan. Seri tetap berurutan."
+                        else "Atur jam posting rutin tiap akun supaya antrean bisa dijadwalkan sekaligus.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = ClipMi.colors.textMuted,
+                        modifier = Modifier.weight(1f),
+                    )
+                    if (d.hasSlots) PrimaryButton("Isi otomatis", onAutoFill, icon = ClipMiIcons.Sparkle, height = 40.dp)
+                    else SecondaryButton("Atur slot", onOpenAccounts, height = 40.dp)
+                }
+            }
         }
     }
     items(queue, key = { "q-${it.id}" }) { clip ->
         QueueCard(clip, d.projects[clip.projectId]?.title) { PrimaryButton("Jadwalkan", { onSchedule(clip.id) }, height = 40.dp, icon = ClipMiIcons.Calendar) }
     }
     if (waiting.isNotEmpty()) {
-        item(key = "waiting-label") { Text("Terpilih, belum dirender (${waiting.size})", style = MaterialTheme.typography.titleSmall, color = ClipMi.colors.textBody) }
-        items(waiting, key = { "w-${it.id}" }) { clip ->
-            QueueCard(clip, d.projects[clip.projectId]?.title) {
-                when (clip.render) {
-                    RenderStatus.Queued, RenderStatus.Rendering -> Column(Modifier.width(120.dp)) {
-                        Text(if (clip.render == RenderStatus.Queued) "Antre render" else "Merender ${clip.renderProgress ?: 0}%", style = MaterialTheme.typography.bodySmall, color = ClipMi.colors.textMuted)
-                        ProgressBar(if (clip.render == RenderStatus.Rendering) (clip.renderProgress ?: 0) / 100f else null, color = ClipMi.colors.busy)
+        // Ringkas dalam satu kartu: judul satu baris dan tombol Render kecil; render semuanya dari project.
+        item(key = "waiting") {
+            val c = ClipMi.colors
+            ClipMiCard(padding = PaddingValues(horizontal = 14.dp, vertical = 12.dp), spacing = 10.dp) {
+                Text("Terpilih, belum dirender (${waiting.size})", style = MaterialTheme.typography.titleSmall, color = c.text)
+                waiting.take(WAITING_SHOWN).forEach { clip ->
+                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                        Column(Modifier.weight(1f)) {
+                            Text(ClipText.displayTitle(clip.title, clip.partNumber), style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.SemiBold), color = c.text, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            Text(listOfNotNull(d.projects[clip.projectId]?.title, Timecode.format(clip.duration)).joinToString(" · "), style = MaterialTheme.typography.bodySmall, color = c.textMuted, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        }
+                        when (clip.render) {
+                            RenderStatus.Queued, RenderStatus.Rendering -> Text(
+                                if (clip.render == RenderStatus.Queued) "Antre" else "${clip.renderProgress ?: 0}%",
+                                style = MaterialTheme.typography.labelMedium,
+                                color = c.busy,
+                            )
+                            else -> ActionChip("Render", { onRender(clip) }, icon = ClipMiIcons.Film, height = 34.dp, enabled = d.projects[clip.projectId]?.videoPath != null)
+                        }
                     }
-                    else -> SecondaryButton("Render", { onRender(clip) }, height = 40.dp, enabled = d.projects[clip.projectId]?.videoPath != null)
+                }
+                if (waiting.size > WAITING_SHOWN) {
+                    Text("dan ${waiting.size - WAITING_SHOWN} lainnya; render dari halaman project.", style = MaterialTheme.typography.bodySmall, color = c.textMuted)
                 }
             }
         }
     }
 }
+
+/** Jumlah klip "belum dirender" yang ditampilkan di antrean. */
+private const val WAITING_SHOWN = 4
 
 @Composable
 private fun QueueCard(clip: ClipEntity, project: String?, action: @Composable () -> Unit) {

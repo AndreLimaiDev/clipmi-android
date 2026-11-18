@@ -92,15 +92,18 @@ fun SettingsScreen(
     if (editingYoutubeKey) YoutubeKeySheet(container, hasYoutubeKey, onDone = { editingYoutubeKey = false; hasYoutubeKey = container.settings.hasYoutubeKey() })
 
     Column(
-        Modifier.fillMaxSize().verticalScroll(rememberScrollState()).statusBarsPadding().padding(start = ScreenGutter, end = ScreenGutter, top = 20.dp, bottom = FloatingNavSpace + 16.dp),
+        Modifier.fillMaxSize().verticalScroll(rememberScrollState()).statusBarsPadding().padding(start = ScreenGutter, end = ScreenGutter, top = 12.dp, bottom = FloatingNavSpace + 16.dp),
         verticalArrangement = Arrangement.spacedBy(18.dp),
     ) {
         ScreenHeader("Pengaturan")
 
-        SettingsGroup("AI") {
+        SettingsGroup("AI & transkrip") {
             SettingsRow("Analisis AI", analysis?.first, onClick = onOpenAnalysis, trailing = { analysis?.let { ReadyBadge(it.second) } })
             GroupDivider()
             SettingsRow("Transkripsi API", transcription?.first, onClick = onOpenTranscription, trailing = { transcription?.let { ReadyBadge(it.second) } })
+            GroupDivider()
+            val active = corrections.count { it.isActive }
+            SettingsRow("Kamus koreksi", if (corrections.isEmpty()) "Kosong · tambahkan istilah yang sering salah" else "$active kata aktif · diterapkan otomatis", onClick = onOpenCorrections)
             GroupDivider()
             SettingsRow("Pemakaian AI", if (usages.isEmpty()) "Belum ada pemakaian" else "${usages.size} pemakaian tercatat", onClick = onOpenUsage)
         }
@@ -118,23 +121,14 @@ fun SettingsScreen(
                 if (bumpers.isEmpty()) "Belum ada video pembuka/penutup" else "${bumpers.count { it.kind == "intro" }} intro · ${bumpers.count { it.kind == "outro" }} outro",
                 onClick = onOpenBumpers,
             )
-        }
-
-        SettingsGroup("Transkrip") {
-            val active = corrections.count { it.isActive }
-            SettingsRow("Kamus koreksi", if (corrections.isEmpty()) "Kosong · tambahkan istilah yang sering salah" else "$active kata aktif · diterapkan otomatis", onClick = onOpenCorrections)
-        }
-
-        SettingsGroup("Render") {
+            GroupDivider()
             SwitchRow("Rapikan audio saat render", "Buang dengung, kurangi noise ringan, samakan kekerasan ke -14 LUFS.", enhanceAudio, onCheckedChange = { on ->
                 enhanceAudio = on
                 scope.launch { container.settings.setEnhanceAudio(on) }
             })
-            GroupDivider()
-            SettingsRow("Hasil render", "Galeri › Movies/ClipMI/<judul project>", onClick = onOpenResults)
         }
 
-        SettingsGroup("Statistik") {
+        SettingsGroup("Jadwal & statistik") {
             SettingsRow(
                 "YouTube Data API",
                 if (hasYoutubeKey) "Key tersimpan · statistik YouTube lewat API resmi" else "Opsional · tanpa key, YouTube dibaca lewat yt-dlp",
@@ -144,6 +138,8 @@ fun SettingsScreen(
         }
 
         SettingsGroup("Data") {
+            SettingsRow("Hasil render", "Galeri › Movies/ClipMI/<judul project>", onClick = onOpenResults)
+            GroupDivider()
             SettingsRow("Data & penyimpanan", "Ruang HP, video sumber, cadangan, dan Paket Standar Tim", onClick = onOpenData)
         }
 
@@ -167,14 +163,15 @@ fun SettingsScreen(
                     })
                 },
             )
-            GroupDivider()
-            SettingsRow("Uji Fase 0", "Uji teknis yt-dlp, libass, dan render", onClick = onOpenLab)
-            GroupDivider()
-            SettingsRow(
-                "Pembaruan aplikasi",
-                if (BuildConfig.UPDATE_REPO.isNotBlank()) "Versi ${BuildConfig.VERSION_NAME} · periksa rilis baru di GitHub" else "Versi ${BuildConfig.VERSION_NAME} · pembaruan dalam aplikasi belum aktif di build ini",
-                onClick = if (BuildConfig.UPDATE_REPO.isNotBlank()) ({ checkingUpdate = true }) else null,
-            )
+            // Pembaruan dalam aplikasi hanya tampil di build yang punya repo rilis; alat uji hanya di build debug.
+            if (BuildConfig.UPDATE_REPO.isNotBlank()) {
+                GroupDivider()
+                SettingsRow("Pembaruan aplikasi", "Versi ${BuildConfig.VERSION_NAME} · periksa rilis baru", onClick = { checkingUpdate = true })
+            }
+            if (BuildConfig.DEBUG) {
+                GroupDivider()
+                SettingsRow("Uji Fase 0", "Alat pengembang: uji yt-dlp, libass, dan render", onClick = onOpenLab)
+            }
             GroupDivider()
             SettingsRow("Tentang ClipMI", "Versi ${BuildConfig.VERSION_NAME} · data hanya di HP ini · huruf Plus Jakarta Sans (OFL)")
         }

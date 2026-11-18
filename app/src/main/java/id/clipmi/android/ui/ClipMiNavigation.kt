@@ -146,7 +146,7 @@ fun ClipMiNavigation(container: AppContainer, shared: SharedResult?, onSharedHan
             NavHost(nav, startDestination = ProjectRoute, modifier = Modifier.fillMaxSize()) {
                 composable<ProjectRoute> { ProjectListScreen(container, onOpen = { nav.navigate(ProjectDetailRoute(it)) }, onOpenResults = { nav.navigate(ResultsRoute) }) }
                 composable<ProjectDetailRoute> {
-                    ProjectDetailScreen(container, it.toRoute<ProjectDetailRoute>().id, onBack = { nav.popBackStack() }, onOpenEditor = { clip -> nav.navigate(EditorRoute(clip)) })
+                    ProjectDetailScreen(container, it.toRoute<ProjectDetailRoute>().id, onBack = { nav.popBackStack() }, onOpenEditor = { clip -> nav.navigate(EditorRoute(clip)) }, onSchedule = { clip -> nav.navigate(ScheduleEditRoute(clipId = clip)) })
                 }
                 composable<EditorRoute> { EditorScreen(container, it.toRoute<EditorRoute>().clipId, onClose = { nav.popBackStack() }) }
                 composable<ScheduleRoute> {

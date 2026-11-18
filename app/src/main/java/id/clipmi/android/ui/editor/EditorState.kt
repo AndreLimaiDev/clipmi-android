@@ -11,6 +11,8 @@ import id.clipmi.android.data.ClipEntity
 import id.clipmi.android.data.FrameStyleEntity
 import id.clipmi.android.data.ProjectEntity
 import id.clipmi.android.domain.FontMeasurer
+import id.clipmi.android.domain.decodeSpeakerTrack
+import id.clipmi.android.domain.encodeSpeakerTrack
 import id.clipmi.android.domain.toCore
 import id.clipmi.core.analysis.Keywords
 import id.clipmi.core.render.AssWriter
@@ -25,6 +27,7 @@ import id.clipmi.core.render.HookLayout
 import id.clipmi.core.render.PreviewTracks
 import id.clipmi.core.render.Range
 import id.clipmi.core.render.SegmentWords
+import id.clipmi.core.render.SpeakerTrackData
 import id.clipmi.core.render.SubtitleEdits
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -56,6 +59,8 @@ data class EditorSnapshot(
     val coverInVideo: Boolean = true,
     val introId: Long? = null,
     val outroId: Long? = null,
+    /** Posisi crop manual per adegan saat mengikuti pembicara (waktu project). */
+    val speakerManual: List<SpeakerTrackData.ManualPosition> = emptyList(),
 ) {
     val hasCover: Boolean get() = coverTime != null || coverPath != null
 }
@@ -89,6 +94,9 @@ class EditorState(
     private val core = ClipRender(AssWriter(FontMeasurer(fonts)))
     val thumbnail: File? = container.workspace.file(project.thumbnailPath)
 
+    /** Ukuran video pratinjau (untuk posisi crop tetap dari jalur pembicara). */
+    val sourceSize: Pair<Int, Int>? by lazy { id.clipmi.android.domain.MediaInfo.videoSize(source) }
+
     fun fontsDir(): File = fonts
 
     var snapshot by mutableStateOf(initial)
@@ -109,6 +117,63 @@ class EditorState(
         private set
 
     val projectDuration: Double? get() = project.durationSeconds
+
+    /** Hasil deteksi pembicara klip ini (dari database atau deteksi di editor); null = belum pernah dideteksi. */
+    var speakerBase by mutableStateOf(decodeSpeakerTrack(entity.speakerTrack))
+        private set
+
+    /** Progres deteksi pembicara 0–1; null = tidak sedang mendeteksi. */
+    var speakerProgress by mutableStateOf<Float?>(null)
+        private set
+    var speakerError by mutableStateOf<String?>(null)
+        private set
+    private var speakerJob: Job? = null
+    private var trackCache: Pair<Triple<Double, Double, Any?>, SpeakerTrackData?>? = null
+
+    /** Klip mengikuti pembicara: tanpa posisi crop sendiri dan gaya bingkainya memotong video. */
+    fun followsSpeaker(s: EditorSnapshot = snapshot): Boolean = s.cropPosition == null && frameStyle().usesCropPosition()
+
+    /** Jalur pembicara untuk rentang dan posisi manual [s]; null bila hasil deteksi tidak mencakup rentang klip. */
+    fun speakerTrack(s: EditorSnapshot = snapshot): SpeakerTrackData? {
+        val base = speakerBase ?: return null
+        val key = Triple(s.clip.startTime, s.clip.endTime, base to s.speakerManual)
+        trackCache?.let { (k, v) -> if (k == key) return v }
+        val track = if (base.covers(s.clip.startTime, s.clip.endTime)) base.copy(manual = s.speakerManual).retarget(s.clip.startTime, s.clip.endTime) else null
+        trackCache = key to track
+        return track
+    }
+
+    fun speakerKeyframes(s: EditorSnapshot = snapshot): List<List<Double>>? =
+        if (followsSpeaker(s)) speakerTrack(s)?.keyframes?.takeIf { it.isNotEmpty() } else null
+
+    /** Yang disimpan di kolom speaker_track: jalur rentang ini, atau hasil deteksi lama (perlu dideteksi ulang). */
+    private fun storedTrack(s: EditorSnapshot): SpeakerTrackData? = speakerTrack(s) ?: speakerBase?.copy(manual = s.speakerManual)
+
+    /** Perlu dideteksi: mengikuti pembicara tetapi hasil deteksi belum mencakup rentang klip. */
+    fun needsSpeakerDetection(s: EditorSnapshot = snapshot): Boolean = followsSpeaker(s) && speakerTrack(s) == null
+
+    /** Mendeteksi pembicara di rentang klip saat ini; posisi manual yang masih di dalam rentang tetap dipakai. */
+    fun detectSpeaker() {
+        if (speakerJob?.isActive == true) return
+        val s = snapshot
+        speakerError = null
+        speakerProgress = 0f
+        speakerJob = scope.launch {
+            try {
+                val result = container.speakers.detect(entitySnapshot(s), project, s.clip.startTime, s.clip.endTime, s.speakerManual) { speakerProgress = it }
+                speakerBase = result
+                // Hasil deteksi bukan langkah urungkan; posisi manual di luar rentang dibuang.
+                snapshot = snapshot.copy(speakerManual = result.manual)
+                persist()
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                speakerError = e.message ?: e.javaClass.simpleName
+            } finally {
+                speakerProgress = null
+            }
+        }
+    }
 
     /**
      * Gaya yang sedang diedit di sheet "Edit gaya" (belum disimpan): pratinjau langsung memakainya. Null = memakai gaya
@@ -162,6 +227,7 @@ class EditorState(
         frame = frameStyle(),
         introSeconds = s.introId?.let { id -> bumpers.firstOrNull { it.id == id } }?.duration,
         outroSeconds = s.outroId?.let { id -> bumpers.firstOrNull { it.id == id } }?.duration,
+        speakerKeyframes = speakerKeyframes(s),
     )
 
     /** Klip dengan isian editor saat ini (untuk sampul: kuncinya ikut berubah begitu tampilan berubah). */
@@ -170,6 +236,7 @@ class EditorState(
         showHookOverlay = s.showHookOverlay, hookLayout = s.hookLayout?.toString(), captionStyleId = s.captionStyleId, frameStyleId = s.frameStyleId,
         cropPosition = s.cropPosition, cropZoom = s.cropZoom, cropY = s.cropY, coverTime = s.coverTime, coverPath = s.coverPath,
         coverTitle = s.coverTitle, coverInVideo = s.coverInVideo, introId = s.introId, outroId = s.outroId,
+        speakerTrack = storedTrack(s)?.let(::encodeSpeakerTrack),
     )
 
     fun composition() = core.composition(spec())
@@ -249,6 +316,7 @@ class EditorState(
                     s.keywords.takeIf { it.isNotEmpty() }?.let { container.analysis.encodeList(it) },
                     s.coverTime, s.coverPath, s.coverTitle, s.coverInVideo, s.introId, s.outroId,
                 )
+                if (speakerBase != null) container.speakers.save(entity.id, storedTrack(s))
             }
         }
     }
@@ -300,6 +368,7 @@ class EditorState(
                 coverInVideo = clip.coverInVideo,
                 introId = clip.introId,
                 outroId = clip.outroId,
+                speakerManual = decodeSpeakerTrack(clip.speakerTrack)?.manual.orEmpty(),
             )
             return EditorState(container, scope, clip, project, container.renderer.segments(project.id), source, snapshot)
         }

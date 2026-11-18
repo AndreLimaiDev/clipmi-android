@@ -62,6 +62,7 @@ import id.clipmi.android.work.RenderQueue
 import id.clipmi.android.data.TranscriptSegmentEntity
 import id.clipmi.android.data.TranscriptStatus
 import id.clipmi.android.data.VideoStatus
+import id.clipmi.android.ui.components.ActionChip
 import id.clipmi.android.ui.components.ChipRow
 import id.clipmi.android.ui.components.ClipMiCard
 import id.clipmi.android.ui.components.ConfirmDialog
@@ -92,7 +93,7 @@ import kotlinx.coroutines.launch
 private data class Confirm(val title: String, val body: String, val label: String, val danger: Boolean = false, val action: suspend () -> Unit)
 
 @Composable
-fun ProjectDetailScreen(container: AppContainer, projectId: Long, onBack: () -> Unit, onOpenEditor: (Long) -> Unit = {}) {
+fun ProjectDetailScreen(container: AppContainer, projectId: Long, onBack: () -> Unit, onOpenEditor: (Long) -> Unit = {}, onSchedule: (Long) -> Unit = {}) {
     val project by container.database.projects().observe(projectId).collectAsState(initial = null)
     val segments by container.database.segments().observe(projectId).collectAsState(initial = emptyList())
     val clips by container.database.clips().observe(projectId).collectAsState(initial = emptyList())
@@ -200,7 +201,7 @@ fun ProjectDetailScreen(container: AppContainer, projectId: Long, onBack: () -> 
             item {
                 Column(Modifier.padding(start = ScreenGutter, end = ScreenGutter, top = 16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                        Text(p.title, style = MaterialTheme.typography.titleLarge, color = c.text)
+                        Text(p.title, style = MaterialTheme.typography.titleMedium, color = c.text, maxLines = 3, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
                         val source = TranscriptSource.from(p.transcriptSource)
                         Text(
                             listOfNotNull(
@@ -223,28 +224,28 @@ fun ProjectDetailScreen(container: AppContainer, projectId: Long, onBack: () -> 
             }
 
             if (tab == 1) {
-                item { ClipsTab(container, p, segments.isNotEmpty(), playRange, onOpenEditor) }
+                item { ClipsTab(container, p, segments.isNotEmpty(), playRange, onOpenEditor, onSchedule) }
                 return@LazyColumn
             }
 
             item {
                 ChipRow(Modifier.padding(top = 12.dp)) {
-                    FilterPill("Impor SRT/VTT", selected = false, height = 32.dp, onClick = {
+                    ActionChip("Impor SRT/VTT", height = 32.dp, onClick = {
                         val open = { pickSubtitle.launch(arrayOf("application/x-subrip", "text/vtt", "text/plain", "application/octet-stream", "*/*")) }
                         if (segments.isEmpty()) open()
                         else confirm = Confirm("Ganti transkrip?", "Transkrip sekarang (${segments.size} segmen) diganti isi file subtitle.", "Pilih file") { open() }
                     })
                     // Transkripsi API sedang berjalan/menunggu (pengambilan subtitle YouTube tidak memakai pesan ini).
                     if (p.transcript == TranscriptStatus.Fetching && p.transcriptionMessage != null && p.video == VideoStatus.Ready) {
-                        FilterPill("Batalkan transkripsi", selected = false, height = 32.dp, onClick = {
+                        ActionChip("Batalkan transkripsi", height = 32.dp, onClick = {
                             scope.launch {
                                 val restore = if (segments.isNotEmpty()) TranscriptStatus.Ready else TranscriptStatus.NeedsTranscript
                                 container.actions.cancelTranscription(projectId, restore)
                             }
                         })
                     } else {
-                        FilterPill(
-                            "Transkripsi API", selected = false, height = 32.dp,
+                        ActionChip(
+                            "Transkripsi API", height = 32.dp,
                             enabled = p.video == VideoStatus.Ready && transcriptionReady,
                             onClick = {
                                 val start: suspend () -> Unit = { container.actions.startTranscription(projectId) }
@@ -258,7 +259,7 @@ fun ProjectDetailScreen(container: AppContainer, projectId: Long, onBack: () -> 
                             },
                         )
                     }
-                    FilterPill("Terapkan kamus", selected = false, height = 32.dp, enabled = segments.isNotEmpty(), onClick = {
+                    ActionChip("Terapkan kamus", height = 32.dp, enabled = segments.isNotEmpty(), onClick = {
                         scope.launch {
                             val count = container.transcripts.applyCorrections(projectId)
                             notifier.show(if (count > 0) "$count kata dikoreksi kamus." else "Tidak ada kata yang perlu dikoreksi.")

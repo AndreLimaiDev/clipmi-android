@@ -35,6 +35,7 @@ import id.clipmi.android.AppContainer
 import id.clipmi.android.data.PerformanceReportEntity
 import id.clipmi.android.domain.PerformanceReports
 import id.clipmi.android.domain.Wall
+import id.clipmi.android.ui.components.ActionChip
 import id.clipmi.android.ui.components.ChipRow
 import id.clipmi.android.ui.components.ClipMiCard
 import id.clipmi.android.ui.components.ClipMiSheet
@@ -249,9 +250,9 @@ private fun ReportView(report: PerformanceReportEntity, onRetry: () -> Unit, onD
                                 FlowRow(Modifier.padding(start = 12.dp), horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                                     ids.forEach { id ->
                                         val post = posts[id]
-                                        FilterPill(
+                                        ActionChip(
                                             if (post != null) "$id · ${PerformancePrompt.number(post.num("metric"))}" else id,
-                                            selected = false, height = 30.dp, enabled = post != null,
+                                            height = 30.dp, enabled = post != null,
                                             onClick = { post?.let(onEvidence) },
                                         )
                                     }

@@ -238,6 +238,11 @@ data class ClipEntity(
     @ColumnInfo(name = "cover_in_video", defaultValue = "1") val coverInVideo: Boolean = true,
     @ColumnInfo(name = "intro_id") val introId: Long? = null,
     @ColumnInfo(name = "outro_id") val outroId: Long? = null,
+    /**
+     * Jalur "ikuti penceramah" (JSON sama dengan desktop: {"start","end","keyframes"}), ditambah "cuts" (potongan kamera)
+     * dan "manual" (posisi yang diatur sendiri per adegan). Berlaku bila crop_position null dan rentangnya cocok.
+     */
+    @ColumnInfo(name = "speaker_track") val speakerTrack: String? = null,
     @ColumnInfo(name = "created_at") val createdAt: Long = System.currentTimeMillis(),
     @ColumnInfo(name = "updated_at") val updatedAt: Long = System.currentTimeMillis(),
 ) {

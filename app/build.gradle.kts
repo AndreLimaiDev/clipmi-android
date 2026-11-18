@@ -20,6 +20,8 @@ val signing = rootProject.file("signing.properties").takeIf { it.isFile }?.let {
 val updateRepo = providers.gradleProperty("clipmi.updateRepo").getOrElse("")
 
 android {
+    // Model LiteRT dibaca langsung dari APK.
+    androidResources { noCompress += "tflite" }
     namespace = "id.clipmi.android"
     compileSdk = 37
     ndkVersion = "30.0.16248370"
@@ -131,6 +133,8 @@ dependencies {
     implementation(libs.media3.muxer)
     implementation(libs.media3.ui)
     implementation(libs.okhttp)
+    // Deteksi wajah "ikuti penceramah" di HP (CPU, tanpa layanan Google).
+    implementation(libs.litert)
 
     implementation(libs.kotlinx.coroutines.android)
     implementation(libs.kotlinx.serialization.json)

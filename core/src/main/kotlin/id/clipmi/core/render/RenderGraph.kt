@@ -79,9 +79,10 @@ object RenderGraph {
         val zoom = video.zoom
         val fraction = { value: Int -> Php.numberFormat(value / 100.0, 2) }
 
-        // Posisi crop tetap (jalur penceramah belum ada di HP).
+        // Posisi crop: tetap, atau mengikuti penceramah (tengah crop di posisinya, tetap di dalam gambar).
+        // Ekspresi x dievaluasi per frame dan diberi kutip karena berisi koma.
         val fixedX = "(iw-ow)*" + fraction(video.cropX)
-        val x = fixedX
+        val x = video.keyframes?.let { "'max(0,min(iw-ow,iw*(" + SpeakerTrack.expression(it) + ")-ow/2))'" } ?: fixedX
         val y = if (video.cropY == 50) "(ih-oh)/2" else "(ih-oh)*" + fraction(video.cropY)
         // Zoom pada video yang dipotong: video diskalakan lebih besar dulu, lalu dipotong seukuran area.
         val crop = { areaWidth: Int, areaHeight: Int ->

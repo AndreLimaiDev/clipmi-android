@@ -32,6 +32,8 @@ data class ClipSpec(
     val introSeconds: Double? = null,
     /** Panjang outro dari pustaka yang ikut dirender. */
     val outroSeconds: Double? = null,
+    /** Jalur "ikuti penceramah" yang berlaku (klip mengikuti penceramah dan jalurnya cocok dengan rentang klip), atau null. */
+    val speakerKeyframes: List<List<Double>>? = null,
 ) {
     /** Panjang rentang klip di video sumber, termasuk bagian yang dibuang. */
     fun duration(): Double = Php.round(endTime - startTime, 3)
@@ -95,7 +97,7 @@ data class PreviewTracks(val width: Int, val height: Int, val subs: String, val 
 class ClipRender(private val ass: AssWriter) {
 
     fun composition(clip: ClipSpec, source: Pair<Int, Int>? = null): Composition =
-        Composition.make(clip.frame, source, clip.effectiveCropPosition(), clip.effectiveZoom(), clip.effectiveCropY())
+        Composition.make(clip.frame, source, clip.effectiveCropPosition(), clip.effectiveZoom(), clip.effectiveCropY(), clip.speakerKeyframes)
 
     fun lines(clip: ClipSpec, segments: List<SegmentWords>): List<SubtitleLine> =
         SubtitleBuilder.linesFor(segments, clip.startTime, clip.endTime, clip.style, clip.subtitleEdited, clip.subtitleLines)

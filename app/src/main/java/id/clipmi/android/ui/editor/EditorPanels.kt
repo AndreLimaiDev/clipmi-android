@@ -1,5 +1,7 @@
 package id.clipmi.android.ui.editor
 
+import id.clipmi.core.render.SpeakerTrack
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.foundation.shape.CircleShape
 import id.clipmi.android.ui.theme.ClipMiIcons
 import androidx.compose.material3.Icon
@@ -66,6 +68,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import id.clipmi.android.data.CaptionStyleEntity
 import id.clipmi.android.data.FrameStyleEntity
+import id.clipmi.android.ui.components.ActionChip
 import id.clipmi.android.ui.components.ChipRow
 import id.clipmi.android.ui.components.ClipMiSheet
 import id.clipmi.android.ui.components.ClipMiSwitch
@@ -213,9 +216,9 @@ fun TrimPanel(state: EditorState, position: Double, seek: (Double) -> Unit) {
         EdgeRow("Selesai", clip.endTime) { delta -> state.applyClip { editor.nudge(it, "end", delta) }; seek(maxOf(state.snapshot.clip.startTime, state.snapshot.clip.endTime - 1.5)) }
 
         ChipRow(gutter = 0.dp) {
-            FilterPill("Tempel ke batas kata", selected = false, height = 36.dp, onClick = { state.applyClip { editor.snapToWords(it) } })
-            FilterPill("+ Kalimat sebelum", selected = false, height = 36.dp, enabled = editor.neighbour(clip, "before") != null, onClick = { state.applyClip { editor.extend(it, "before") } })
-            FilterPill("+ Kalimat sesudah", selected = false, height = 36.dp, enabled = editor.neighbour(clip, "after") != null, onClick = { state.applyClip { editor.extend(it, "after") } })
+            ActionChip("Tempel ke batas kata", height = 36.dp, onClick = { state.applyClip { editor.snapToWords(it) } })
+            ActionChip("+ Kalimat sebelum", height = 36.dp, enabled = editor.neighbour(clip, "before") != null, onClick = { state.applyClip { editor.extend(it, "before") } })
+            ActionChip("+ Kalimat sesudah", height = 36.dp, enabled = editor.neighbour(clip, "after") != null, onClick = { state.applyClip { editor.extend(it, "after") } })
         }
 
         val spec = state.spec()
@@ -237,7 +240,7 @@ private fun EdgeRow(label: String, time: Double, onNudge: (Double) -> Unit) {
             Text(precise(time), style = MaterialTheme.typography.titleSmall, color = c.text)
         }
         for (delta in listOf(-0.5, -0.1, 0.1, 0.5)) {
-            FilterPill((if (delta > 0) "+" else "−") + seconds(abs(delta)), selected = false, height = 36.dp, onClick = { onNudge(delta) }, modifier = Modifier.weight(1f))
+            ActionChip((if (delta > 0) "+" else "−") + seconds(abs(delta)), height = 36.dp, onClick = { onNudge(delta) }, modifier = Modifier.weight(1f))
         }
     }
 }
@@ -398,20 +401,47 @@ private fun WordSheet(state: EditorState, word: EditorWord, seek: (Double) -> Un
 // ---------------------------------------------------------------------------------------------------------------
 
 @Composable
-fun CropPanel(state: EditorState) {
+fun CropPanel(state: EditorState, position: Double, seek: (Double) -> Unit) {
     val c = ClipMi.colors
     val spec = state.spec()
     val frame = spec.frame
     val zoom = state.snapshot.cropZoom ?: (frame.zoomFactor() * 100).roundToInt()
+    val follow = state.followsSpeaker()
+    val needs = state.needsSpeakerDetection()
+
+    // Ikuti pembicara tanpa hasil deteksi untuk rentang ini: dideteksi otomatis begitu tab Crop dibuka.
+    LaunchedEffect(follow, needs) {
+        if (follow && needs && state.speakerProgress == null && state.speakerError == null) state.detectSpeaker()
+    }
 
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
         PanelTitle("Crop & zoom", frame.name)
         if (!frame.usesCropPosition() && zoom <= 100) {
             Text("Bingkai \"${frame.name}\" menampilkan video utuh, jadi posisi crop hanya berlaku saat di-zoom.", style = MaterialTheme.typography.bodySmall, color = c.textMuted)
         }
-        LabeledSlider("Posisi kiri–kanan", "${spec.effectiveCropPosition()}", spec.effectiveCropPosition().toFloat(), 0f..100f, onChange = { v ->
-            state.drag { it.copy(cropPosition = v.roundToInt()) }
-        }, onDone = { state.endDrag() })
+        if (frame.usesCropPosition()) {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                Column(Modifier.weight(1f)) {
+                    Text("Ikuti pembicara", style = MaterialTheme.typography.titleSmall, color = c.text)
+                    Text(
+                        if (follow) "Crop berpindah ke orang yang sedang berbicara." else "Crop di satu posisi tetap.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = c.textMuted,
+                    )
+                }
+                ClipMiSwitch(follow) { on ->
+                    if (on) state.apply { it.copy(cropPosition = null) }
+                    else state.apply { it.copy(cropPosition = fixedPosition(state, position)) }
+                }
+            }
+        }
+        if (follow) {
+            SpeakerSection(state, position, seek)
+        } else {
+            LabeledSlider("Posisi kiri–kanan", "${spec.effectiveCropPosition()}", spec.effectiveCropPosition().toFloat(), 0f..100f, onChange = { v ->
+                state.drag { it.copy(cropPosition = v.roundToInt()) }
+            }, onDone = { state.endDrag() })
+        }
         LabeledSlider("Posisi atas–bawah", "${spec.effectiveCropY()}", spec.effectiveCropY().toFloat(), 0f..100f, onChange = { v ->
             state.drag { it.copy(cropY = v.roundToInt()) }
         }, onDone = { state.endDrag() })
@@ -420,9 +450,92 @@ fun CropPanel(state: EditorState) {
         }, onDone = { state.endDrag() })
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             SecondaryButton("Tengahkan", modifier = Modifier.weight(1f), height = 44.dp, onClick = { state.apply { it.copy(cropPosition = 50, cropY = 50) } })
-            SecondaryButton("Ikuti bingkai", modifier = Modifier.weight(1f), height = 44.dp, onClick = { state.apply { it.copy(cropPosition = null, cropY = null, cropZoom = null) } })
+            SecondaryButton("Kembali ke bawaan", modifier = Modifier.weight(1f), height = 44.dp, onClick = {
+                state.apply { it.copy(cropPosition = null, cropY = null, cropZoom = null, speakerManual = emptyList()) }
+            })
         }
     }
+}
+
+/** Status deteksi pembicara, daftar adegan, dan posisi manual adegan yang sedang tampil. */
+@Composable
+private fun SpeakerSection(state: EditorState, position: Double, seek: (Double) -> Unit) {
+    val c = ClipMi.colors
+    val progress = state.speakerProgress
+    val error = state.speakerError
+    val track = state.speakerTrack()
+    val clip = state.snapshot.clip
+    when {
+        progress != null -> Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            Text("Mendeteksi pembicara… ${(progress * 100).roundToInt()}%", style = MaterialTheme.typography.bodySmall, color = c.textBody)
+            LinearProgressIndicator(progress = { progress }, modifier = Modifier.fillMaxWidth(), color = c.accent, trackColor = c.panel)
+        }
+        error != null -> Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text("Deteksi pembicara gagal: $error", style = MaterialTheme.typography.bodySmall, color = c.bad)
+            SecondaryButton("Coba lagi", height = 40.dp, onClick = { state.detectSpeaker() })
+        }
+        track == null -> SecondaryButton("Deteksi pembicara", height = 40.dp, onClick = { state.detectSpeaker() })
+    }
+    if (track == null || progress != null) return
+
+    val shots = track.shots()
+    val current = track.shotAt(position - clip.startTime)
+    val detected = track.analysis?.samples?.any { it != null } == true
+    Text(
+        when {
+            !detected && track.manual.isEmpty() -> "Pembicara tidak terdeteksi; crop memakai posisi project. Geser video untuk mengatur tiap adegan."
+            shots.size == 1 -> "1 adegan. Geser video untuk mengatur posisinya bila meleset."
+            else -> "${shots.size} adegan (potongan kamera atau pergantian pembicara). Geser video untuk mengatur adegan yang sedang tampil."
+        },
+        style = MaterialTheme.typography.bodySmall,
+        color = c.textMuted,
+    )
+    if (shots.size > 1) {
+        val cuts = state.spec().cutRanges()
+        Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            shots.forEach { shot ->
+                val active = shot.index == current?.index
+                Column(
+                    Modifier
+                        .clip(RoundedCornerShape(12.dp))
+                        .background(if (active) c.accentSoft else c.panel)
+                        .border(1.dp, if (active) c.accent else c.line, RoundedCornerShape(12.dp))
+                        .clickable { seek(clip.startTime + shot.from + minOf(0.05, (shot.to - shot.from) / 2)) }
+                        .padding(horizontal = 12.dp, vertical = 8.dp),
+                ) {
+                    Text("Adegan ${shot.index + 1}", style = MaterialTheme.typography.labelMedium, color = if (active) c.accent else c.text)
+                    Text(
+                        Timecode.format(ClipCuts.map(cuts, clip.startTime, clip.startTime + shot.from)) + (if (shot.manual != null) " · manual" else ""),
+                        style = MaterialTheme.typography.labelSmall,
+                        color = c.textMuted,
+                    )
+                }
+            }
+        }
+    }
+    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        SecondaryButton("Otomatis lagi", modifier = Modifier.weight(1f), height = 44.dp, enabled = current?.manual != null, onClick = {
+            current?.let { shot -> state.apply { it.copy(speakerManual = track.withManual(shot, null).manual) } }
+        })
+        SecondaryButton("Deteksi ulang", modifier = Modifier.weight(1f), height = 44.dp, onClick = { state.detectSpeaker() })
+    }
+}
+
+/**
+ * Posisi crop tetap (0–100) yang menampilkan bagian video yang sama dengan jalur pembicara saat ini, supaya mematikan
+ * "Ikuti pembicara" tidak membuat crop meloncat.
+ */
+private fun fixedPosition(state: EditorState, position: Double): Int {
+    val spec = state.spec()
+    val keyframes = spec.speakerKeyframes ?: return spec.effectiveCropPosition()
+    val center = SpeakerTrack.positionAt(keyframes, position - state.snapshot.clip.startTime)
+    val (sw, sh) = state.sourceSize ?: return (center * 100).roundToInt().coerceIn(0, 100)
+    val composition = state.composition()
+    val rect = composition.video.rect ?: return (center * 100).roundToInt().coerceIn(0, 100)
+    val shown = maxOf(rect.width.toDouble() / sw, rect.height.toDouble() / sh) * composition.video.zoom
+    val dw = sw * shown
+    if (dw <= rect.width) return 50
+    return ((center * dw - rect.width / 2.0) / (dw - rect.width) * 100).roundToInt().coerceIn(0, 100)
 }
 
 @Composable

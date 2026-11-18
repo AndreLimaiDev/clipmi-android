@@ -27,6 +27,7 @@ object ClipMiIcons {
     val Plus by lazy { stroke("M12 5v14M5 12h14", width = 2.4f) }
     val Back by lazy { stroke("m15 18-6-6 6-6", width = 2.2f) }
     val Chevron by lazy { stroke("m9 18 6-6-6-6") }
+    val More by lazy { fill(circle(5f, 12f, 1.8f), circle(12f, 12f, 1.8f), circle(19f, 12f, 1.8f)) }
     val Close by lazy { stroke("M6 6l12 12M18 6 6 18", width = 2.2f) }
     val Check by lazy { stroke("m5 12 5 5L20 7", width = 2.6f) }
     val Play by lazy { fill("M8 5v14l11-7z") }

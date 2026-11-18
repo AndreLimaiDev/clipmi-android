@@ -22,6 +22,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
@@ -49,6 +50,7 @@ import id.clipmi.android.domain.MediaInfo
 import id.clipmi.android.nativebridge.AssRenderer
 import id.clipmi.core.render.ClipCuts
 import id.clipmi.core.render.Composition
+import id.clipmi.core.render.SpeakerTrack
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.android.awaitFrame
 import kotlinx.coroutines.withContext
@@ -78,8 +80,9 @@ fun EditorPreview(
     onGestureEnd: () -> Unit = {},
 ) {
     val sourceSize by produceState<Pair<Int, Int>?>(null, state.source) { value = withContext(Dispatchers.IO) { MediaInfo.videoSize(state.source) } }
-    val composition = remember(state.snapshot, state.captionStyles, state.frameStyles, state.frameDraft, sourceSize) {
-        Composition.make(state.frameStyle(), sourceSize, state.spec().effectiveCropPosition(), state.spec().effectiveZoom(), state.spec().effectiveCropY())
+    val composition = remember(state.snapshot, state.captionStyles, state.frameStyles, state.frameDraft, state.speakerBase, sourceSize) {
+        val spec = state.spec()
+        Composition.make(state.frameStyle(), sourceSize, spec.effectiveCropPosition(), spec.effectiveZoom(), spec.effectiveCropY(), spec.speakerKeyframes)
     }
     val canvas = composition.canvas
     val currentOverflow = rememberUpdatedState(overflow(composition, sourceSize))
@@ -119,7 +122,7 @@ fun EditorPreview(
                 ),
         ) {
             Background(state, composition, Modifier.fillMaxSize())
-            VideoLayer(player, composition, sourceSize, scale)
+            VideoLayer(player, composition, sourceSize, scale, state.snapshot.clip.startTime)
             AssOverlay(state, player, composition, hookTime, Modifier.fillMaxSize())
         }
     }
@@ -153,7 +156,7 @@ private fun Background(state: EditorState, composition: Composition, modifier: M
  * crop FFmpeg), "contain" = utuh di dalam area. Zoom memperbesar dari posisi yang sama.
  */
 @Composable
-private fun VideoLayer(player: ExoPlayer, composition: Composition, sourceSize: Pair<Int, Int>?, scale: Float) {
+private fun VideoLayer(player: ExoPlayer, composition: Composition, sourceSize: Pair<Int, Int>?, scale: Float, clipStart: Double) {
     val (sw, sh) = sourceSize ?: return
     val video = composition.video
     val rect = video.rect ?: return
@@ -168,7 +171,23 @@ private fun VideoLayer(player: ExoPlayer, composition: Composition, sourceSize: 
     // Sisa video di luar area dibagi sesuai posisi crop (0 = kiri/atas, 100 = kanan/bawah).
     val overflowX = maxOf(0f, dw - areaW)
     val overflowY = maxOf(0f, dh - areaH)
-    val left = rect.x + (if (dw > areaW) -overflowX * video.cropX / 100f else (areaW - dw) / 2)
+    val fixedLeft = rect.x + (if (dw > areaW) -overflowX * video.cropX / 100f else (areaW - dw) / 2)
+    // Ikuti pembicara: tengah crop mengikuti jalur pada waktu video saat ini (seperti ekspresi x filter crop render).
+    val keyframes = video.keyframes
+    var center by remember { mutableFloatStateOf(-1f) }
+    if (keyframes != null) {
+        LaunchedEffect(keyframes, clipStart) {
+            while (true) {
+                awaitFrame()
+                center = SpeakerTrack.positionAt(keyframes, player.currentPosition / 1000.0 - clipStart).toFloat()
+            }
+        }
+    }
+    fun left(): Float =
+        if (keyframes != null && dw > areaW) {
+            val c = if (center >= 0f) center else SpeakerTrack.positionAt(keyframes, player.currentPosition / 1000.0 - clipStart).toFloat()
+            rect.x - (dw * c - areaW / 2).coerceIn(0f, overflowX)
+        } else fixedLeft
     val top = rect.y + (if (dh > areaH) -overflowY * video.cropY / 100f else (areaH - dh) / 2)
     val radius = video.radius * scale
 
@@ -183,7 +202,7 @@ private fun VideoLayer(player: ExoPlayer, composition: Composition, sourceSize: 
             onRelease = { player.clearVideoTextureView(it) },
             modifier = Modifier
                 .wrapContentSize(Alignment.TopStart, unbounded = true)
-                .offset { IntOffset(((left - rect.x) * scale).roundToInt(), ((top - rect.y) * scale).roundToInt()) }
+                .offset { IntOffset(((left() - rect.x) * scale).roundToInt(), ((top - rect.y) * scale).roundToInt()) }
                 .requiredSize(with(density) { (dw * scale).toDp() }, with(density) { (dh * scale).toDp() }),
         )
     }

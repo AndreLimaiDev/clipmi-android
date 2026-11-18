@@ -43,7 +43,16 @@ class RenderWorker(context: Context, params: WorkerParameters) : CoroutineWorker
         clips.setRender(clipId, RenderStatus.Rendering.value, 0, null)
         notify(title, 0)
         return try {
-            val uri = container.renderer.render(clip) { progress ->
+            // Ikuti pembicara: posisi pembicara dideteksi dulu bila belum ada untuk rentang klip ini.
+            var lastDetect = -10
+            val ready = container.speakers.ensure(clip, container.renderer.frameStyle(clip.frameStyleId)) { fraction ->
+                val percent = (fraction * 100).toInt()
+                if (percent - lastDetect >= 5) {
+                    lastDetect = percent
+                    setForegroundAsync(foregroundInfo(applicationContext, WorkQueue.RENDER, "Mendeteksi pembicara", "$title · $percent%", percent))
+                }
+            }
+            val uri = container.renderer.render(ready) { progress ->
                 if (progress - lastProgress >= 2) {
                     lastProgress = progress
                     kotlinx.coroutines.runBlocking { clips.setRender(clipId, RenderStatus.Rendering.value, progress, null) }
