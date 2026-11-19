@@ -1,5 +1,7 @@
 package id.clipmi.android.domain
 
+import id.clipmi.core.analysis.PromptStyle
+import id.clipmi.core.analysis.PromptStyles
 import id.clipmi.android.data.SettingDao
 import id.clipmi.android.security.SecretStore
 
@@ -131,6 +133,26 @@ class Settings(private val dao: SettingDao, private val secrets: SecretStore) {
         dao.put(KEY_PROMPT_MAX_TOKENS, maxTokens?.toString())
     }
 
+    /** Gaya prompt buatan sendiri (JSON daftar [PromptStyle]); ikut cadangan karena tersimpan di database. */
+    suspend fun customPromptStyles(): List<PromptStyle> =
+        dao.get(KEY_PROMPT_STYLES)?.let { runCatching { styleJson.decodeFromString(styleList, it) }.getOrNull() }.orEmpty()
+
+    /** Semua gaya: bawaan lalu buatan sendiri. */
+    suspend fun promptStyles(): List<PromptStyle> = PromptStyles.BUILT_IN + customPromptStyles()
+
+    /** Menyimpan (menambah atau mengganti, berdasarkan id) gaya buatan sendiri. */
+    suspend fun saveCustomPromptStyle(style: PromptStyle) {
+        val list = customPromptStyles().filterNot { it.id == style.id } + style.copy(custom = true)
+        dao.put(KEY_PROMPT_STYLES, styleJson.encodeToString(styleList, list))
+    }
+
+    suspend fun deleteCustomPromptStyle(id: String) {
+        dao.put(KEY_PROMPT_STYLES, styleJson.encodeToString(styleList, customPromptStyles().filterNot { it.id == id }))
+    }
+
+    private val styleJson = kotlinx.serialization.json.Json { ignoreUnknownKeys = true; encodeDefaults = true }
+    private val styleList = kotlinx.serialization.builtins.ListSerializer(PromptStyle.serializer())
+
     /** Key Anthropic dari layar kerangka Fase 0 dipindah ke tempat key analisis (tanpa ditampilkan). */
     private fun migrateLegacyAnthropicKey() {
         if (!secrets.has(SecretStore.ANTHROPIC_API_KEY)) return
@@ -163,6 +185,7 @@ class Settings(private val dao: SettingDao, private val secrets: SecretStore) {
         const val KEY_AI_AUTO = "ai.analysis.auto"
         const val KEY_ENHANCE_AUDIO = "render.enhance_audio"
         const val KEY_PROMPT_TEMPLATE = "prompt_template"
+        const val KEY_PROMPT_STYLES = "prompt_styles"
         const val KEY_PROMPT_MAX_TOKENS = "prompt_max_tokens"
 
         const val KEY_PROVIDER = "ai.transcription.provider"

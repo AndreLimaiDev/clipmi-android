@@ -223,9 +223,12 @@ private fun AnalysisCard(container: AppContainer, project: ProjectEntity, compac
     // Sudah ada klip dan tidak ada yang berjalan/tersisa: cukup dua tombol kecil, analisis ulang dikonfirmasi dulu.
     if (compact && !active && project.analysisMessage == null && resumable.isEmpty()) {
         var confirmAgain by remember { mutableStateOf(false) }
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            if (cfg != null) ActionChip("Analisis lagi", { confirmAgain = true }, Modifier.weight(1f), height = 40.dp, icon = ClipMiIcons.Sparkle, enabled = prompts.isNotEmpty())
-            ActionChip("Lewat chat AI", { manual = true }, Modifier.weight(1f), height = 40.dp)
+        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            PromptStyleChip(container, project)
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                if (cfg != null) ActionChip("Analisis lagi", { confirmAgain = true }, Modifier.weight(1f), height = 40.dp, icon = ClipMiIcons.Sparkle, enabled = prompts.isNotEmpty())
+                ActionChip("Lewat chat AI", { manual = true }, Modifier.weight(1f), height = 40.dp)
+            }
         }
         if (confirmAgain && cfg != null) {
             val estimate = container.analysis.estimate(prompts, cfg, null)
@@ -276,6 +279,7 @@ private fun AnalysisCard(container: AppContainer, project: ProjectEntity, compac
                     IconCircle(ClipMiIcons.Close, "Tutup pesan", { scope.launch { container.analysis.dismiss(project.id) } }, size = 36.dp, background = Color.Transparent, border = false, tint = c.textMuted)
                 }
             }
+            PromptStyleChip(container, project)
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 if (cfg != null) {
                     if (resumable.isNotEmpty()) {

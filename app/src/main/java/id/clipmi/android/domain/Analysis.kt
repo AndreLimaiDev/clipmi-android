@@ -7,6 +7,7 @@ import id.clipmi.android.data.AnalysisStatus
 import id.clipmi.android.data.AppDatabase
 import id.clipmi.android.data.ClipEntity
 import id.clipmi.android.data.ClipSource
+import id.clipmi.android.data.ProjectEntity
 import id.clipmi.android.data.ReviewStatus
 import id.clipmi.android.data.TranscriptStatus
 import id.clipmi.android.work.AnalyzeWorker
@@ -48,8 +49,31 @@ class Analysis(private val context: Context, private val db: AppDatabase, privat
         if (project.transcript != TranscriptStatus.Ready) return emptyList()
         val segments = db.segments().forProject(projectId).map { PromptSegment(it.sequence, it.startTime, it.endTime, it.text) }
         if (segments.isEmpty()) return emptyList()
-        return PromptBuilder.build(project.title, project.durationSeconds, segments, settings.promptTemplate(), settings.promptMaxTokens())
+        val (style, options) = promptStyle(project)
+        val template = id.clipmi.core.analysis.PromptStyles.template(style, options, settings.promptTemplate())
+        return PromptBuilder.build(project.title, project.durationSeconds, segments, template, settings.promptMaxTokens())
     }
+
+    /** Gaya prompt project dan opsinya; gaya yang sudah dihapus kembali ke Kajian. */
+    suspend fun promptStyle(project: ProjectEntity): Pair<id.clipmi.core.analysis.PromptStyle, id.clipmi.core.analysis.PromptOptions?> {
+        val style = settings.promptStyles().firstOrNull { it.id == project.promptStyle } ?: id.clipmi.core.analysis.PromptStyles.KAJIAN
+        val options = project.promptOptions?.let { runCatching { optionsJson.decodeFromString(id.clipmi.core.analysis.PromptOptions.serializer(), it) }.getOrNull() }
+        return style to options
+    }
+
+    /** Menyimpan gaya prompt dan opsi untuk project (dipakai analisis berikutnya, otomatis maupun lewat chat AI). */
+    suspend fun setPromptStyle(projectId: Long, styleId: String, options: id.clipmi.core.analysis.PromptOptions?) {
+        val project = db.projects().find(projectId) ?: return
+        db.projects().update(
+            project.copy(
+                promptStyle = styleId.takeIf { it != id.clipmi.core.analysis.PromptStyles.KAJIAN.id },
+                promptOptions = options?.takeIf { !it.isEmpty() }?.let { optionsJson.encodeToString(id.clipmi.core.analysis.PromptOptions.serializer(), it) },
+                updatedAt = System.currentTimeMillis(),
+            ),
+        )
+    }
+
+    private val optionsJson = kotlinx.serialization.json.Json { ignoreUnknownKeys = true }
 
     /**
      * Perkiraan biaya Mode API: token masuk dari panjang prompt, token keluar ±3.000 per bagian (balasan JSON belasan

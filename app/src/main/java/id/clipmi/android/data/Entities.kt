@@ -75,6 +75,9 @@ data class ProjectEntity(
     /** Intro/outro bawaan project: dipasang ke klip baru di project ini. */
     @ColumnInfo(name = "intro_id") val introId: Long? = null,
     @ColumnInfo(name = "outro_id") val outroId: Long? = null,
+    /** Gaya prompt analisis (id gaya bawaan atau buatan sendiri; null = Kajian) dan opsinya (JSON), khusus Android. */
+    @ColumnInfo(name = "prompt_style") val promptStyle: String? = null,
+    @ColumnInfo(name = "prompt_options") val promptOptions: String? = null,
     @ColumnInfo(name = "created_at") val createdAt: Long = System.currentTimeMillis(),
     @ColumnInfo(name = "updated_at") val updatedAt: Long = System.currentTimeMillis(),
 ) {
