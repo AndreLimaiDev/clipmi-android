@@ -70,7 +70,12 @@ class Analysis(private val context: Context, private val db: AppDatabase, privat
         val segments = db.segments().forProject(projectId).map {
             ImportSegment(it.sequence, it.startTime, it.endTime, transcripts.decodeWords(it.words).ifEmpty { null })
         }
-        val parsed = ClipImporter.parse(reply, segments)
+        // Disalin dari tombol salin ChatGPT (JSON ber-escape Markdown/HTML): dicoba lagi setelah dirapikan.
+        val parsed = try {
+            ClipImporter.parse(reply, segments)
+        } catch (e: id.clipmi.core.analysis.AnalysisResultException) {
+            runCatching { ClipImporter.parse(id.clipmi.core.analysis.ChatPaste.clean(reply), segments) }.getOrNull() ?: throw e
+        }
         var created = 0
         var skipped = 0
         db.withTransaction {

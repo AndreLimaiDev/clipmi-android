@@ -93,6 +93,7 @@ import id.clipmi.android.ui.components.Tone
 import id.clipmi.android.ui.theme.ClipMi
 import id.clipmi.android.ui.theme.ClipMiIcons
 import id.clipmi.core.analysis.AnalysisResultException
+import id.clipmi.core.analysis.ChatPaste
 import id.clipmi.core.analysis.ClipImporter
 import id.clipmi.core.analysis.ClipText
 import id.clipmi.core.analysis.Keywords
@@ -334,14 +335,27 @@ private fun ManualAnalysisSheet(container: AppContainer, project: ProjectEntity,
                 }
             }
         }
-        Field(
-            reply, { reply = it; replyError = null },
-            label = "Balasan JSON dari AI",
-            placeholder = "{\"clips\": [ … ]}",
-            error = replyError,
-            minLines = 4,
-            maxLines = 8,
-        )
+        // Centang hijau di pojok kanan bawah begitu balasan terbaca sebagai JSON klip (termasuk salinan ChatGPT yang
+        // perlu dirapikan), sebelum Simpan kandidat.
+        val readable = remember(reply) {
+            reply.isNotBlank() && listOf(reply, ChatPaste.clean(reply)).any { runCatching { ClipImporter.decode(it) }.isSuccess }
+        }
+        Box {
+            Field(
+                reply, { reply = it; replyError = null },
+                label = "Balasan JSON dari AI",
+                placeholder = "{\"clips\": [ … ]}",
+                error = replyError,
+                minLines = 4,
+                maxLines = 8,
+            )
+            if (readable && replyError == null) {
+                Icon(
+                    ClipMiIcons.CircleCheck, "Balasan JSON terbaca", tint = c.accent,
+                    modifier = Modifier.align(Alignment.BottomEnd).padding(end = 10.dp, bottom = 10.dp).size(22.dp).background(c.bg, CircleShape),
+                )
+            }
+        }
         importErrors.takeIf { it.isNotEmpty() }?.let { errors ->
             Text("Ditolak:\n" + errors.joinToString("\n"), color = c.bad, style = MaterialTheme.typography.bodySmall)
         }
