@@ -47,6 +47,8 @@ class MainActivity : ComponentActivity() {
                 id.clipmi.android.reminders.ReminderAlarm.arm(this@MainActivity)
                 id.clipmi.android.work.StatsQueue.schedulePeriodic(this@MainActivity)
                 id.clipmi.android.work.UpdateQueue.schedulePeriodic(this@MainActivity)
+                // Versi baru diunduh diam-diam di latar (Wi-Fi); pengguna diberi tahu setelah siap dipasang.
+                id.clipmi.android.work.UpdateQueue.checkNow(this@MainActivity)
                 // Baru diperbarui: catatan "yang baru" sekali.
                 container.updates.takeWhatsNew()?.let { shared = SharedResult(whatsNew = it) }
             }

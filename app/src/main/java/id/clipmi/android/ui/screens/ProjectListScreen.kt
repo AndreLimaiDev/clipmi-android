@@ -157,18 +157,40 @@ fun ProjectListScreen(container: AppContainer, onOpen: (Long) -> Unit, onOpenRes
                         }
                     }
                 }
-                // Versi baru tersedia: kartu kecil dengan Lihat dan Nanti.
+                // Versi baru: tersedia, sedang diunduh di latar, atau siap dipasang (kartu tetap ada sampai dipasang/dilewati).
                 update?.let { r ->
                     val scope = rememberCoroutineScope()
+                    val context = androidx.compose.ui.platform.LocalContext.current
+                    val work by remember { androidx.work.WorkManager.getInstance(context).getWorkInfosForUniqueWorkFlow(id.clipmi.android.work.UpdateQueue.DOWNLOAD) }
+                        .collectAsState(initial = emptyList())
+                    val info = work.lastOrNull()
+                    val downloading = info?.state == androidx.work.WorkInfo.State.RUNNING
+                    val progress = info?.progress?.getInt(id.clipmi.android.work.UpdateQueue.KEY_PROGRESS, -1)?.takeIf { it >= 0 }
+                    val ready = !downloading && remember(r.version, info?.state) { id.clipmi.android.domain.AppUpdater(context).downloaded(r.version) != null }
                     ClipMiCard(Modifier.padding(horizontal = ScreenGutter), padding = PaddingValues(horizontal = 14.dp, vertical = 12.dp)) {
                         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                            IconBadge(ClipMiIcons.Download, size = 36.dp)
+                            IconBadge(if (ready) ClipMiIcons.CircleCheck else ClipMiIcons.Download, size = 36.dp)
                             Column(Modifier.weight(1f)) {
-                                Text("ClipMI ${r.version} tersedia", style = MaterialTheme.typography.titleSmall, color = ClipMi.colors.text)
-                                Text("Pembaruan aplikasi", style = MaterialTheme.typography.bodySmall, color = ClipMi.colors.textMuted)
+                                Text(
+                                    when {
+                                        ready -> "ClipMI ${r.version} siap dipasang"
+                                        downloading -> "Mengunduh ClipMI ${r.version}"
+                                        else -> "ClipMI ${r.version} tersedia"
+                                    },
+                                    style = MaterialTheme.typography.titleSmall, color = ClipMi.colors.text,
+                                )
+                                Text(
+                                    when {
+                                        ready -> "Sudah diunduh · lihat yang baru"
+                                        downloading -> progress?.let { "$it% · di latar" } ?: "Di latar"
+                                        else -> "Pembaruan aplikasi"
+                                    },
+                                    style = MaterialTheme.typography.bodySmall, color = ClipMi.colors.textMuted,
+                                )
+                                if (downloading) id.clipmi.android.ui.components.ProgressBar(progress?.let { it / 100f }, Modifier.padding(top = 6.dp))
                             }
-                            GhostButton("Nanti", onClick = { scope.launch { container.updates.dismiss(r.version) } })
-                            ActionChip("Lihat", onOpenUpdate, height = 36.dp, primary = true)
+                            if (!ready && !downloading) GhostButton("Nanti", onClick = { scope.launch { container.updates.dismiss(r.version) } })
+                            if (!downloading) ActionChip(if (ready) "Pasang" else "Lihat", onOpenUpdate, height = 36.dp, primary = true)
                         }
                     }
                 }

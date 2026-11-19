@@ -71,6 +71,7 @@ fun interface PreviewGesture {
  * posisi, area video), lalu subtitle dan hook yang digambar libass dari ASS yang sama dengan render.
  *
  * @param hookTime bila tidak null, hook digambar pada waktu ini (detik sejak awal pembuka) alih-alih mengikuti video.
+ * @param guide tampilan aplikasi tujuan yang ditumpangkan (hanya panduan, tidak ikut dirender).
  */
 @Composable
 fun EditorPreview(
@@ -80,6 +81,7 @@ fun EditorPreview(
     hookTime: Double? = null,
     gesture: PreviewGesture? = null,
     onGestureEnd: () -> Unit = {},
+    guide: PlatformGuide? = null,
 ) {
     val sourceSize by produceState<Pair<Int, Int>?>(null, state.source) { value = withContext(Dispatchers.IO) { MediaInfo.videoSize(state.source) } }
     val composition = remember(state.snapshot, state.captionStyles, state.frameStyles, state.frameDraft, state.speakerBase, sourceSize) {
@@ -127,6 +129,7 @@ fun EditorPreview(
             VideoLayer(player, composition, sourceSize, scale, state.snapshot.clip.startTime)
             LogoLayer(state, composition, scale)
             AssOverlay(state, player, composition, hookTime, Modifier.fillMaxSize())
+            guide?.let { PlatformGuideLayer(it, Modifier.fillMaxSize()) }
         }
     }
 }

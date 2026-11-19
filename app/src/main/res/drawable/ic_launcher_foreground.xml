@@ -1,14 +1,59 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Bingkai vertikal 9:16 dengan tombol putar: klip vertikal. Area aman ikon adaptif = 66dp di tengah. -->
+<!--
+    Simbol logo ClipMI desktop (resources/views/components/logo.blade.php, viewBox 124×112): gelembung "C" putih, ikon
+    putar dan gelombang suara bergradasi zamrud (lebih terang dari desktop supaya kontras di latar gelap). Diperkecil
+    0,38× dan ditaruh di tengah area aman ikon adaptif (lingkaran 66 dp di tengah kanvas 108 dp).
+-->
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:aapt="http://schemas.android.com/aapt"
     android:width="108dp"
     android:height="108dp"
     android:viewportWidth="108"
     android:viewportHeight="108">
-    <path
-        android:fillColor="#FF34D399"
-        android:pathData="M42,30h24a5,5 0 0 1 5,5v38a5,5 0 0 1 -5,5h-24a5,5 0 0 1 -5,-5v-38a5,5 0 0 1 5,-5zM42,35v38h24v-38z" />
-    <path
-        android:fillColor="#FF34D399"
-        android:pathData="M49,45.5l11,8.5l-11,8.5z" />
+    <group
+        android:scaleX="0.38"
+        android:scaleY="0.38"
+        android:translateX="30.44"
+        android:translateY="33.48">
+        <path
+            android:pathData="M76,9H34A25,25 0,0 0,9 34v27a25,25 0,0 0,25 25h9l11,13 30,-20"
+            android:strokeColor="#FFF4FBF8"
+            android:strokeWidth="17"
+            android:strokeLineCap="round"
+            android:strokeLineJoin="round" />
+        <path
+            android:pathData="M38,30v34l28,-17z"
+            android:strokeWidth="7"
+            android:strokeLineJoin="round">
+            <aapt:attr name="android:fillColor">
+                <gradient
+                    android:type="linear"
+                    android:startX="104" android:startY="26"
+                    android:endX="38" android:endY="70"
+                    android:startColor="#FF5EF2BE"
+                    android:endColor="#FF12A884" />
+            </aapt:attr>
+            <aapt:attr name="android:strokeColor">
+                <gradient
+                    android:type="linear"
+                    android:startX="104" android:startY="26"
+                    android:endX="38" android:endY="70"
+                    android:startColor="#FF5EF2BE"
+                    android:endColor="#FF12A884" />
+            </aapt:attr>
+        </path>
+        <path
+            android:pathData="M83,39v18M99,32v32M115,41v15"
+            android:strokeWidth="10"
+            android:strokeLineCap="round">
+            <aapt:attr name="android:strokeColor">
+                <gradient
+                    android:type="linear"
+                    android:startX="104" android:startY="26"
+                    android:endX="38" android:endY="70"
+                    android:startColor="#FF5EF2BE"
+                    android:endColor="#FF12A884" />
+            </aapt:attr>
+        </path>
+    </group>
 </vector>

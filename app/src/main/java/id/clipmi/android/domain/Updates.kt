@@ -40,10 +40,15 @@ class Updates(private val dao: SettingDao) {
 
     suspend fun dismiss(version: String) = dao.put(KEY_DISMISSED, version)
 
-    /** Notifikasi untuk [version] sudah pernah tampil (supaya cek harian tidak mengulanginya). */
-    suspend fun markNotified(version: String): Boolean {
-        if (dao.get(KEY_NOTIFIED) == version) return false
-        dao.put(KEY_NOTIFIED, version)
+    suspend fun isDismissed(version: String): Boolean = dao.get(KEY_DISMISSED) == version
+
+    /**
+     * Lembar "siap dipasang" untuk [version] belum pernah dibuka otomatis; menandainya sekaligus, jadi lembar itu hanya
+     * muncul sendiri sekali per versi (setelahnya lewat kartu di Project atau Pengaturan).
+     */
+    suspend fun markPrompted(version: String): Boolean {
+        if (dao.get(KEY_PROMPTED) == version) return false
+        dao.put(KEY_PROMPTED, version)
         return true
     }
 
@@ -66,7 +71,7 @@ class Updates(private val dao: SettingDao) {
         private const val KEY_LATEST = "update.latest"
         private const val KEY_DISMISSED = "update.dismissed"
         private const val KEY_CHECKED = "update.checked_at"
-        private const val KEY_NOTIFIED = "update.notified"
+        private const val KEY_PROMPTED = "update.prompted"
         private const val KEY_SEEN = "update.seen_version"
 
         const val NOTIFICATION_ID = 1005

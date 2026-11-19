@@ -206,8 +206,8 @@ interface ClipDao {
     )
     suspend fun updateText(id: Long, title: String, hook: String?, caption: String?, hashtags: String?, keywords: String?, changesRender: Boolean, now: Long = System.currentTimeMillis())
 
-    /** Klip yang sudah atau sedang dirender, terbaru lebih dulu (layar Hasil). */
-    @Query("SELECT * FROM clips WHERE render_status != 'not_rendered' ORDER BY COALESCE(rendered_at, updated_at) DESC")
+    /** Klip yang sudah atau sedang dirender (layar Hasil): yang sedang antre/dirender paling atas, lalu terbaru lebih dulu. */
+    @Query("SELECT * FROM clips WHERE render_status != 'not_rendered' ORDER BY CASE WHEN render_status IN ('queued', 'rendering') THEN 0 ELSE 1 END, COALESCE(rendered_at, updated_at) DESC")
     fun observeRendered(): Flow<List<ClipEntity>>
 
     /** Klip untuk halaman Jadwal: terpilih, sudah dirender, atau sudah dijadwalkan. */

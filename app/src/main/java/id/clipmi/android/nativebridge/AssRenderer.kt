@@ -42,13 +42,17 @@ class AssRenderer(width: Int, height: Int, fontsDir: File, defaultFont: File?) :
 
         val version: String get() = nativeVersion()
 
-        /** Menyalin font yang dibundel (assets/fonts) ke folder aplikasi, karena libass membaca font dari file. */
+        /**
+         * Menyalin font yang dibundel (assets/fonts) dan font tambahan pengguna ([id.clipmi.android.domain.UserFonts]) ke
+         * folder aplikasi, karena libass membaca font dari file.
+         */
         fun installFonts(context: Context): File {
             val dir = File(context.filesDir, "fonts").apply { mkdirs() }
             context.assets.list("fonts").orEmpty().filter { it.endsWith(".ttf") || it.endsWith(".otf") }.forEach { name ->
                 val target = File(dir, name)
                 if (!target.exists()) context.assets.open("fonts/$name").use { input -> target.outputStream().use(input::copyTo) }
             }
+            id.clipmi.android.domain.UserFonts.sync(context, dir)
             return dir
         }
 

@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Ikon bertema (Android 13+): simbol yang sama satu warna; sistem yang mewarnainya. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <group
+        android:scaleX="0.38"
+        android:scaleY="0.38"
+        android:translateX="30.44"
+        android:translateY="33.48">
+        <path
+            android:pathData="M76,9H34A25,25 0,0 0,9 34v27a25,25 0,0 0,25 25h9l11,13 30,-20"
+            android:strokeColor="#FFFFFFFF"
+            android:strokeWidth="17"
+            android:strokeLineCap="round"
+            android:strokeLineJoin="round" />
+        <path
+            android:pathData="M38,30v34l28,-17z"
+            android:fillColor="#FFFFFFFF"
+            android:strokeColor="#FFFFFFFF"
+            android:strokeWidth="7"
+            android:strokeLineJoin="round" />
+        <path
+            android:pathData="M83,39v18M99,32v32M115,41v15"
+            android:strokeColor="#FFFFFFFF"
+            android:strokeWidth="10"
+            android:strokeLineCap="round" />
+    </group>
+</vector>

@@ -44,6 +44,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
@@ -143,6 +144,18 @@ fun ClipMiNavigation(container: AppContainer, shared: SharedResult?, onSharedHan
     // Lembar pembaruan (dari notifikasi, kartu di Project, atau Pengaturan) dan catatan "yang baru" setelah pembaruan.
     var updateOpen by remember { mutableStateOf(false) }
     var whatsNew by remember { mutableStateOf<id.clipmi.android.domain.AppUpdater.Release?>(null) }
+    // APK versi baru selesai diunduh di latar: lembar "siap dipasang" terbuka sendiri sekali per versi, hanya di layar
+    // utama (tidak menyela editor atau form).
+    val context = androidx.compose.ui.platform.LocalContext.current
+    val available by container.updates.available.collectAsState(initial = null)
+    val download by remember { androidx.work.WorkManager.getInstance(context).getWorkInfosForUniqueWorkFlow(id.clipmi.android.work.UpdateQueue.DOWNLOAD) }
+        .collectAsState(initial = emptyList())
+    val downloadState = download.lastOrNull()?.state
+    LaunchedEffect(available?.version, downloadState, topLevel) {
+        val release = available ?: return@LaunchedEffect
+        if (!topLevel || downloadState == androidx.work.WorkInfo.State.RUNNING) return@LaunchedEffect
+        if (id.clipmi.android.domain.AppUpdater(context).downloaded(release.version) != null && container.updates.markPrompted(release.version)) updateOpen = true
+    }
     LaunchedEffect(shared) {
         val result = shared ?: return@LaunchedEffect
         result.openProject?.let { nav.navigate(ProjectDetailRoute(it)) { launchSingleTop = true } }
@@ -190,7 +203,7 @@ fun ClipMiNavigation(container: AppContainer, shared: SharedResult?, onSharedHan
                 composable<ProjectDetailRoute> {
                     ProjectDetailScreen(container, it.toRoute<ProjectDetailRoute>().id, onBack = { nav.popBackStack() }, onOpenEditor = { clip -> nav.navigate(EditorRoute(clip)) }, onSchedule = { clip -> nav.navigate(ScheduleEditRoute(clipId = clip)) })
                 }
-                composable<EditorRoute> { EditorScreen(container, it.toRoute<EditorRoute>().clipId, onClose = { nav.popBackStack() }) }
+                composable<EditorRoute> { EditorScreen(container, it.toRoute<EditorRoute>().clipId, onClose = { nav.popBackStack() }, onRendered = { if (!nav.popBackStack(ResultsRoute, inclusive = false)) nav.navigate(ResultsRoute) }) }
                 composable<ScheduleRoute> {
                     ScreenFrame { ScheduleScreen(
                         container,
@@ -263,8 +276,9 @@ fun ClipMiNavigation(container: AppContainer, shared: SharedResult?, onSharedHan
                 composable<ResultsRoute> {
                     ScreenFrame { ResultsScreen(
                         container, onBack = { nav.popBackStack() },
-                        onOpenProject = { nav.navigate(ProjectDetailRoute(it)) },
-                        onOpenEditor = { nav.navigate(EditorRoute(it)) },
+                        // Editor atau project yang sudah terbuka di belakang: kembali ke sana, bukan membuka salinan baru.
+                        onOpenProject = { if (!nav.popBackStack(ProjectDetailRoute(it), inclusive = false)) nav.navigate(ProjectDetailRoute(it)) },
+                        onOpenEditor = { if (!nav.popBackStack(EditorRoute(it), inclusive = false)) nav.navigate(EditorRoute(it)) },
                         onSchedule = { nav.navigate(ScheduleEditRoute(clipId = it)) },
                         onOpenSchedule = { nav.navigate(ReadyRoute(it)) },
                     ) }

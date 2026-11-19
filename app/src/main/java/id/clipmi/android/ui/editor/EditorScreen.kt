@@ -16,6 +16,10 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -93,7 +97,7 @@ private val TABS = listOf(
  * kiri, panel di kanan). Setiap perubahan langsung tersimpan dan bisa diurungkan.
  */
 @Composable
-fun EditorScreen(container: AppContainer, clipId: Long, onClose: () -> Unit) = ClipMiDarkSurface {
+fun EditorScreen(container: AppContainer, clipId: Long, onClose: () -> Unit, onRendered: () -> Unit = {}) = ClipMiDarkSurface {
     LightStatusIcons()
     val scope = rememberCoroutineScope()
     val loaded by produceState<Result<EditorState?>?>(null, clipId) { value = runCatching { EditorState.load(container, scope, clipId) } }
@@ -110,7 +114,7 @@ fun EditorScreen(container: AppContainer, clipId: Long, onClose: () -> Unit) = C
                         EmptyState("Video belum siap", "Editor butuh video sumber project ini. Tunggu unduhan selesai, atau pilih ulang videonya.", icon = ClipMiIcons.Film)
                     }
                 } else {
-                    Editor(container, state, onClose)
+                    Editor(container, state, onClose, onRendered)
                 }
             }
         }
@@ -122,7 +126,7 @@ val EDITOR_PANEL = Color(0xFF111614)
 val EDITOR_CARD = Color(0xFF1A221F)
 
 @Composable
-private fun Editor(container: AppContainer, state: EditorState, onClose: () -> Unit) {
+private fun Editor(container: AppContainer, state: EditorState, onClose: () -> Unit, onRendered: () -> Unit) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val notifier = LocalNotifier.current
@@ -193,17 +197,22 @@ private fun Editor(container: AppContainer, state: EditorState, onClose: () -> U
             scope.launch {
                 val latest = container.database.clips().find(state.entity.id) ?: return@launch
                 RenderQueue.render(context, latest)
-                notifier.show("Masuk antrean render. Progres tampil di notifikasi.")
+                notifier.show("Masuk antrean render.")
+                // Pindah ke Hasil render untuk melihat progresnya; kembali = editor ini lagi.
+                onRendered()
             }
         })
     }
 
     val hookLayout = remember(state.snapshot, state.captionStyles, state.frameStyles) { state.hookLayout() }
     val lead = remember(state.snapshot) { state.spec().leadSeconds() }
-    val preview: @Composable (Modifier) -> Unit = { modifier ->
+    // Pratinjau dengan tombol kecil di pojok kanan bawah: tampilan aplikasi tujuan, dan (HP tegak) perbesar/perkecil.
+    val preview: @Composable (Modifier, Boolean) -> Unit = { modifier, sizeToggle ->
+      Box(modifier) {
         EditorPreview(
             state, player,
-            modifier = modifier,
+            modifier = Modifier.fillMaxSize(),
+            guide = EditorPreviewPrefs.guide,
             // Di tab Hook, hook selalu terlihat walau video tidak di waktu tampilnya.
             hookTime = if (tab == 3 && !playing) hookLayout.start + lead + minOf(0.6, (hookLayout.end - hookLayout.start) / 2) else null,
             gesture = when (tab) {
@@ -219,6 +228,8 @@ private fun Editor(container: AppContainer, state: EditorState, onClose: () -> U
             },
             onGestureEnd = { state.endDrag() },
         )
+        PreviewTools(sizeToggle, Modifier.align(Alignment.BottomEnd))
+      }
     }
 
     // Putar/jeda (ikon putih tanpa lingkaran), bilah geser tipis di waktu video hasil, dan waktu.
@@ -292,7 +303,7 @@ private fun Editor(container: AppContainer, state: EditorState, onClose: () -> U
             Row(Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Left))) {
                 Column(Modifier.width(sideWidth).fillMaxHeight().windowInsetsPadding(safeY)) {
                     title(Modifier.fillMaxWidth().padding(start = 8.dp, end = 8.dp, top = 4.dp, bottom = 4.dp))
-                    preview(Modifier.fillMaxWidth().weight(1f).padding(horizontal = 12.dp, vertical = 4.dp))
+                    preview(Modifier.fillMaxWidth().weight(1f).padding(horizontal = 12.dp, vertical = 4.dp), false)
                     playback(Modifier.fillMaxWidth().padding(start = 4.dp, end = 12.dp, top = 2.dp, bottom = 4.dp))
                 }
                 panel(
@@ -318,7 +329,9 @@ private fun Editor(container: AppContainer, state: EditorState, onClose: () -> U
                     title(Modifier.weight(1f))
                     actions()
                 }
-                preview(Modifier.fillMaxWidth().weight(1f).padding(horizontal = 16.dp, vertical = 4.dp))
+                // Pratinjau diperkecil: panel tab mendapat ruang lebih (transkrip, isian gaya).
+                val previewWeight by animateFloatAsState(if (EditorPreviewPrefs.compact) 0.5f else 1f, label = "pratinjau")
+                preview(Modifier.fillMaxWidth().weight(previewWeight).padding(horizontal = 16.dp, vertical = 4.dp), true)
                 playback(Modifier.fillMaxWidth().padding(start = 8.dp, end = 16.dp, top = 2.dp, bottom = 2.dp))
                 panel(
                     Modifier
@@ -332,6 +345,54 @@ private fun Editor(container: AppContainer, state: EditorState, onClose: () -> U
             }
         }
     }
+}
+
+/** Tombol di pojok pratinjau: pilih tampilan aplikasi tujuan (TikTok/Reels/Shorts), dan perbesar/perkecil pratinjau. */
+@Composable
+private fun PreviewTools(sizeToggle: Boolean, modifier: Modifier) {
+    val c = ClipMi.colors
+    Column(modifier, verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Box {
+            var menu by remember { mutableStateOf(false) }
+            val guide = EditorPreviewPrefs.guide
+            ToolButton(guide?.icon ?: ClipMiIcons.Eye, if (guide != null) "Tampilan ${guide.label}" else "Lihat tampilan aplikasi", active = guide != null) { menu = true }
+            DropdownMenu(menu, onDismissRequest = { menu = false }, containerColor = EDITOR_CARD) {
+                DropdownMenuItem(
+                    text = { Text("Tanpa tampilan aplikasi", color = c.text) },
+                    leadingIcon = { Icon(ClipMiIcons.Close, null, Modifier.size(18.dp), tint = c.textMuted) },
+                    onClick = { EditorPreviewPrefs.guide = null; menu = false },
+                )
+                PlatformGuide.entries.forEach { g ->
+                    DropdownMenuItem(
+                        text = { Text("Tampilan ${g.label}", color = if (g == guide) c.accent else c.text) },
+                        leadingIcon = { Icon(g.icon, null, Modifier.size(18.dp), tint = if (g == guide) c.accent else c.textMuted) },
+                        onClick = { EditorPreviewPrefs.guide = g; menu = false },
+                    )
+                }
+            }
+        }
+        if (sizeToggle) {
+            val compact = EditorPreviewPrefs.compact
+            ToolButton(if (compact) ClipMiIcons.Expand else ClipMiIcons.Collapse, if (compact) "Perbesar pratinjau" else "Perkecil pratinjau") {
+                EditorPreviewPrefs.compact = !compact
+            }
+        }
+    }
+}
+
+@Composable
+private fun ToolButton(icon: ImageVector, label: String, active: Boolean = false, onClick: () -> Unit) {
+    val c = ClipMi.colors
+    val shape = RoundedCornerShape(12.dp)
+    Box(
+        Modifier
+            .size(40.dp)
+            .clip(shape)
+            .background(if (active) c.accentSoft else EDITOR_CARD)
+            .border(1.dp, if (active) c.accent.copy(alpha = 0.5f) else c.line, shape)
+            .clickable(role = Role.Button, onClickLabel = label, onClick = onClick),
+        contentAlignment = Alignment.Center,
+    ) { Icon(icon, label, tint = if (active) c.accent else Color.White, modifier = Modifier.size(20.dp)) }
 }
 
 /**

@@ -6,6 +6,8 @@ import androidx.compose.foundation.layout.width
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.combinedClickable
+import kotlinx.coroutines.launch
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -97,28 +99,82 @@ fun <T> ChoiceRow(label: String?, options: Map<T, String>, selected: T, onSelect
     }
 }
 
-/** Pilihan font sebagai kartu kecil yang menampilkan contoh hurufnya, digeser ke samping. */
+/**
+ * Pilihan font sebagai kartu kecil yang menampilkan contoh hurufnya, digeser ke samping: font bawaan, font tambahan
+ * pengguna (tekan lama untuk menghapus), lalu kartu "Tambah font" (TTF/OTF dari HP).
+ */
+@OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
 @Composable
 fun FontChoiceRow(label: String, fontsDir: java.io.File, selected: String, onSelect: (String) -> Unit) {
     val c = ClipMi.colors
+    val context = androidx.compose.ui.platform.LocalContext.current
+    val notifier = id.clipmi.android.ui.components.LocalNotifier.current
+    val scope = androidx.compose.runtime.rememberCoroutineScope()
     val families = remember { HashMap<String, androidx.compose.ui.text.font.FontFamily>() }
+    var custom by remember { mutableStateOf(id.clipmi.android.domain.UserFonts.list(context)) }
+    var removing by remember { mutableStateOf<String?>(null) }
+    val pick = androidx.activity.compose.rememberLauncherForActivityResult(androidx.activity.result.contract.ActivityResultContracts.OpenDocument()) { uri ->
+        if (uri != null) scope.launch {
+            runCatching { id.clipmi.android.domain.UserFonts.add(context, uri) }
+                .onSuccess { entry ->
+                    // Salin ke folder font libass sekarang, supaya pratinjau langsung memakainya.
+                    kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { id.clipmi.android.nativebridge.AssRenderer.installFonts(context) }
+                    families.remove(entry.family)
+                    custom = id.clipmi.android.domain.UserFonts.list(context)
+                    onSelect(entry.family)
+                    notifier.show("Font \"${entry.family}\" ditambahkan.")
+                }
+                .onFailure { notifier.show(it.message ?: "Font tidak bisa ditambahkan.") }
+        }
+    }
+    val options = id.clipmi.core.render.Fonts.AVAILABLE.map { (key, font) -> key to font.label } + custom.map { it.family to it.family }
     Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        FieldLabel(label, id.clipmi.core.render.Fonts.AVAILABLE[selected]?.label)
+        FieldLabel(label, options.firstOrNull { it.first == selected }?.second ?: selected)
         id.clipmi.android.ui.components.ChipRow(Modifier.bleed(16.dp), gutter = 16.dp) {
-            id.clipmi.core.render.Fonts.AVAILABLE.forEach { (key, font) ->
+            options.forEach { (key, text) ->
                 val on = key == selected
+                val user = custom.any { it.family == key }
                 val family = families.getOrPut(key) { fontFamily(fontsDir, key) }
                 Column(
                     Modifier.width(84.dp).clip(RoundedCornerShape(12.dp)).background(if (on) c.text else c.panel)
-                        .clickable(onClickLabel = font.label) { onSelect(key) }.padding(vertical = 10.dp),
+                        .combinedClickable(onClickLabel = text, onLongClick = if (user) ({ removing = key }) else null, onLongClickLabel = if (user) "Hapus font" else null) { onSelect(key) }
+                        .padding(vertical = 10.dp),
                     horizontalAlignment = Alignment.CenterHorizontally,
                     verticalArrangement = Arrangement.spacedBy(4.dp),
                 ) {
                     Text("Aa", style = androidx.compose.ui.text.TextStyle(fontFamily = family, fontSize = 22.sp, color = if (on) c.bg else c.text))
-                    Text(font.label, style = MaterialTheme.typography.labelSmall, color = if (on) c.bg else c.textMuted, maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis, modifier = Modifier.padding(horizontal = 6.dp))
+                    Text(text, style = MaterialTheme.typography.labelSmall, color = if (on) c.bg else c.textMuted, maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis, modifier = Modifier.padding(horizontal = 6.dp))
                 }
             }
+            Column(
+                Modifier.width(84.dp).clip(RoundedCornerShape(12.dp)).border(1.dp, c.lineStrong, RoundedCornerShape(12.dp))
+                    .clickable(onClickLabel = "Tambah font") { pick.launch(arrayOf("font/ttf", "font/otf", "font/sfnt", "application/x-font-ttf", "application/x-font-otf", "application/vnd.ms-opentype", "application/octet-stream")) }
+                    .padding(vertical = 10.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(4.dp),
+            ) {
+                Icon(ClipMiIcons.Plus, null, tint = c.text, modifier = Modifier.size(26.dp))
+                Text("Tambah font", style = MaterialTheme.typography.labelSmall, color = c.textMuted, maxLines = 1)
+            }
         }
+    }
+    removing?.let { family ->
+        id.clipmi.android.ui.components.ConfirmDialog(
+            "Hapus font?",
+            "Font \"$family\" dihapus dari HP ini. Gaya yang memakainya beralih ke font bawaan saat dirender.",
+            "Hapus",
+            danger = true,
+            onConfirm = {
+                removing = null
+                scope.launch {
+                    id.clipmi.android.domain.UserFonts.remove(context, family)
+                    kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { id.clipmi.android.nativebridge.AssRenderer.installFonts(context) }
+                    custom = id.clipmi.android.domain.UserFonts.list(context)
+                    if (selected == family) onSelect(id.clipmi.core.render.Fonts.DEFAULT)
+                }
+            },
+            onDismiss = { removing = null },
+        )
     }
 }
 

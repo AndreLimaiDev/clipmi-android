@@ -48,10 +48,14 @@ rilis tanpa token dan rilis di repo privat tidak bisa dibaca.
 
 ## Di aplikasi
 
-- Cek otomatis sekali sehari lewat Wi-Fi; versi baru → notifikasi (sekali per versi) dan kartu di tab Project
-  (Lihat / Nanti; Nanti melewati versi itu).
+- Cek otomatis saat aplikasi dibuka dan sekali sehari. Versi baru yang belum dilewati langsung **diunduh diam-diam di
+  latar lewat Wi-Fi** (di jaringan seluler menunggu Wi-Fi; pengguna bisa mengetuk "Unduh sekarang").
+- Setelah APK siap: notifikasi "siap dipasang", kartu "ClipMI x siap dipasang" di tab Project, dan lembar
+  **"Pembaruan siap dipasang"** (catatan rilis + Pasang) terbuka sendiri sekali per versi di layar utama.
 - Pengaturan › Pembaruan aplikasi: versi terpasang, waktu cek terakhir, atau "Versi x tersedia"; ketuk untuk cek sekarang.
-- Unduh di latar dengan progres di notifikasi; APK diperiksa (nama paket, versi lebih baru, kunci tanda tangan sama,
-  SHA-256 dari catatan rilis) sebelum tombol Pasang muncul. Izin "Pasang aplikasi tidak dikenal" dinyalakan pengguna
-  sendiri; pemasang sistem yang meminta konfirmasi.
+  "Nanti" melewati versi itu (tidak diunduh otomatis).
+- APK diperiksa (nama paket, versi lebih baru, kunci tanda tangan sama, SHA-256 dari catatan rilis) sebelum tombol
+  Pasang muncul. Izin "Pasang aplikasi tidak dikenal" dinyalakan pengguna sendiri; pemasang sistem yang meminta
+  konfirmasi (Android tidak mengizinkan pemasangan tanpa persetujuan).
 - Setelah pembaruan, catatan "Yang baru di <versi>" tampil sekali.
+- Alur ini berlaku mulai 0.1.1: pengguna 0.1.0 masih mendapat notifikasi "tersedia" lalu mengunduh dari lembar pembaruan.

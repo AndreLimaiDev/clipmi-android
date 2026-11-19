@@ -83,7 +83,9 @@ class TeamPacks(
     }
 
     private fun captionJson(s: CaptionStyleEntity) = buildJsonObject {
-        put("name", s.name); put("font_family", s.fontFamily); put("font_size", s.fontSize); put("uppercase", s.uppercase)
+        // Font tambahan pengguna hanya ada di HP ini (ClipMI PC menolaknya): diekspor sebagai font bawaan.
+        put("name", s.name); put("font_family", s.fontFamily.takeIf { it in id.clipmi.core.render.Fonts.AVAILABLE } ?: id.clipmi.core.render.Fonts.DEFAULT)
+        put("font_size", s.fontSize); put("uppercase", s.uppercase)
         put("primary_color", s.primaryColor); put("outline_color", s.outlineColor); put("highlight_active_word", s.highlightActiveWord)
         put("highlight_style", s.highlightStyle); put("highlight_color", s.highlightColor); put("upcoming_color", s.upcomingColor)
         put("keyword_highlight", s.keywordHighlight); put("keyword_color", s.keywordColor); put("position", s.position)

@@ -112,7 +112,7 @@ fun CaptionStylesScreen(
 }
 
 fun fontFamily(dir: File, family: String): FontFamily =
-    runCatching { FontFamily(Font(File(dir, Fonts.file(family)))) }.getOrDefault(FontFamily.Default)
+    runCatching { FontFamily(Font(id.clipmi.android.domain.UserFonts.file(dir, family))) }.getOrDefault(FontFamily.Default)
 
 /** "Sabar" dengan huruf, warna, dan sorotan gaya (gambar kecil di daftar). */
 @Composable

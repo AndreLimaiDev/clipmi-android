@@ -62,6 +62,7 @@ import id.clipmi.android.ui.components.SwitchRow
 import id.clipmi.android.ui.components.Tone
 import id.clipmi.android.ui.theme.ClipMi
 import id.clipmi.android.ui.theme.ClipMiIcons
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 
 @Composable
@@ -349,21 +350,31 @@ internal fun UpdateSheet(container: AppContainer, onDone: () -> Unit) {
     val work by remember { androidx.work.WorkManager.getInstance(context).getWorkInfosForUniqueWorkFlow(id.clipmi.android.work.UpdateQueue.DOWNLOAD) }
         .collectAsState(initial = emptyList())
     val info = work.lastOrNull()
-    val running = info?.state == androidx.work.WorkInfo.State.RUNNING || info?.state == androidx.work.WorkInfo.State.ENQUEUED
+    // Unduhan otomatis yang masih menunggu Wi-Fi bukan "sedang mengunduh": pengguna boleh mengunduhnya sekarang.
+    val waitingWifi = info?.state == androidx.work.WorkInfo.State.ENQUEUED && info.constraints.requiredNetworkType == androidx.work.NetworkType.UNMETERED
+    val running = !waitingWifi && (info?.state == androidx.work.WorkInfo.State.RUNNING || info?.state == androidx.work.WorkInfo.State.ENQUEUED)
     val progress = info?.progress?.getInt(id.clipmi.android.work.UpdateQueue.KEY_PROGRESS, -1)?.takeIf { it >= 0 }
     val failed = info?.takeIf { it.state == androidx.work.WorkInfo.State.FAILED }?.outputData?.getString(id.clipmi.android.work.UpdateQueue.KEY_ERROR)
     LaunchedEffect(Unit) {
+        // Rilis yang sudah diketahui (mungkin sudah diunduh di latar) langsung tampil; cek ulang tetap jalan, dan gagal
+        // terhubung tidak menyembunyikan APK yang sudah siap.
+        container.updates.latest.first()?.let { release = it; checking = false }
         runCatching { updater.check() }
             .onSuccess { release = it; container.updates.saveCheck(it) }
-            .onFailure { error = it.message }
+            .onFailure { if (release == null) error = it.message }
         checking = false
     }
+    val readyApk = release?.let { r -> if (running) null else updater.downloaded(r.version) }
     // Kembali dari halaman izin sistem: periksa ulang izinnya.
     androidx.lifecycle.compose.LifecycleResumeEffect(Unit) {
         canInstall = updater.canInstall()
         onPauseOrDispose { }
     }
-    id.clipmi.android.ui.components.ClipMiSheet(onDone, title = "Pembaruan aplikasi", subtitle = "Terpasang: versi ${updater.currentVersion}") {
+    id.clipmi.android.ui.components.ClipMiSheet(
+        onDone,
+        title = if (readyApk != null) "Pembaruan siap dipasang" else "Pembaruan aplikasi",
+        subtitle = "Terpasang: versi ${updater.currentVersion}",
+    ) {
         when {
             checking -> Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                 androidx.compose.material3.CircularProgressIndicator(Modifier.size(18.dp), color = c.accent, strokeWidth = 2.dp)
@@ -376,7 +387,7 @@ internal fun UpdateSheet(container: AppContainer, onDone: () -> Unit) {
             }
         }
         release?.let { r ->
-            val apk = if (running) null else updater.downloaded(r.version)
+            val apk = readyApk
             Text("Versi ${r.version}" + (r.size?.let { " · ${id.clipmi.android.ui.components.formatBytes(it)}" } ?: ""), style = MaterialTheme.typography.titleMedium, color = c.text)
             ReleaseNotes(r.notes)
             failed?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = c.bad) }
@@ -390,6 +401,10 @@ internal fun UpdateSheet(container: AppContainer, onDone: () -> Unit) {
                     PrimaryButton("Buka izin pemasangan", onClick = { context.startActivity(updater.permissionIntent()) }, modifier = Modifier.fillMaxWidth())
                 }
                 apk != null -> PrimaryButton("Pasang versi ${r.version}", onClick = { context.startActivity(updater.installIntent(apk)) }, modifier = Modifier.fillMaxWidth())
+                waitingWifi -> Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text("Akan diunduh otomatis saat tersambung Wi-Fi.", style = MaterialTheme.typography.bodySmall, color = c.textMuted)
+                    PrimaryButton("Unduh sekarang", onClick = { id.clipmi.android.work.UpdateQueue.download(context, r) }, icon = ClipMiIcons.Download, modifier = Modifier.fillMaxWidth())
+                }
                 else -> Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     id.clipmi.android.ui.components.ActionChip("Nanti", {
                         scope.launch { container.updates.dismiss(r.version) }
@@ -405,7 +420,7 @@ internal fun UpdateSheet(container: AppContainer, onDone: () -> Unit) {
 /** Catatan rilis tanpa baris SHA-256 (hanya untuk pemeriksaan berkas). */
 @Composable
 private fun ReleaseNotes(notes: String) {
-    val clean = notes.lines().filterNot { Regex("\b[0-9a-fA-F]{64}\b").containsMatchIn(it) }.joinToString("\n").trim()
+    val clean = notes.lines().filterNot { Regex("\\b[0-9a-fA-F]{64}\\b").containsMatchIn(it) }.joinToString("\n").trim()
     if (clean.isNotBlank()) Text(clean.take(1500), style = MaterialTheme.typography.bodySmall, color = ClipMi.colors.textBody)
 }
 

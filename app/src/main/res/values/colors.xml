@@ -2,5 +2,4 @@
 <resources>
     <!-- Sama dengan token latar di ui/theme/Theme.kt (LightTokens.bg / DarkTokens.bg). -->
     <color name="window_background">#FFF4F6F5</color>
-    <color name="launcher_background">#FF0B0F0E</color>
 </resources>

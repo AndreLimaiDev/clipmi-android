@@ -656,7 +656,7 @@ fun StylePanel(state: EditorState) {
         ChipRow(gutter = 16.dp) {
             for (style in state.captionStyles) {
                 val family = fonts.getOrPut(style.fontFamily) {
-                    runCatching { FontFamily(Font(File(state.fontsDir(), Fonts.file(style.fontFamily)))) }.getOrDefault(FontFamily.Default)
+                    runCatching { FontFamily(Font(id.clipmi.android.domain.UserFonts.file(state.fontsDir(), style.fontFamily))) }.getOrDefault(FontFamily.Default)
                 }
                 val selected = style.id == captionId
                 // Ketuk kartu lain untuk memakainya; ketuk kartu terpilih (ikon pensil) untuk mengubah gayanya.

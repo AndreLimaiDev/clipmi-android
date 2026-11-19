@@ -70,7 +70,7 @@ class FontMeasurer(private val fontsDir: File) : TextMeasurer {
     private val scales = HashMap<String, Double>()
 
     override fun width(family: String, size: Int, text: String): Double {
-        val file = File(fontsDir, Fonts.file(family))
+        val file = UserFonts.file(fontsDir, family)
         val scale = scales.getOrPut(file.path) { emScale(file) }
         id.clipmi.android.nativebridge.TextMeasure.width(file, size * scale * 0.75, text)?.let { return it }
         val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
