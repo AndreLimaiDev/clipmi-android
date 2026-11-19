@@ -380,8 +380,19 @@ class Renderer(
         file
     }
 
+    /**
+     * Mengunduh sampul klip ke galeri (Pictures/ClipMI/<judul project>/, tempat yang sama dengan sampul saat render).
+     * @return folder tujuannya.
+     */
+    suspend fun downloadCover(clip: ClipEntity, project: ProjectEntity): String = withContext(Dispatchers.IO) {
+        if (!publishCover(ensureCover(clip, project), clip, project)) throw RenderException("Sampul tidak bisa disimpan ke galeri.")
+        "Pictures/ClipMI/" + safeName(project.title, 80)
+    }
+
     private fun coverKey(clip: ClipEntity, project: ProjectEntity, spec: ClipSpec): String {
         val parts = listOf(
+            // Versi cara membuat sampul: v2 = sampul dari frame hanya berisi video (tanpa bingkai, logo, watermark).
+            "v2",
             clip.coverTime, clip.coverPath, clip.coverTitle, clip.coverLayout, clip.keywords, spec.displayTitle(), spec.frame, spec.style,
             spec.speakerKeyframes, spec.effectiveCropPosition(), spec.effectiveZoom(), spec.effectiveCropY(), clip.startTime, project.videoPath,
         )
@@ -390,9 +401,9 @@ class Renderer(
     }
 
     /**
-     * Satu frame dengan bingkai yang sama seperti videonya (crop, template, latar, logo, watermark, bilah judul) tanpa
-     * subtitle, atau gambar dari galeri yang dipotong seukuran layar; judul klip bisa ditulis besar di atasnya
-     * (`ClipRenderer::cover` desktop).
+     * Satu frame video saja (crop, zoom, posisi klip; tanpa bingkai, logo, watermark, dan subtitle), atau gambar dari
+     * galeri yang dipotong seukuran layar; judul klip bisa ditulis besar di atasnya (`ClipRenderer::cover` desktop,
+     * kecuali bingkai yang tidak ikut).
      */
     private suspend fun renderCover(clip: ClipEntity, project: ProjectEntity, spec: ClipSpec, output: File) {
         val frame = spec.frame
@@ -423,9 +434,12 @@ class Renderer(
                 val time = clip.coverTime ?: clip.startTime
                 // Posisi pembicara pada detik sampul, sebagai crop tetap.
                 val speaker = spec.speakerKeyframes?.let { listOf(listOf(0.0, SpeakerTrack.positionAt(it, time - clip.startTime))) }
-                val composition = Composition.make(frame, sourceSize(frame, video!!), spec.effectiveCropPosition(), spec.effectiveZoom(), spec.effectiveCropY(), speaker)
-                val (inputs, imageArgs) = prepare(core, spec, composition, workDir, emptyList(), 2.0, title, titleTop, COVER_TITLE_SIZE)
-                (listOf("-ss", RenderGraph.seconds(maxOf(0.0, time - 0.4)), "-t", "1.5", "-i", video.absolutePath) + imageArgs) to RenderGraph.filter(composition, inputs)
+                // Hanya videonya, memenuhi layar dengan crop, zoom, dan posisi klip: tanpa latar, template, bingkai,
+                // logo, watermark, dan bilah judul gaya bingkai (berbeda dari ClipMI desktop, atas permintaan tim).
+                val plain = FrameStyle(aspect = frame.aspect, mode = "crop", zoom = frame.zoom)
+                val composition = Composition.make(plain, null, spec.effectiveCropPosition(), spec.effectiveZoom(), spec.effectiveCropY(), speaker)
+                val (inputs, imageArgs) = prepare(core, spec.copy(frame = plain), composition, workDir, emptyList(), 2.0, title, titleTop, COVER_TITLE_SIZE)
+                (listOf("-ss", RenderGraph.seconds(maxOf(0.0, time - 0.4)), "-t", "1.5", "-i", video!!.absolutePath) + imageArgs) to RenderGraph.filter(composition, inputs)
             }
             var graph = filter
             if (styled) {
@@ -450,7 +464,7 @@ class Renderer(
     }
 
     /** Sampul di samping hasil: Pictures/ClipMI/<judul project>/<nomor> - <judul>.jpg (galeri tidak menerima gambar di Movies). */
-    private fun publishCover(cover: File?, clip: ClipEntity, project: ProjectEntity) {
+    private fun publishCover(cover: File?, clip: ClipEntity, project: ProjectEntity): Boolean {
         val resolver = context.contentResolver
         val name = String.format(Locale.ROOT, "%03d - %s.jpg", clip.id, safeName(ClipText.displayTitle(clip.title, clip.partNumber), 100))
         val folder = "Pictures/ClipMI/" + safeName(project.title, 80) + "/"
@@ -463,16 +477,16 @@ class Renderer(
                 arrayOf(folder, String.format(Locale.ROOT, "%03d - %%", clip.id)),
             )
         }
-        if (cover == null) return
-        runCatching {
+        if (cover == null) return false
+        return runCatching {
             val values = ContentValues().apply {
                 put(MediaStore.Images.Media.DISPLAY_NAME, name)
                 put(MediaStore.Images.Media.MIME_TYPE, "image/jpeg")
                 put(MediaStore.Images.Media.RELATIVE_PATH, folder)
             }
-            val uri = resolver.insert(collection, values) ?: return
-            resolver.openOutputStream(uri)?.use { out -> cover.inputStream().use { it.copyTo(out) } }
-        }
+            val uri = resolver.insert(collection, values) ?: return false
+            resolver.openOutputStream(uri)?.use { out -> cover.inputStream().use { it.copyTo(out) } } != null
+        }.getOrDefault(false)
     }
 
     /** Menyimpan hasil ke Movies/ClipMI/<judul project>/<nomor> - <judul klip>.mp4 (galeri HP); hasil lama diganti. */

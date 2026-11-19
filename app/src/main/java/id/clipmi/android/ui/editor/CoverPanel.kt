@@ -115,9 +115,25 @@ fun CoverPanel(state: EditorState, position: Double) {
                 else -> "Belum ada"
             },
         )
+        var viewing by remember { mutableStateOf(false) }
+        var saving by remember { mutableStateOf(false) }
+        // Folder tujuan unduhan terakhir; dikosongkan begitu sampulnya berubah.
+        var savedTo by remember(preview) { mutableStateOf<String?>(null) }
+        val download: () -> Unit = {
+            saving = true
+            scope.launch {
+                runCatching { state.container.renderer.downloadCover(state.entitySnapshot(), state.project) }
+                    .onSuccess { savedTo = it; if (!viewing) notifier.show("Sampul disimpan di Galeri › $it") }
+                    .onFailure { notifier.show(it.message ?: "Sampul tidak bisa disimpan.") }
+                saving = false
+            }
+        }
+        if (viewing) preview?.let { CoverViewer(it, saving, savedTo, onDownload = download, onClose = { viewing = false }) }
         Row(horizontalArrangement = Arrangement.spacedBy(14.dp)) {
             Box(
-                Modifier.width(96.dp).aspectRatio(9f / 16f).clip(RoundedCornerShape(14.dp)).background(EDITOR_CARD),
+                Modifier.width(96.dp).aspectRatio(9f / 16f).clip(RoundedCornerShape(14.dp)).background(EDITOR_CARD)
+                    // Ketuk untuk melihat besar, dengan garis potongan tiap platform.
+                    .clickable(enabled = preview != null, onClickLabel = "Lihat sampul") { viewing = true },
                 contentAlignment = Alignment.Center,
             ) {
                 preview?.let { Image(it, contentDescription = "Sampul", contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize()) }
@@ -132,7 +148,10 @@ fun CoverPanel(state: EditorState, position: Double) {
                 ActionChip("Dari galeri", height = 40.dp, icon = ClipMiIcons.Image, modifier = Modifier.fillMaxWidth(), enabled = !importing, onClick = {
                     picker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
                 })
-                if (s.hasCover) GhostButton("Tanpa sampul", danger = true, onClick = { state.apply { it.copy(coverTime = null, coverPath = null) } })
+                if (s.hasCover) {
+                    ActionChip(if (saving) "Menyimpan…" else "Unduh sampul", height = 40.dp, icon = ClipMiIcons.Download, modifier = Modifier.fillMaxWidth(), enabled = !saving && !rendering, onClick = download)
+                    GhostButton("Tanpa sampul", danger = true, onClick = { state.apply { it.copy(coverTime = null, coverPath = null) } })
+                }
             }
         }
         if (s.hasCover) {
