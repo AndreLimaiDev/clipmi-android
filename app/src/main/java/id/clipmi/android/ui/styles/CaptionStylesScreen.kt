@@ -189,10 +189,10 @@ fun CaptionStyleEditScreen(container: AppContainer, id: Long, copyOf: Long, onBa
         SubScreenHeader(if (id == 0L) "Gaya subtitle baru" else "Ubah gaya subtitle", leave) {
             ActionChip("Simpan", { save() }, height = 40.dp, enabled = dirty || style.id == 0L, primary = true)
         }
-        // Pratinjau tetap di atas; hanya isian di bawahnya yang bergulir.
-        StickyPreview(expandedWidth = 190.dp, compactWidth = 112.dp) { width ->
+        // Pratinjau tetap di atas (miring: di kiri); hanya isian yang bergulir.
+        StyleEditBody(expandedWidth = 190.dp, compactWidth = 112.dp, preview = { width ->
             CaptionStylePreview(container, style.toCore(), sample, Modifier.width(width))
-        }
+        }) {
         Column(
             Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = ScreenGutter).navigationBarsPadding().padding(top = 12.dp, bottom = 32.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp),
@@ -217,6 +217,7 @@ fun CaptionStyleEditScreen(container: AppContainer, id: Long, copyOf: Long, onBa
                 }
             }
             Spacer(Modifier.size(8.dp))
+        }
         }
     }
 

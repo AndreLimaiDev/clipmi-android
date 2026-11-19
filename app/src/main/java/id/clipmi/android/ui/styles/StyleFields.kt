@@ -10,6 +10,9 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ColumnScope
+import androidx.compose.foundation.layout.fillMaxHeight
+import id.clipmi.android.ui.components.isSideBySide
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -268,6 +271,25 @@ fun StickyPreview(expandedWidth: Dp, compactWidth: Dp, content: @Composable (Dp)
         }
     }
     Box(Modifier.fillMaxWidth().height(1.dp).background(c.line))
+}
+
+/**
+ * Isi halaman edit gaya di bawah judul. Tegak: [StickyPreview] di atas dan [fields] bergulir di bawahnya. Miring (layar
+ * lebar mendatar): pratinjau di kiri sebesar ruang yang ada, [fields] di kanan.
+ */
+@Composable
+fun ColumnScope.StyleEditBody(expandedWidth: Dp, compactWidth: Dp, preview: @Composable (Dp) -> Unit, fields: @Composable () -> Unit) {
+    if (isSideBySide()) {
+        Row(Modifier.fillMaxWidth().weight(1f)) {
+            // Lebar tak ditentukan: pratinjau (aspectRatio) menyesuaikan diri dengan tinggi dan lebar kotak ini.
+            Box(Modifier.weight(0.42f).fillMaxHeight().padding(16.dp), contentAlignment = Alignment.Center) { preview(Dp.Unspecified) }
+            Box(Modifier.width(1.dp).fillMaxHeight().background(ClipMi.colors.line))
+            Box(Modifier.weight(0.58f).fillMaxHeight()) { fields() }
+        }
+    } else {
+        StickyPreview(expandedWidth, compactWidth, preview)
+        fields()
+    }
 }
 
 /** Ukuran pratinjau yang dipilih, sama untuk semua halaman edit gaya. */

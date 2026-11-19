@@ -81,6 +81,8 @@ import id.clipmi.android.ui.components.LocalNotifier
 import id.clipmi.android.ui.components.PrimaryButton
 import id.clipmi.android.ui.components.ProgressBar
 import id.clipmi.android.ui.components.ScreenGutter
+import id.clipmi.android.ui.components.SideBySideMedia
+import id.clipmi.android.ui.components.isSideBySide
 import id.clipmi.android.ui.components.SearchField
 import id.clipmi.android.ui.components.SecondaryButton
 import id.clipmi.android.ui.components.SegmentedTabs
@@ -175,10 +177,10 @@ fun ProjectDetailScreen(container: AppContainer, projectId: Long, onBack: () -> 
         }
     }
 
-    Box(Modifier.fillMaxSize()) {
-      // Video tetap di atas; hanya isi di bawahnya yang bergulir.
-      Column(Modifier.fillMaxSize()) {
-        Box(Modifier.fillMaxWidth().background(Color.Black).statusBarsPadding()) {
+    val side = isSideBySide()
+    // Video sumber dengan tombol kembali dan menu. Tegak: di atas selebar layar. Miring: di kiri setinggi layar.
+    val videoHeader: @Composable (Modifier) -> Unit = { modifier ->
+        Box(modifier, contentAlignment = Alignment.Center) {
             if (videoFile != null) {
                 AndroidView(
                     factory = { PlayerView(it).apply { this.player = player } },
@@ -211,6 +213,13 @@ fun ProjectDetailScreen(container: AppContainer, projectId: Long, onBack: () -> 
                 }
             }
         }
+    }
+
+    SideBySideMedia(side, media = { videoHeader(it) }) {
+    Box(Modifier.fillMaxSize()) {
+      // Video tetap di atas; hanya isi di bawahnya yang bergulir.
+      Column(Modifier.fillMaxSize()) {
+        if (!side) videoHeader(Modifier.fillMaxWidth().background(Color.Black).statusBarsPadding())
         val importSubtitle = {
             val open = { pickSubtitle.launch(arrayOf("application/x-subrip", "text/vtt", "text/plain", "application/octet-stream", "*/*")) }
             if (segments.isEmpty()) open()
@@ -420,6 +429,7 @@ fun ProjectDetailScreen(container: AppContainer, projectId: Long, onBack: () -> 
                 })
             }
         }
+    }
     }
 
     editingSegment?.let { segment ->

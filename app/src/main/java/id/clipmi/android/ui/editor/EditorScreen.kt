@@ -1,6 +1,14 @@
 package id.clipmi.android.ui.editor
 
 import androidx.compose.foundation.layout.imePadding
+import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.WindowInsetsSides
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.only
+import androidx.compose.foundation.layout.safeDrawing
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.layout.height
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Size
@@ -81,8 +89,8 @@ private val TABS = listOf(
 )
 
 /**
- * Editor klip sentuh (selalu gelap): pratinjau dengan subtitle libass di atas, panel tab di bawah. Setiap perubahan
- * langsung tersimpan dan bisa diurungkan.
+ * Editor klip sentuh (selalu gelap): pratinjau dengan subtitle libass di atas, panel tab di bawah (miring: pratinjau di
+ * kiri, panel di kanan). Setiap perubahan langsung tersimpan dan bisa diurungkan.
  */
 @Composable
 fun EditorScreen(container: AppContainer, clipId: Long, onClose: () -> Unit) = ClipMiDarkSurface {
@@ -123,14 +131,15 @@ private fun Editor(container: AppContainer, state: EditorState, onClose: () -> U
     var tab by rememberSaveable { mutableStateOf(0) }
     if (tab !in TABS.indices) tab = 0
     val player = remember { ExoPlayer.Builder(context).build() }
-    var position by remember { mutableDoubleStateOf(state.snapshot.clip.startTime) }
+    // Disimpan supaya memutar layar (tegak ↔ miring) tidak mengembalikan video ke awal klip.
+    var position by rememberSaveable { mutableDoubleStateOf(state.snapshot.clip.startTime) }
     var playing by remember { mutableStateOf(false) }
 
     DisposableEffect(Unit) { onDispose { player.release() } }
     LaunchedEffect(Unit) {
         player.setMediaItem(MediaItem.fromUri(state.source.toURI().toString()))
         player.prepare()
-        player.seekTo((state.snapshot.clip.startTime * 1000).toLong())
+        player.seekTo((position * 1000).toLong())
     }
     LaunchedEffect(Unit) { container.database.styles().observeCaptionStyles().collect { state.captionStyles = it; state.refreshTracks() } }
     LaunchedEffect(Unit) { container.database.styles().observeFrameStyles().collect { state.frameStyles = it; state.refreshTracks() } }
@@ -164,10 +173,8 @@ private fun Editor(container: AppContainer, state: EditorState, onClose: () -> U
 
     val seek: (Double) -> Unit = { seconds -> player.seekTo((seconds * 1000).toLong()); position = seconds }
 
-    // Saat keyboard terbuka (teks hook, teks sampul), seluruh editor menyusut supaya kolom isian tetap terlihat.
-    Column(Modifier.fillMaxSize().imePadding()) {
-        // Bilah atas: tutup, judul, urungkan/ulangi, render.
-        Row(Modifier.statusBarsPadding().padding(start = 8.dp, end = 12.dp, top = 4.dp, bottom = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+    val title: @Composable (Modifier) -> Unit = { modifier ->
+        Row(modifier, verticalAlignment = Alignment.CenterVertically) {
             IconCircle(ClipMiIcons.Close, "Tutup editor", onClose, background = Color.Transparent, border = false)
             Text(
                 ClipText.displayTitle(state.entity.title, state.entity.partNumber),
@@ -177,23 +184,26 @@ private fun Editor(container: AppContainer, state: EditorState, onClose: () -> U
                 overflow = TextOverflow.Ellipsis,
                 modifier = Modifier.weight(1f).padding(horizontal = 4.dp),
             )
-            IconCircle(ClipMiIcons.Undo, "Urungkan", { state.undo() }, size = 40.dp, background = Color.Transparent, border = false, enabled = state.canUndo)
-            IconCircle(ClipMiIcons.Redo, "Ulangi", { state.redo() }, size = 40.dp, background = Color.Transparent, border = false, enabled = state.canRedo)
-            PrimaryButton("Render", height = 40.dp, onClick = {
-                scope.launch {
-                    val latest = container.database.clips().find(state.entity.id) ?: return@launch
-                    RenderQueue.render(context, latest)
-                    notifier.show("Masuk antrean render. Progres tampil di notifikasi.")
-                }
-            })
         }
+    }
+    val actions: @Composable () -> Unit = {
+        IconCircle(ClipMiIcons.Undo, "Urungkan", { state.undo() }, size = 40.dp, background = Color.Transparent, border = false, enabled = state.canUndo)
+        IconCircle(ClipMiIcons.Redo, "Ulangi", { state.redo() }, size = 40.dp, background = Color.Transparent, border = false, enabled = state.canRedo)
+        PrimaryButton("Render", height = 40.dp, onClick = {
+            scope.launch {
+                val latest = container.database.clips().find(state.entity.id) ?: return@launch
+                RenderQueue.render(context, latest)
+                notifier.show("Masuk antrean render. Progres tampil di notifikasi.")
+            }
+        })
+    }
 
-        // Pratinjau.
-        val hookLayout = remember(state.snapshot, state.captionStyles, state.frameStyles) { state.hookLayout() }
-        val lead = remember(state.snapshot) { state.spec().leadSeconds() }
+    val hookLayout = remember(state.snapshot, state.captionStyles, state.frameStyles) { state.hookLayout() }
+    val lead = remember(state.snapshot) { state.spec().leadSeconds() }
+    val preview: @Composable (Modifier) -> Unit = { modifier ->
         EditorPreview(
             state, player,
-            modifier = Modifier.fillMaxWidth().weight(1f).padding(horizontal = 16.dp, vertical = 4.dp),
+            modifier = modifier,
             // Di tab Hook, hook selalu terlihat walau video tidak di waktu tampilnya.
             hookTime = if (tab == 3 && !playing) hookLayout.start + lead + minOf(0.6, (hookLayout.end - hookLayout.start) / 2) else null,
             gesture = when (tab) {
@@ -209,9 +219,11 @@ private fun Editor(container: AppContainer, state: EditorState, onClose: () -> U
             },
             onGestureEnd = { state.endDrag() },
         )
+    }
 
-        // Putar/jeda (ikon putih tanpa lingkaran), bilah geser tipis di waktu video hasil, dan waktu.
-        Row(Modifier.fillMaxWidth().padding(start = 8.dp, end = 16.dp, top = 2.dp, bottom = 2.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+    // Putar/jeda (ikon putih tanpa lingkaran), bilah geser tipis di waktu video hasil, dan waktu.
+    val playback: @Composable (Modifier) -> Unit = { modifier ->
+        Row(modifier, verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             Box(
                 Modifier.size(44.dp).clip(RoundedCornerShape(12.dp)).clickable(role = Role.Button, onClickLabel = if (playing) "Jeda" else "Putar") {
                     if (player.isPlaying) player.pause() else {
@@ -233,16 +245,12 @@ private fun Editor(container: AppContainer, state: EditorState, onClose: () -> U
             )
             Text("${Timecode.format(t)} / ${Timecode.format(total)}", style = MaterialTheme.typography.labelMedium, color = c.textMuted)
         }
+    }
 
-        // Panel tab.
-        Column(
-            Modifier
-                .fillMaxWidth()
-                .weight(1.05f)
-                .clip(RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp))
-                .background(EDITOR_PANEL)
-                .navigationBarsPadding(),
-        ) {
+    // Isi tab dan deretan tab. [header] tampil di atas isi (mode miring: urungkan/ulangi/render).
+    val panel: @Composable (Modifier, (@Composable () -> Unit)?) -> Unit = { modifier, header ->
+        Column(modifier) {
+            header?.invoke()
             Box(Modifier.weight(1f).fillMaxWidth()) {
                 when (tab) {
                     0 -> TrimPanel(state, position, playing, seek)
@@ -271,6 +279,56 @@ private fun Editor(container: AppContainer, state: EditorState, onClose: () -> U
                         )
                     }
                 }
+            }
+        }
+    }
+
+    // Saat keyboard terbuka (teks hook, teks sampul), seluruh editor menyusut supaya kolom isian tetap terlihat.
+    BoxWithConstraints(Modifier.fillMaxSize().imePadding()) {
+        if (maxWidth > maxHeight && maxWidth >= 600.dp) {
+            // Miring (HP miring, tablet mendatar): pratinjau 9:16 setinggi layar di kiri, panel tab di kanan.
+            val safeY = WindowInsets.safeDrawing.only(WindowInsetsSides.Vertical)
+            val sideWidth = (maxWidth * 0.36f).coerceAtLeast(240.dp)
+            Row(Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Left))) {
+                Column(Modifier.width(sideWidth).fillMaxHeight().windowInsetsPadding(safeY)) {
+                    title(Modifier.fillMaxWidth().padding(start = 8.dp, end = 8.dp, top = 4.dp, bottom = 4.dp))
+                    preview(Modifier.fillMaxWidth().weight(1f).padding(horizontal = 12.dp, vertical = 4.dp))
+                    playback(Modifier.fillMaxWidth().padding(start = 4.dp, end = 12.dp, top = 2.dp, bottom = 4.dp))
+                }
+                panel(
+                    Modifier
+                        .weight(1f)
+                        .fillMaxHeight()
+                        .clip(RoundedCornerShape(topStart = 28.dp, bottomStart = 28.dp))
+                        .background(EDITOR_PANEL)
+                        .windowInsetsPadding(safeY)
+                        .windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Right)),
+                ) {
+                    Row(
+                        Modifier.fillMaxWidth().padding(start = 12.dp, end = 12.dp, top = 4.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.End,
+                    ) { actions() }
+                }
+            }
+        } else {
+            Column(Modifier.fillMaxSize()) {
+                // Bilah atas: tutup, judul, urungkan/ulangi, render.
+                Row(Modifier.statusBarsPadding().padding(start = 8.dp, end = 12.dp, top = 4.dp, bottom = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+                    title(Modifier.weight(1f))
+                    actions()
+                }
+                preview(Modifier.fillMaxWidth().weight(1f).padding(horizontal = 16.dp, vertical = 4.dp))
+                playback(Modifier.fillMaxWidth().padding(start = 8.dp, end = 16.dp, top = 2.dp, bottom = 2.dp))
+                panel(
+                    Modifier
+                        .fillMaxWidth()
+                        .weight(1.05f)
+                        .clip(RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp))
+                        .background(EDITOR_PANEL)
+                        .navigationBarsPadding(),
+                    null,
+                )
             }
         }
     }

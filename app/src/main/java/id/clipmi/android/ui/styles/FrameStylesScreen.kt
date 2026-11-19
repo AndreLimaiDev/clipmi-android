@@ -250,10 +250,10 @@ fun FrameStyleEditScreen(container: AppContainer, id: Long, copyOf: Long, onBack
         SubScreenHeader(if (id == 0L) "Gaya bingkai baru" else "Ubah gaya bingkai", leave) {
             ActionChip("Simpan", { save() }, height = 40.dp, enabled = (dirty || style.id == 0L) && busy == null, primary = true)
         }
-        // Pratinjau tetap di atas; hanya isian di bawahnya yang bergulir.
-        StickyPreview(expandedWidth = if (core.canvasWidth() > core.canvasHeight()) 300.dp else 190.dp, compactWidth = if (core.canvasWidth() > core.canvasHeight()) 200.dp else 112.dp) { width ->
+        // Pratinjau tetap di atas (miring: di kiri); hanya isian yang bergulir.
+        StyleEditBody(expandedWidth = if (core.canvasWidth() > core.canvasHeight()) 300.dp else 190.dp, compactWidth = if (core.canvasWidth() > core.canvasHeight()) 200.dp else 112.dp, preview = { width ->
             FrameStylePreview(container, core, caption, sample, Modifier.width(width))
-        }
+        }) {
         Column(
             Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = ScreenGutter).navigationBarsPadding().padding(top = 12.dp, bottom = 32.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp),
@@ -282,6 +282,7 @@ fun FrameStyleEditScreen(container: AppContainer, id: Long, copyOf: Long, onBack
                     }
                 }
             }
+        }
         }
     }
 

@@ -6,6 +6,17 @@ import id.clipmi.android.ui.styles.StylesHeader
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.animation.expandHorizontally
+import androidx.compose.animation.shrinkHorizontally
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.WindowInsetsSides
+import androidx.compose.foundation.layout.consumeWindowInsets
+import androidx.compose.foundation.layout.only
+import androidx.compose.foundation.layout.safeDrawing
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.windowInsetsPadding
+import id.clipmi.android.ui.components.ScreenFrame
+import id.clipmi.android.ui.components.isWideScreen
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.background
@@ -117,7 +128,8 @@ private val tabs = listOf(
 )
 
 /**
- * Akar navigasi: layar penuh tepi-ke-tepi, navigasi pil melayang di empat layar utama, snackbar di atasnya.
+ * Akar navigasi: layar penuh tepi-ke-tepi, navigasi pil melayang di empat layar utama (layar lebar: pil tegak di kiri),
+ * snackbar di atasnya.
  * @param shared hasil membagikan link dari aplikasi lain: project yang dibuka, atau pesan untuk daftar project.
  */
 @Composable
@@ -150,40 +162,62 @@ fun ClipMiNavigation(container: AppContainer, shared: SharedResult?, onSharedHan
     }
 
     CompositionLocalProvider(LocalNotifier provides notifier) {
+        val wide = isWideScreen()
+        val navigateTab: (Any) -> Unit = { route ->
+            nav.navigate(route) {
+                popUpTo(nav.graph.findStartDestination().id) { saveState = true }
+                launchSingleTop = true
+                restoreState = true
+            }
+        }
         Box(Modifier.fillMaxSize().background(ClipMi.colors.bg)) {
-            NavHost(nav, startDestination = ProjectRoute, modifier = Modifier.fillMaxSize()) {
-                composable<ProjectRoute> { ProjectListScreen(container, onOpen = { nav.navigate(ProjectDetailRoute(it)) }, onOpenResults = { nav.navigate(ResultsRoute) }, onOpenUpdate = { updateOpen = true }) }
+          // Layar lebar: navigasi utama di samping kiri, isi di kanannya (poni kamera di kiri ditangani navigasinya).
+          Row(Modifier.fillMaxSize()) {
+            if (wide) {
+                AnimatedVisibility(
+                    visible = topLevel,
+                    enter = fadeIn() + expandHorizontally(),
+                    exit = fadeOut() + shrinkHorizontally(),
+                ) { SideNavRail(entry?.destination, navigateTab) }
+            }
+            NavHost(
+                nav, startDestination = ProjectRoute,
+                modifier = Modifier.weight(1f).fillMaxHeight().then(
+                    if (wide && topLevel) Modifier.consumeWindowInsets(WindowInsets.safeDrawing.only(WindowInsetsSides.Start)) else Modifier,
+                ),
+            ) {
+                composable<ProjectRoute> { ScreenFrame { ProjectListScreen(container, onOpen = { nav.navigate(ProjectDetailRoute(it)) }, onOpenResults = { nav.navigate(ResultsRoute) }, onOpenUpdate = { updateOpen = true }) } }
                 composable<ProjectDetailRoute> {
                     ProjectDetailScreen(container, it.toRoute<ProjectDetailRoute>().id, onBack = { nav.popBackStack() }, onOpenEditor = { clip -> nav.navigate(EditorRoute(clip)) }, onSchedule = { clip -> nav.navigate(ScheduleEditRoute(clipId = clip)) })
                 }
                 composable<EditorRoute> { EditorScreen(container, it.toRoute<EditorRoute>().clipId, onClose = { nav.popBackStack() }) }
                 composable<ScheduleRoute> {
-                    ScheduleScreen(
+                    ScreenFrame { ScheduleScreen(
                         container,
                         onOpenAccounts = { nav.navigate(AccountsRoute) },
                         onOpenSchedule = { nav.navigate(ReadyRoute(it)) },
                         onNewSchedule = { clip, date -> nav.navigate(ScheduleEditRoute(clipId = clip, date = date)) },
-                    )
+                    ) }
                 }
-                composable<StatsRoute> { StatsScreen(container, onOpenSchedule = { nav.navigate(ReadyRoute(it)) }, onOpenPerformance = { nav.navigate(PerformanceRoute) }) }
-                composable<PerformanceRoute> { PerformanceScreen(container, onBack = { nav.popBackStack() }, onOpenSchedule = { nav.navigate(ReadyRoute(it)) }) }
-                composable<AccountsRoute> { AccountsScreen(container, onBack = { nav.popBackStack() }) }
-                composable<DataRoute> { DataScreen(container, onBack = { nav.popBackStack() }) }
+                composable<StatsRoute> { ScreenFrame { StatsScreen(container, onOpenSchedule = { nav.navigate(ReadyRoute(it)) }, onOpenPerformance = { nav.navigate(PerformanceRoute) }) } }
+                composable<PerformanceRoute> { ScreenFrame { PerformanceScreen(container, onBack = { nav.popBackStack() }, onOpenSchedule = { nav.navigate(ReadyRoute(it)) }) } }
+                composable<AccountsRoute> { ScreenFrame { AccountsScreen(container, onBack = { nav.popBackStack() }) } }
+                composable<DataRoute> { ScreenFrame { DataScreen(container, onBack = { nav.popBackStack() }) } }
                 composable<ScheduleEditRoute> {
                     val route = it.toRoute<ScheduleEditRoute>()
-                    ScheduleEditScreen(container, route.id, route.clipId, route.date, onBack = { nav.popBackStack() }, onSaved = { saved ->
+                    ScreenFrame { ScheduleEditScreen(container, route.id, route.clipId, route.date, onBack = { nav.popBackStack() }, onSaved = { saved ->
                         // Jadwal baru: kembali ke asal. Diubah: kembali ke Siap Unggah. Dihapus: tutup juga Siap Unggah-nya.
                         if (saved == 0L) { nav.popBackStack<ReadyRoute>(inclusive = true) || nav.popBackStack() } else nav.popBackStack()
-                    })
+                    }) }
                 }
                 composable<ReadyRoute> {
                     val id = it.toRoute<ReadyRoute>().id
-                    ReadyScreen(container, id, onBack = { nav.popBackStack() }, onEdit = { nav.navigate(ScheduleEditRoute(id = id)) }, onOpened = { other ->
+                    ScreenFrame { ReadyScreen(container, id, onBack = { nav.popBackStack() }, onEdit = { nav.navigate(ScheduleEditRoute(id = id)) }, onOpened = { other ->
                         nav.navigate(ReadyRoute(other)) { popUpTo<ReadyRoute> { inclusive = true } }
-                    })
+                    }) }
                 }
                 composable<SettingsRoute> {
-                    SettingsScreen(
+                    ScreenFrame { SettingsScreen(
                         container,
                         onOpenTranscription = { nav.navigate(TranscriptionSettingsRoute) },
                         onOpenAnalysis = { nav.navigate(AnalysisSettingsRoute) },
@@ -195,62 +229,57 @@ fun ClipMiNavigation(container: AppContainer, shared: SharedResult?, onSharedHan
                         onOpenBumpers = { nav.navigate(BumpersRoute) },
                         onOpenResults = { nav.navigate(ResultsRoute) },
                         onOpenData = { nav.navigate(DataRoute) },
-                    )
+                    ) }
                 }
-                composable<TranscriptionSettingsRoute> { TranscriptionSettingsScreen(container, onBack = { nav.popBackStack() }) }
-                composable<AnalysisSettingsRoute> { AnalysisSettingsScreen(container, onBack = { nav.popBackStack() }) }
-                composable<CorrectionsRoute> { CorrectionsScreen(container, onBack = { nav.popBackStack() }) }
+                composable<TranscriptionSettingsRoute> { ScreenFrame { TranscriptionSettingsScreen(container, onBack = { nav.popBackStack() }) } }
+                composable<AnalysisSettingsRoute> { ScreenFrame { AnalysisSettingsScreen(container, onBack = { nav.popBackStack() }) } }
+                composable<CorrectionsRoute> { ScreenFrame { CorrectionsScreen(container, onBack = { nav.popBackStack() }) } }
                 composable<LabRoute> { Box(Modifier.statusBarsPadding()) { LabScreen() } }
-                composable<AiUsageRoute> { AiUsageScreen(container, onBack = { nav.popBackStack() }) }
+                composable<AiUsageRoute> { ScreenFrame { AiUsageScreen(container, onBack = { nav.popBackStack() }) } }
                 composable<CaptionStylesRoute> {
                     // Menu Gaya klip: tab Subtitle (rute ini) dan Bingkai (FrameStylesRoute) saling menggantikan.
-                    CaptionStylesScreen(container, onBack = { nav.popBackStack() }, onEdit = { id, copy -> nav.navigate(CaptionStyleEditRoute(id, copy)) }, header = {
+                    ScreenFrame { CaptionStylesScreen(container, onBack = { nav.popBackStack() }, onEdit = { id, copy -> nav.navigate(CaptionStyleEditRoute(id, copy)) }, header = {
                         StylesHeader(0, onBack = { nav.popBackStack() }, onAdd = { nav.navigate(CaptionStyleEditRoute(0, 0)) }) { tab -> if (tab == 1) nav.navigate(FrameStylesRoute) { popUpTo<CaptionStylesRoute> { inclusive = true } } }
-                    })
+                    }) }
                 }
                 composable<CaptionStyleEditRoute> {
                     val route = it.toRoute<CaptionStyleEditRoute>()
-                    CaptionStyleEditScreen(container, route.id, route.copyOf, onBack = { nav.popBackStack() }, onDuplicate = { from ->
+                    ScreenFrame(maxWidth = null) { CaptionStyleEditScreen(container, route.id, route.copyOf, onBack = { nav.popBackStack() }, onDuplicate = { from ->
                         nav.navigate(CaptionStyleEditRoute(0, from)) { popUpTo<CaptionStylesRoute>() }
-                    })
+                    }) }
                 }
                 composable<FrameStylesRoute> {
-                    FrameStylesScreen(container, onBack = { nav.popBackStack() }, onEdit = { id, copy -> nav.navigate(FrameStyleEditRoute(id, copy)) }, header = {
+                    ScreenFrame { FrameStylesScreen(container, onBack = { nav.popBackStack() }, onEdit = { id, copy -> nav.navigate(FrameStyleEditRoute(id, copy)) }, header = {
                         StylesHeader(1, onBack = { nav.popBackStack() }, onAdd = { nav.navigate(FrameStyleEditRoute(0, 0)) }) { tab -> if (tab == 0) nav.navigate(CaptionStylesRoute) { popUpTo<FrameStylesRoute> { inclusive = true } } }
-                    })
+                    }) }
                 }
                 composable<FrameStyleEditRoute> {
                     val route = it.toRoute<FrameStyleEditRoute>()
-                    FrameStyleEditScreen(container, route.id, route.copyOf, onBack = { nav.popBackStack() }, onDuplicate = { from ->
+                    ScreenFrame(maxWidth = null) { FrameStyleEditScreen(container, route.id, route.copyOf, onBack = { nav.popBackStack() }, onDuplicate = { from ->
                         nav.navigate(FrameStyleEditRoute(0, from)) { popUpTo<FrameStylesRoute>() }
-                    })
+                    }) }
                 }
-                composable<BumpersRoute> { BumpersScreen(container, onBack = { nav.popBackStack() }) }
+                composable<BumpersRoute> { ScreenFrame { BumpersScreen(container, onBack = { nav.popBackStack() }) } }
                 composable<ResultsRoute> {
-                    ResultsScreen(
+                    ScreenFrame { ResultsScreen(
                         container, onBack = { nav.popBackStack() },
                         onOpenProject = { nav.navigate(ProjectDetailRoute(it)) },
                         onOpenEditor = { nav.navigate(EditorRoute(it)) },
                         onSchedule = { nav.navigate(ScheduleEditRoute(clipId = it)) },
                         onOpenSchedule = { nav.navigate(ReadyRoute(it)) },
-                    )
+                    ) }
                 }
             }
+          }
 
             if (topLevel) StatusBarScrim(Modifier.align(Alignment.TopCenter), color = ClipMi.colors.bg.copy(alpha = 0.96f))
-            AnimatedVisibility(
-                visible = topLevel,
-                enter = fadeIn() + slideInVertically { it / 2 },
-                exit = fadeOut() + slideOutVertically { it / 2 },
-                modifier = Modifier.align(Alignment.BottomCenter),
-            ) {
-                FloatingNavBar(entry?.destination) { route ->
-                    nav.navigate(route) {
-                        popUpTo(nav.graph.findStartDestination().id) { saveState = true }
-                        launchSingleTop = true
-                        restoreState = true
-                    }
-                }
+            if (!wide) {
+                AnimatedVisibility(
+                    visible = topLevel,
+                    enter = fadeIn() + slideInVertically { it / 2 },
+                    exit = fadeOut() + slideOutVertically { it / 2 },
+                    modifier = Modifier.align(Alignment.BottomCenter),
+                ) { FloatingNavBar(entry?.destination, navigateTab) }
             }
             if (topLevel) SnackbarInset(FloatingNavSpace - 16.dp)
             ClipMiSnackbarHost(notifier, Modifier.align(Alignment.BottomCenter))
@@ -278,30 +307,59 @@ private fun FloatingNavBar(destination: NavDestination?, onNavigate: (Any) -> Un
             .padding(horizontal = 6.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        tabs.forEach { tab ->
-            val selected = destination?.chain()?.any { it.hasRoute(tab.route::class) } == true
-            Column(
-                Modifier
-                    .weight(1f)
-                    .fillMaxHeight()
-                    .clip(RoundedCornerShape(28.dp))
-                    .clickable(role = Role.Tab, onClickLabel = tab.label) { onNavigate(tab.route) },
-                horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.spacedBy(2.dp, Alignment.CenterVertically),
-            ) {
-                Box(
-                    Modifier.clip(CircleShape).background(if (selected) c.accent else androidx.compose.ui.graphics.Color.Transparent).padding(horizontal = 16.dp, vertical = 4.dp),
-                ) {
-                    Icon(tab.icon, contentDescription = null, tint = if (selected) c.onAccent else c.textMuted, modifier = Modifier.size(22.dp))
-                }
-                Text(
-                    tab.label,
-                    style = MaterialTheme.typography.labelSmall.copy(fontWeight = if (selected) FontWeight.Bold else FontWeight.SemiBold),
-                    color = if (selected) c.text else c.textMuted,
-                    maxLines = 1,
-                )
-            }
+        tabs.forEach { tab -> NavItem(tab, destination, Modifier.weight(1f).fillMaxHeight(), onNavigate) }
+    }
+}
+
+/** Navigasi utama di layar lebar (tablet, HP miring): pil tegak melayang di kiri, sama gayanya dengan pil bawah. */
+@Composable
+private fun SideNavRail(destination: NavDestination?, onNavigate: (Any) -> Unit) {
+    val c = ClipMi.colors
+    val shape = RoundedCornerShape(34.dp)
+    Box(
+        Modifier
+            .fillMaxHeight()
+            .windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Start + WindowInsetsSides.Vertical))
+            .padding(start = 12.dp, end = 4.dp, top = 8.dp, bottom = 8.dp),
+        contentAlignment = Alignment.Center,
+    ) {
+        Column(
+            Modifier
+                .width(84.dp)
+                .shadow(if (c.isDark) 0.dp else 12.dp, shape, ambientColor = c.text.copy(alpha = 0.08f), spotColor = c.text.copy(alpha = 0.08f))
+                .clip(shape)
+                .background(if (c.isDark) c.panel.copy(alpha = 0.96f) else c.card)
+                .border(1.dp, if (c.isDark) c.lineStrong else c.line, shape)
+                .padding(6.dp),
+            verticalArrangement = Arrangement.spacedBy(4.dp),
+        ) {
+            tabs.forEach { tab -> NavItem(tab, destination, Modifier.fillMaxWidth().height(64.dp), onNavigate) }
         }
+    }
+}
+
+@Composable
+private fun NavItem(tab: Tab, destination: NavDestination?, modifier: Modifier, onNavigate: (Any) -> Unit) {
+    val c = ClipMi.colors
+    val selected = destination?.chain()?.any { it.hasRoute(tab.route::class) } == true
+    Column(
+        modifier
+            .clip(RoundedCornerShape(28.dp))
+            .clickable(role = Role.Tab, onClickLabel = tab.label) { onNavigate(tab.route) },
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(2.dp, Alignment.CenterVertically),
+    ) {
+        Box(
+            Modifier.clip(CircleShape).background(if (selected) c.accent else androidx.compose.ui.graphics.Color.Transparent).padding(horizontal = 16.dp, vertical = 4.dp),
+        ) {
+            Icon(tab.icon, contentDescription = null, tint = if (selected) c.onAccent else c.textMuted, modifier = Modifier.size(22.dp))
+        }
+        Text(
+            tab.label,
+            style = MaterialTheme.typography.labelSmall.copy(fontWeight = if (selected) FontWeight.Bold else FontWeight.SemiBold),
+            color = if (selected) c.text else c.textMuted,
+            maxLines = 1,
+        )
     }
 }
 

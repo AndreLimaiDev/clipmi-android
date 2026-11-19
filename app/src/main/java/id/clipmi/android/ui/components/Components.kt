@@ -25,6 +25,14 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.WindowInsetsSides
+import androidx.compose.foundation.layout.consumeWindowInsets
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.only
+import androidx.compose.foundation.layout.safeDrawing
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.layout.windowInsetsPadding
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.windowInsetsTopHeight
 import androidx.activity.compose.LocalActivity
@@ -107,8 +115,53 @@ import java.util.Locale
 /** Jarak tepi layar (mockup: 20). */
 val ScreenGutter = 20.dp
 
-/** Ruang di bawah daftar agar isi terakhir tidak tertutup navigasi melayang. */
-val FloatingNavSpace = 112.dp
+/** Ruang di bawah daftar agar isi terakhir tidak tertutup navigasi melayang (layar lebar: navigasi di samping). */
+val FloatingNavSpace: Dp
+    @Composable get() = if (isWideScreen()) 24.dp else 112.dp
+
+/** Lebar ≥600 dp (tablet, HP miring): navigasi utama pindah ke samping, isi daftar dan form dibatasi lebarnya. */
+@Composable
+fun isWideScreen(): Boolean = LocalConfiguration.current.screenWidthDp >= 600
+
+/** Layar lebar dan mendatar: pratinjau yang biasanya tetap di atas pindah ke kiri, isian di kanan. */
+@Composable
+fun isSideBySide(): Boolean = LocalConfiguration.current.let { it.screenWidthDp >= 600 && it.screenWidthDp > it.screenHeightDp }
+
+/** Lebar maksimum isi daftar dan form di layar lebar, supaya baris tidak memanjang selebar tablet. */
+val ReadableWidth = 760.dp
+
+/**
+ * Isi satu layar di layar lebar: dibatasi [maxWidth] di tengah (null: selebar layar) dan menghindari poni kamera atau
+ * bilah navigasi di sisi kiri/kanan saat miring. Di HP tegak tidak mengubah apa pun.
+ */
+@Composable
+fun ScreenFrame(maxWidth: Dp? = ReadableWidth, content: @Composable () -> Unit) {
+    Box(
+        Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Horizontal)),
+        contentAlignment = Alignment.TopCenter,
+    ) {
+        Box(if (maxWidth != null) Modifier.widthIn(max = maxWidth).fillMaxSize() else Modifier.fillMaxSize()) { content() }
+    }
+}
+
+/**
+ * Layar dengan video yang selalu terlihat. [side] (layar lebar mendatar): [media] di kiri setinggi layar berlatar hitam,
+ * bilah status hitam selebar layar, dan [content] di kanan. Tegak: hanya [content]; layar itu menaruh videonya di atas.
+ */
+@Composable
+fun SideBySideMedia(side: Boolean, mediaWeight: Float = 0.45f, media: @Composable (Modifier) -> Unit, content: @Composable () -> Unit) {
+    if (!side) {
+        content()
+        return
+    }
+    Column(Modifier.fillMaxSize()) {
+        Box(Modifier.fillMaxWidth().background(Color.Black).windowInsetsTopHeight(WindowInsets.statusBars))
+        Row(Modifier.fillMaxWidth().weight(1f).consumeWindowInsets(WindowInsets.statusBars)) {
+            media(Modifier.weight(mediaWeight).fillMaxHeight().background(Color.Black).windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Start)))
+            Box(Modifier.weight(1f - mediaWeight).fillMaxHeight().background(ClipMi.colors.bg).windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.End))) { content() }
+        }
+    }
+}
 
 /** Judul layar utama: label kecil "ClipMI" + judul besar, aksi di kanan. */
 @Composable
