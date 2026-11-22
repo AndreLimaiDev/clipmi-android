@@ -1,5 +1,7 @@
 package id.clipmi.android.ui.schedule
 
+import id.clipmi.core.schedule.isOverdue
+
 import android.content.Context
 import android.net.Uri
 import androidx.compose.foundation.background

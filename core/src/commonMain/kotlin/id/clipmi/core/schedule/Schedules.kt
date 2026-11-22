@@ -1,6 +1,12 @@
 package id.clipmi.core.schedule
 
-import java.time.LocalDateTime
+import kotlinx.datetime.DateTimeUnit
+import kotlinx.datetime.LocalDate
+import kotlinx.datetime.LocalDateTime
+import kotlinx.datetime.isoDayNumber
+import kotlinx.datetime.minus
+import kotlinx.datetime.number
+import kotlinx.datetime.plus
 
 /** Status satu akun tujuan jadwal (`ScheduleAccount`). */
 object TargetStatus {
@@ -24,7 +30,7 @@ object Schedules {
 
     /** Waktunya sudah lewat tetapi masih ada akun yang belum terbit. */
     fun isOverdue(at: LocalDateTime, statuses: List<String>, now: LocalDateTime): Boolean =
-        at.isBefore(now) && state(statuses) != ScheduleState.Published
+        at < now && state(statuses) != ScheduleState.Published
 
     /** Caption dan hashtag milik jadwal, atau milik klip bila jadwal tidak mengubahnya. */
     fun effectiveCaption(scheduleCaption: String?, clipCaption: String?): String = scheduleCaption ?: clipCaption.orEmpty()
@@ -63,17 +69,17 @@ object Schedules {
     fun rescheduleAt(openSlots: Map<LocalDateTime, List<Long>>, pendingCount: Int, scheduledAt: LocalDateTime, now: LocalDateTime): LocalDateTime =
         openSlots.entries.firstOrNull { it.value.size == pendingCount }?.key
             ?: openSlots.keys.firstOrNull()
-            ?: now.plusDays(1).withHour(scheduledAt.hour).withMinute(scheduledAt.minute).withSecond(scheduledAt.second).withNano(scheduledAt.nano)
+            ?: LocalDateTime(now.date.plus(1, DateTimeUnit.DAY), scheduledAt.time)
 
     /** Hari pertama dan terakhir tampilan minggu (Senin–Minggu) atau bulan (minggu-minggu yang mencakup bulan itu). */
-    fun weekRange(anchor: java.time.LocalDate): Pair<java.time.LocalDate, java.time.LocalDate> {
-        val start = anchor.minusDays((anchor.dayOfWeek.value - 1).toLong())
-        return start to start.plusDays(6)
+    fun weekRange(anchor: LocalDate): Pair<LocalDate, LocalDate> {
+        val start = anchor.minus(anchor.dayOfWeek.isoDayNumber - 1, DateTimeUnit.DAY)
+        return start to start.plus(6, DateTimeUnit.DAY)
     }
 
-    fun monthRange(anchor: java.time.LocalDate): Pair<java.time.LocalDate, java.time.LocalDate> {
-        val first = anchor.withDayOfMonth(1)
-        val last = anchor.withDayOfMonth(anchor.lengthOfMonth())
+    fun monthRange(anchor: LocalDate): Pair<LocalDate, LocalDate> {
+        val first = LocalDate(anchor.year, anchor.month, 1)
+        val last = first.plus(1, DateTimeUnit.MONTH).minus(1, DateTimeUnit.DAY)
         return weekRange(first).first to weekRange(last).second
     }
 }
@@ -100,7 +106,7 @@ object Reminders {
 
     /** @param due jadwal yang belum diingatkan, waktunya ≤ sekarang, masih ada akun menunggu; urut waktu. */
     fun notes(due: List<DueSchedule>, now: LocalDateTime): List<ReminderNote> {
-        val late = due.filter { it.at.isBefore(now.minusMinutes(LATE_MINUTES)) }
+        val late = due.filter { it.at < now.plusMinutes(-LATE_MINUTES) }
         val onTime = due - late.toSet()
         return buildList {
             if (onTime.size == 1) {
@@ -131,13 +137,13 @@ object IdDate {
     val WEEKDAYS = listOf("Senin", "Selasa", "Rabu", "Kamis", "Jumat", "Sabtu", "Minggu")
     val WEEKDAYS_SHORT = listOf("Sen", "Sel", "Rab", "Kam", "Jum", "Sab", "Min")
 
-    private fun month(at: java.time.temporal.TemporalAccessor) = MONTHS_SHORT[at.get(java.time.temporal.ChronoField.MONTH_OF_YEAR) - 1]
-
     /** "H.i", misalnya "19.00". */
-    fun time(at: LocalDateTime): String = "%02d.%02d".format(at.hour, at.minute)
+    fun time(at: LocalDateTime): String = "${pad2(at.hour)}.${pad2(at.minute)}"
 
     /** "j M", misalnya "4 Nov". */
-    fun dayMonth(at: java.time.temporal.TemporalAccessor): String = "${at.get(java.time.temporal.ChronoField.DAY_OF_MONTH)} ${month(at)}"
+    fun dayMonth(at: LocalDate): String = "${at.day} ${MONTHS_SHORT[at.month.number - 1]}"
+
+    fun dayMonth(at: LocalDateTime): String = dayMonth(at.date)
 
     /** "j M, H.i". */
     fun dayMonthTime(at: LocalDateTime): String = "${dayMonth(at)}, ${time(at)}"
@@ -146,8 +152,8 @@ object IdDate {
     fun full(at: LocalDateTime): String = "${dayMonth(at)} ${at.year}, ${time(at)}"
 
     /** "l, j M, H.i", misalnya "Rabu, 4 Nov, 19.00". */
-    fun weekdayDayMonthTime(at: LocalDateTime): String = "${WEEKDAYS[at.dayOfWeek.value - 1]}, ${dayMonthTime(at)}"
+    fun weekdayDayMonthTime(at: LocalDateTime): String = "${WEEKDAYS[at.dayOfWeek.isoDayNumber - 1]}, ${dayMonthTime(at)}"
 
     /** "F Y", misalnya "November 2026". */
-    fun monthYear(at: java.time.LocalDate): String = "${MONTHS[at.monthValue - 1]} ${at.year}"
+    fun monthYear(at: LocalDate): String = "${MONTHS[at.month.number - 1]} ${at.year}"
 }

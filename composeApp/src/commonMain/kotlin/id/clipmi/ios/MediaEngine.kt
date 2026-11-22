@@ -69,6 +69,21 @@ interface MediaEngine {
      */
     fun pickFile(output: String, listener: PickListener)
 
+    /**
+     * Mengganti semua pengingat jadwal dengan [json]: array `[{"id", "at" (epoch ms), "title", "body"}]` sebagai notifikasi
+     * lokal (UNUserNotificationCenter). Izin notifikasi diminta saat pertama dipanggil.
+     */
+    fun scheduleReminders(json: String)
+
+    /**
+     * Statistik publik satu postingan lewat yt-dlp (Python tertanam, tanpa mengunduh video). [listener] dipanggil di main
+     * thread dengan JSON `{"ok": true, "views", "likes", "comments", "shares"}` atau `{"ok": false, "error"}`.
+     */
+    fun fetchStats(url: String, directory: String, listener: ResultListener)
+
+    /** Pengingat diizinkan pengguna (null = belum pernah ditanya). [listener] dipanggil di main thread. */
+    fun remindersAllowed(listener: AllowedListener)
+
     // libass untuk pratinjau (ass_core.c, sama dengan Android). Handle 0 = gagal.
 
     /** Renderer libass seukuran [width]×[height] dengan font bawaan. */
@@ -108,6 +123,15 @@ interface RenderListener {
 interface SaveListener {
     /** null = tersimpan; selain itu pesan gagal. */
     fun finished(error: String?)
+}
+
+interface ResultListener {
+    fun finished(resultJson: String)
+}
+
+interface AllowedListener {
+    /** "allowed", "denied", atau "unknown" (belum pernah ditanya). */
+    fun finished(state: String)
 }
 
 interface PickListener {

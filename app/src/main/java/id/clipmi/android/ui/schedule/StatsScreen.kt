@@ -1,5 +1,10 @@
 package id.clipmi.android.ui.schedule
 
+import id.clipmi.core.schedule.statAt
+
+import id.clipmi.core.schedule.dayMonth
+import id.clipmi.core.schedule.dayMonthTime
+
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.draw.rotate
 import androidx.compose.foundation.layout.fillMaxHeight

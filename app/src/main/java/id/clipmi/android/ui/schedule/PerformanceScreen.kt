@@ -1,5 +1,8 @@
 package id.clipmi.android.ui.schedule
 
+import id.clipmi.core.schedule.dayMonthTime
+import id.clipmi.core.schedule.full
+
 import android.content.Intent
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement

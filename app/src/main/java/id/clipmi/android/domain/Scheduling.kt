@@ -1,5 +1,13 @@
 package id.clipmi.android.domain
 
+import id.clipmi.core.schedule.javaAt
+import id.clipmi.core.schedule.openSlots
+import id.clipmi.core.schedule.plan
+import id.clipmi.core.schedule.rescheduleAt
+import id.clipmi.core.schedule.until
+import id.clipmi.core.schedule.weekdayDayMonthTime
+import kotlinx.datetime.toKotlinLocalDateTime
+
 import android.content.Context
 import android.net.Uri
 import androidx.room.withTransaction
@@ -151,25 +159,25 @@ class Scheduler(private val app: Context, private val db: AppDatabase, private v
                 selected = clip.review == ReviewStatus.Selected,
                 renderDone = clip.render == RenderStatus.Done && clip.outputPath != null,
                 fileExists = clip.render == RenderStatus.Done && outputExists(clip),
-                renderedAt = clip.renderedAt?.let(Wall::of),
+                renderedAt = clip.renderedAt?.let(Wall::of)?.toKotlinLocalDateTime(),
                 scheduled = clip.id in scheduled,
             )
         }
         val accounts = dao.accounts().map { SlotAccount(it.id, SlotCodec.decode(it.slots)) }.filter { it.slots.isNotEmpty() }
         val result = QueueFiller.plan(
             records,
-            schedules.map { s -> ScheduleRecord(s.clipId, Wall.of(s.scheduledAt), targets[s.id].orEmpty().map { it.socialAccountId }) },
+            schedules.map { s -> ScheduleRecord(s.clipId, Wall.of(s.scheduledAt).toKotlinLocalDateTime(), targets[s.id].orEmpty().map { it.socialAccountId }) },
             accounts,
             now,
         )
         db.withTransaction {
             for (plan in result.scheduled) {
-                val id = dao.insertSchedule(ScheduleEntity(clipId = plan.clipId, scheduledAt = Wall.millis(plan.at)))
+                val id = dao.insertSchedule(ScheduleEntity(clipId = plan.clipId, scheduledAt = Wall.millis(plan.javaAt)))
                 syncTargets(id, plan.accountIds)
             }
         }
         if (result.scheduled.isNotEmpty()) ReminderAlarm.arm(app)
-        return FillOutcome(QueueFiller.banner(result), result.scheduled.firstOrNull()?.at?.toLocalDate())
+        return FillOutcome(QueueFiller.banner(result), result.scheduled.firstOrNull()?.javaAt?.toLocalDate())
     }
 
     /**

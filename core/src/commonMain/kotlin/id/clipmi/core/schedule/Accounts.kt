@@ -1,7 +1,7 @@
 package id.clipmi.core.schedule
 
-import java.time.LocalDateTime
-import java.time.temporal.ChronoUnit
+import kotlinx.datetime.LocalDateTime
+import kotlinx.datetime.isoDayNumber
 
 /**
  * Akun sosmed dan slot rutinnya, padanan `App\Models\SocialAccount` desktop. Akun hanya label untuk merencanakan
@@ -59,18 +59,18 @@ object Slots {
      * (`SocialAccount::slotTimes`).
      */
     fun times(slots: List<Slot>, after: LocalDateTime, until: LocalDateTime): List<LocalDateTime> {
-        val times = sortedMapOf<LocalDateTime, LocalDateTime>()
-        var day = after.truncatedTo(ChronoUnit.DAYS)
-        while (!day.isAfter(until)) {
+        val times = mutableSetOf<LocalDateTime>()
+        var day = after.startOfDay()
+        while (day <= until) {
             for (slot in slots) {
                 val (hour, minute) = TIME.find(slot.time)?.let { it.groupValues[1].toInt() to it.groupValues[2].toInt() } ?: continue
-                if (day.dayOfWeek.value !in slot.days) continue
-                val at = day.plusHours(hour.toLong()).plusMinutes(minute.toLong())
-                if (at.isAfter(after) && !at.isAfter(until)) times[at] = at
+                if (day.dayOfWeek.isoDayNumber !in slot.days) continue
+                val at = day.plusMinutes(hour * 60L + minute)
+                if (at > after && at <= until) times += at
             }
             day = day.plusDays(1)
         }
-        return times.values.toList()
+        return times.sorted()
     }
 
     /** Ringkasan slot untuk daftar akun, misalnya "07.00 setiap hari · 19.00 Sen–Jum" (`slotSummary`). */
@@ -89,15 +89,15 @@ object Slots {
      * Slot dari isian: jam yang sama digabung harinya, urut jam, hari urut; kosong menjadi null (`normalizeSlots`).
      */
     fun normalize(slots: List<Slot>): List<Slot>? {
-        val merged = sortedMapOf<String, List<Int>>()
+        val merged = mutableMapOf<String, List<Int>>()
         for (slot in slots) merged[slot.time] = ((merged[slot.time] ?: emptyList()) + slot.days).distinct().sorted()
-        return if (merged.isEmpty()) null else merged.map { (time, days) -> Slot(time, days) }
+        return if (merged.isEmpty()) null else merged.keys.sorted().map { time -> Slot(time, merged.getValue(time)) }
     }
 
     /** Slot baru: jam 19.00 setiap hari, atau satu jam setelah slot terakhir (`addSlot`). */
     fun next(slots: List<Slot>): Slot {
         val hour = slots.lastOrNull()?.let { minOf(23, it.time.take(2).toIntOrNull()?.plus(1) ?: DEFAULT_HOUR) } ?: DEFAULT_HOUR
-        return Slot("%02d:00".format(hour), Platforms.DAYS.keys.toList())
+        return Slot("${pad2(hour)}:00", Platforms.DAYS.keys.toList())
     }
 
     /** Hari slot ditambah atau dibuang (`toggleSlotDay`). */

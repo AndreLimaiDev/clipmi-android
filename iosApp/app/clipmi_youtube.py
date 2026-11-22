@@ -129,3 +129,56 @@ def download(url, out_dir, progress_path, log_path):
     sys.stderr = sys.__stderr__
     log.close()
     return json.dumps(result, ensure_ascii=False)
+
+
+def stats(url, cache_dir, log_path):
+    """Statistik publik satu postingan tanpa mengunduh video (sama dengan PostStats.ytDlpArgs Android).
+
+    Mengembalikan teks JSON {"ok": true, "views", "likes", "comments", "shares"} (null bila tidak ditampilkan
+    platform) atau {"ok": false, "error"}.
+    """
+    log = open(log_path, "a", buffering=1, encoding="utf-8")
+    sys.stdout = log
+    sys.stderr = log
+    try:
+        import certifi
+
+        os.environ["SSL_CERT_FILE"] = certifi.where()
+        import yt_dlp
+
+        logger = _Logger()
+        opts = {
+            "logger": logger,
+            "noplaylist": True,
+            "skip_download": True,
+            "cachedir": cache_dir,
+        }
+        try:
+            with yt_dlp.YoutubeDL(opts) as ydl:
+                info = ydl.extract_info(url, download=False) or {}
+        except BaseException as e:  # noqa: BLE001
+            info = None
+            error = logger.last_error or f"{type(e).__name__}: {e}"
+
+        def number(key):
+            value = info.get(key) if info else None
+            return value if isinstance(value, int) and value >= 0 else None
+
+        if info is None:
+            result = {"ok": False, "error": error}
+        else:
+            result = {
+                "ok": True,
+                "views": number("view_count"),
+                "likes": number("like_count"),
+                "comments": number("comment_count"),
+                "shares": number("repost_count"),
+            }
+    except BaseException as e:  # noqa: BLE001
+        traceback.print_exc()
+        result = {"ok": False, "error": f"{type(e).__name__}: {e}"}
+    print("== Statistik", url, json.dumps(result, ensure_ascii=False))
+    sys.stdout = sys.__stdout__
+    sys.stderr = sys.__stderr__
+    log.close()
+    return json.dumps(result, ensure_ascii=False)

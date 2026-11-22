@@ -103,6 +103,7 @@ import id.clipmi.core.analysis.AnalysisResultException
 import id.clipmi.core.analysis.ClipText
 import id.clipmi.core.transcript.Timecode
 import kotlinx.coroutines.launch
+import kotlinx.datetime.LocalDate
 
 /** Empat tab utama, sama dengan navigasi Android. */
 private enum class MainTab(val label: String, val icon: ImageVector) {
@@ -117,6 +118,9 @@ private sealed interface Route {
     data class Project(val id: Long) : Route
     data class Editor(val clipId: Long) : Route
     data object Backup : Route
+    data class ScheduleEdit(val id: Long = 0, val clipId: Long = 0, val date: LocalDate? = null) : Route
+    data class Ready(val id: Long) : Route
+    data object Accounts : Route
 }
 
 @Composable
@@ -124,6 +128,7 @@ fun App(repo: Repository, engine: MediaEngine) = ClipMiTheme {
     val scope = rememberCoroutineScope()
     val downloads = remember { Downloads(repo, engine, scope) }
     val renders = remember { Renders(IosRenderer(repo, engine), scope) }
+    val scheduler = remember { IosScheduler(repo, engine) }
     val notifier = remember { Notifier(SnackbarHostState(), scope) }
     var tab by remember { mutableStateOf(MainTab.Projects) }
     // Tumpukan layar di atas tab (kembali = ambil yang teratas).
@@ -144,12 +149,32 @@ fun App(repo: Repository, engine: MediaEngine) = ClipMiTheme {
                         ClipEditorScreen(repo, renders, top.clipId, onBack = pop)
                     }
                 }
-                is Route.Project -> ProjectScreen(repo, engine, downloads, renders, top.id, onBack = pop, onEdit = { push(Route.Editor(it)) })
+                is Route.Project -> ProjectScreen(
+                    repo, engine, downloads, renders, top.id, onBack = pop, onEdit = { push(Route.Editor(it)) }, onSchedule = { push(Route.ScheduleEdit(clipId = it)) },
+                )
                 Route.Backup -> Box(Modifier.statusBarsPadding()) { BackupScreen(repo, engine, onBack = pop) }
+                is Route.ScheduleEdit -> Box(Modifier.fillMaxSize()) {
+                    ScheduleEditScreen(repo, engine, scheduler, top.id, top.clipId, top.date, onBack = pop, onSaved = { saved ->
+                        // Jadwal baru: kembali ke asal. Diubah: kembali ke Siap Unggah. Dihapus: tutup juga Siap Unggah-nya.
+                        stack = if (saved == 0L) stack.dropLast(1).dropLastWhile { it is Route.Ready } else stack.dropLast(1)
+                    })
+                }
+                is Route.Ready -> Box(Modifier.fillMaxSize()) {
+                    ReadyScreen(
+                        repo, engine, scheduler, renders, top.id, onBack = pop, onEdit = { push(Route.ScheduleEdit(id = top.id)) },
+                        onOpened = { other -> stack = stack.dropLast(1) + Route.Ready(other) },
+                    )
+                }
+                Route.Accounts -> Box(Modifier.fillMaxSize()) { AccountsScreen(repo, scheduler, onBack = pop) }
                 null -> when (tab) {
                     MainTab.Projects -> ProjectListScreen(repo, engine, downloads, onOpen = { push(Route.Project(it)) })
-                    MainTab.Schedule -> ComingSoon("Jadwal", "Jadwal unggah dan pengingat menyusul di iPhone. Untuk sekarang, jadwalkan dari ClipMI Android.", ClipMiIcons.Calendar)
-                    MainTab.Stats -> ComingSoon("Statistik", "Statistik unggahan menyusul di iPhone.", ClipMiIcons.Chart)
+                    MainTab.Schedule -> ScheduleScreen(
+                        repo, engine, scheduler, renders,
+                        onOpenAccounts = { push(Route.Accounts) },
+                        onOpenSchedule = { push(Route.Ready(it)) },
+                        onNewSchedule = { clip, date -> push(Route.ScheduleEdit(clipId = clip, date = date)) },
+                    )
+                    MainTab.Stats -> StatsScreen(repo, engine, scheduler, downloads, onOpenSchedule = { push(Route.Ready(it)) })
                     MainTab.Settings -> SettingsScreen(onBackup = { push(Route.Backup) })
                 }
             }
@@ -202,14 +227,6 @@ private fun FloatingNavBar(selected: MainTab, onSelect: (MainTab) -> Unit) {
                 )
             }
         }
-    }
-}
-
-@Composable
-private fun ComingSoon(title: String, body: String, icon: ImageVector) {
-    Column(Modifier.fillMaxSize().statusBarsPadding().padding(top = 12.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
-        ScreenHeader(title, Modifier.padding(horizontal = ScreenGutter))
-        EmptyState("Segera hadir", body, Modifier.heightIn(min = 320.dp), icon = icon)
     }
 }
 
@@ -473,7 +490,9 @@ private fun NewProjectSheet(repo: Repository, downloads: Downloads, onDismiss: (
 // ---------------------------------------------------------------------------------------------------------------
 
 @Composable
-private fun ProjectScreen(repo: Repository, engine: MediaEngine, downloads: Downloads, renders: Renders, id: Long, onBack: () -> Unit, onEdit: (Long) -> Unit) {
+private fun ProjectScreen(
+    repo: Repository, engine: MediaEngine, downloads: Downloads, renders: Renders, id: Long, onBack: () -> Unit, onEdit: (Long) -> Unit, onSchedule: (Long) -> Unit,
+) {
     val project by remember(id) { repo.db.projects().observe(id) }.collectAsState(null)
     val clips by remember(id) { repo.db.clips().observe(id) }.collectAsState(emptyList())
     val segments by remember(id) { repo.db.segments().observe(id) }.collectAsState(emptyList())
@@ -507,7 +526,7 @@ private fun ProjectScreen(repo: Repository, engine: MediaEngine, downloads: Down
                 }
             }
             if (tab == 0) {
-                item { ClipsSection(repo, engine, renders, p, clips, onEdit) }
+                item { ClipsSection(repo, engine, renders, p, clips, onEdit, onSchedule) }
             } else {
                 if (segments.isEmpty()) item {
                     Text("Transkrip belum ada.", style = MaterialTheme.typography.bodyMedium, color = c.textMuted, modifier = Modifier.padding(ScreenGutter))
@@ -565,7 +584,7 @@ private enum class ReviewFilter(val label: String) {
 }
 
 @Composable
-private fun ClipsSection(repo: Repository, engine: MediaEngine, renders: Renders, project: ProjectEntity, clips: List<ClipEntity>, onEdit: (Long) -> Unit) {
+private fun ClipsSection(repo: Repository, engine: MediaEngine, renders: Renders, project: ProjectEntity, clips: List<ClipEntity>, onEdit: (Long) -> Unit, onSchedule: (Long) -> Unit) {
     val c = ClipMi.colors
     var filter by remember { mutableStateOf(ReviewFilter.Active) }
     Column(Modifier.padding(start = ScreenGutter, end = ScreenGutter, top = 12.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -590,7 +609,7 @@ private fun ClipsSection(repo: Repository, engine: MediaEngine, renders: Renders
                 }
             }
         }
-        clips.filter(filter::matches).forEach { clip -> ClipCard(repo, engine, renders, clip, onEdit) }
+        clips.filter(filter::matches).forEach { clip -> ClipCard(repo, engine, renders, clip, onEdit, onSchedule) }
     }
 }
 
@@ -679,7 +698,7 @@ private fun ManualAnalysisSheet(repo: Repository, project: ProjectEntity, prompt
 
 /** Kartu klip: ringkas (skor, judul, ringkasan, status); ketuk untuk aksi (sama dengan kartu Android, tanpa geser). */
 @Composable
-private fun ClipCard(repo: Repository, engine: MediaEngine, renders: Renders, clip: ClipEntity, onEdit: (Long) -> Unit) {
+private fun ClipCard(repo: Repository, engine: MediaEngine, renders: Renders, clip: ClipEntity, onEdit: (Long) -> Unit, onSchedule: (Long) -> Unit) {
     val c = ClipMi.colors
     val scope = rememberCoroutineScope()
     val clipboard = LocalClipboardManager.current
@@ -710,6 +729,7 @@ private fun ClipCard(repo: Repository, engine: MediaEngine, renders: Renders, cl
         }
         if (clip.render == RenderStatus.Done && !rendering) {
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                ActionChip("Jadwalkan", { onSchedule(clip.id) }, Modifier.weight(1f), height = 40.dp, icon = ClipMiIcons.Calendar, primary = true)
                 ActionChip("Bagikan", {
                     val output = clip.outputPath?.let { repo.absolute(it) }
                     if (output != null && fileSize(output) > 0) {
@@ -719,11 +739,7 @@ private fun ClipCard(repo: Repository, engine: MediaEngine, renders: Renders, cl
                     } else {
                         notifier.show("File hasil tidak ditemukan. Render ulang klip ini.")
                     }
-                }, Modifier.weight(1f), height = 40.dp, icon = ClipMiIcons.Share, primary = true)
-                ActionChip("Salin caption", {
-                    clipboard.setText(AnnotatedString(ClipText.shareText(clip.title, clip.partNumber, clip.caption, repo.hashtags(clip))))
-                    notifier.show("Judul, caption, dan hashtag disalin.")
-                }, Modifier.weight(1f), height = 40.dp, icon = ClipMiIcons.Copy)
+                }, Modifier.weight(1f), height = 40.dp, icon = ClipMiIcons.Share)
             }
         }
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {

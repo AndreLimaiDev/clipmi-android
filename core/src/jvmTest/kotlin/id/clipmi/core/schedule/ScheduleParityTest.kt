@@ -15,6 +15,8 @@ import kotlinx.serialization.json.long
 import kotlinx.serialization.json.longOrNull
 import org.junit.Assert.assertEquals
 import org.junit.Test
+import kotlinx.datetime.toJavaLocalDateTime
+import kotlinx.datetime.toKotlinLocalDateTime
 import java.io.File
 import java.time.LocalDateTime
 import java.time.format.DateTimeFormatter
@@ -68,7 +70,7 @@ class ScheduleParityTest {
             val now = time(o.getValue("now").jsonPrimitive.content)
             val schedules = o.getValue("schedules").jsonArray.map {
                 val s = it.jsonObject
-                ScheduleRecord(s.getValue("clip").jsonPrimitive.long, time(s.getValue("at").jsonPrimitive.content), s.getValue("accounts").jsonArray.map { a -> a.jsonPrimitive.long })
+                ScheduleRecord(s.getValue("clip").jsonPrimitive.long, time(s.getValue("at").jsonPrimitive.content).toKotlinLocalDateTime(), s.getValue("accounts").jsonArray.map { a -> a.jsonPrimitive.long })
             }
             val scheduledClips = schedules.map { it.clipId }.toSet()
             val clips = o.getValue("clips").jsonArray.map {
@@ -81,7 +83,7 @@ class ScheduleParityTest {
                     selected = c.getValue("selected").jsonPrimitive.boolean,
                     renderDone = c.getValue("done").jsonPrimitive.boolean,
                     fileExists = c.getValue("file").jsonPrimitive.boolean,
-                    renderedAt = c["rendered_at"].str()?.let(::time),
+                    renderedAt = c["rendered_at"].str()?.let(::time)?.toKotlinLocalDateTime(),
                     scheduled = id in scheduledClips,
                 )
             }
@@ -90,7 +92,7 @@ class ScheduleParityTest {
                 val p = it.jsonObject
                 Triple(p.getValue("clip").jsonPrimitive.long, p.getValue("at").jsonPrimitive.content, p.getValue("accounts").jsonArray.map { a -> a.jsonPrimitive.long })
             }
-            assertEquals("plan #$i", expected, result.scheduled.map { Triple(it.clipId, it.at.format(minute), it.accountIds) })
+            assertEquals("plan #$i", expected, result.scheduled.map { Triple(it.clipId, it.javaAt.format(minute), it.accountIds) })
             assertEquals("left #$i", o.getValue("left").jsonPrimitive.int, result.left)
             assertEquals("blocked #$i", o.getValue("blocked").jsonPrimitive.int, result.blocked)
             assertEquals("banner #$i", o.getValue("banner").jsonPrimitive.content, QueueFiller.banner(result))
@@ -135,7 +137,7 @@ class ScheduleParityTest {
                 .map { s ->
                     DueSchedule(
                         s.getValue("id").jsonPrimitive.long,
-                        time(s.getValue("at").jsonPrimitive.content),
+                        time(s.getValue("at").jsonPrimitive.content).toKotlinLocalDateTime(),
                         s.getValue("title").jsonPrimitive.content,
                         s.getValue("targets").jsonArray.map { it.jsonObject }.filter { it.getValue("status").jsonPrimitive.content == TargetStatus.PENDING }
                             .map { it.getValue("name").jsonPrimitive.content },
@@ -160,7 +162,7 @@ class ScheduleParityTest {
             val published = o["published_at"].str()?.let(::time)
             val points = o.getValue("points").jsonArray.map { StatPoint(time(it.jsonPrimitive.content), StatNumbers(1, null, null, null)) }
             o.getValue("at").jsonObject.forEach { (days, expected) ->
-                assertEquals("statAt #$i hari $days", expected.str()?.let(::time), PostStats.statAt(published, points, days.toInt())?.recordedAt)
+                assertEquals("statAt #$i hari $days", expected.str()?.let(::time), PostStats.statAt(published, points, days.toInt())?.recordedAt?.toJavaLocalDateTime())
             }
         }
 

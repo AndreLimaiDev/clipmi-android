@@ -1,8 +1,9 @@
 package id.clipmi.core.schedule
 
-import java.time.LocalDateTime
-import java.time.LocalTime
-import java.time.temporal.ChronoUnit
+import kotlinx.datetime.DateTimeUnit
+import kotlinx.datetime.LocalDateTime
+import kotlinx.datetime.LocalTime
+import kotlinx.datetime.plus
 
 /** Klip untuk Isi otomatis: hanya yang menentukan urutan (seri dan nomor bagian). */
 data class QueueClip(val id: Long, val seriesId: Long? = null, val partNumber: Int? = null)
@@ -40,22 +41,22 @@ object QueueFiller {
     const val DAYS = 14L
 
     /** Akhir rentang Isi otomatis: akhir hari ke-14 dari sekarang. */
-    fun until(now: LocalDateTime): LocalDateTime = now.plusDays(DAYS).toLocalDate().atTime(LocalTime.MAX)
+    fun until(now: LocalDateTime): LocalDateTime = LocalDateTime(now.date.plus(DAYS, DateTimeUnit.DAY), LocalTime(23, 59, 59, 999_999_999))
 
     /**
      * Slot kosong mulai [now]: waktu → id akun yang slotnya di waktu itu dan belum punya jadwal di sana.
      * @param taken pasangan (akun, waktu jadwal) yang sudah terisi di rentang ini.
      */
-    fun openSlots(accounts: List<SlotAccount>, now: LocalDateTime, taken: Set<Pair<Long, LocalDateTime>>): java.util.SortedMap<LocalDateTime, List<Long>> {
+    fun openSlots(accounts: List<SlotAccount>, now: LocalDateTime, taken: Set<Pair<Long, LocalDateTime>>): Map<LocalDateTime, List<Long>> {
         val until = until(now)
-        val slots = sortedMapOf<LocalDateTime, MutableList<Long>>()
+        val slots = mutableMapOf<LocalDateTime, MutableList<Long>>()
         for (account in accounts) {
             for (at in Slots.times(account.slots, now, until)) {
                 if ((account.id to at.minute()) !in taken) slots.getOrPut(at) { mutableListOf() }.add(account.id)
             }
         }
-        @Suppress("UNCHECKED_CAST")
-        return slots as java.util.SortedMap<LocalDateTime, List<Long>>
+        // Urut waktu (peta berurutan, pengganti SortedMap JVM).
+        return slots.keys.sorted().associateWith { slots.getValue(it) }
     }
 
     /**
@@ -72,7 +73,7 @@ object QueueFiller {
         pendingParts: List<QueueClip>,
     ): FillResult {
         val clips = ordered(queue)
-        val slots = openSlots.toSortedMap()
+        val keys = openSlots.keys.sorted().toMutableList()
         val after = seriesAfter.toMutableMap()
         val queued = clips.map { it.id }.toSet()
         val scheduled = mutableListOf<PlannedSchedule>()
@@ -91,13 +92,13 @@ object QueueFiller {
                 }
                 notBefore = after[clip.seriesId]
             }
-            val key = slots.keys.firstOrNull { notBefore == null || it.isAfter(notBefore) }
+            val key = keys.firstOrNull { notBefore == null || it > notBefore }
             if (key == null) {
                 clip.seriesId?.let { stalled += it }
                 continue
             }
-            scheduled += PlannedSchedule(clip.id, key, slots.getValue(key))
-            slots.remove(key)
+            scheduled += PlannedSchedule(clip.id, key, openSlots.getValue(key))
+            keys.remove(key)
             clip.seriesId?.let { series -> after[series] = after[series]?.let { maxOf(it, key) } ?: key }
         }
         return FillResult(scheduled, clips.size - scheduled.size - blocked, blocked)
@@ -114,7 +115,7 @@ object QueueFiller {
             .filter { it.renderDone && it.fileExists && !it.scheduled }
             .sortedWith(compareBy<ClipRecord, LocalDateTime?>(nullsFirst()) { it.renderedAt }.thenBy { it.id })
         val taken = schedules
-            .filter { !it.at.isBefore(now) && !it.at.isAfter(until) }
+            .filter { it.at >= now && it.at <= until }
             .flatMap { schedule -> schedule.accountIds.map { it to schedule.at.minute() } }
             .toSet()
         val seriesOf = clips.associate { it.id to it.seriesId }
@@ -137,7 +138,7 @@ object QueueFiller {
      */
     fun ordered(clips: List<QueueClip>): List<QueueClip> {
         val position = mutableMapOf<String, Int>()
-        clips.forEachIndexed { index, clip -> position.putIfAbsent(group(clip), index) }
+        clips.forEachIndexed { index, clip -> if (group(clip) !in position) position[group(clip)] = index }
         return clips.sortedWith(compareBy<QueueClip> { position.getValue(group(it)) }.thenBy { it.partNumber ?: 0 })
     }
 
@@ -151,12 +152,10 @@ object QueueFiller {
         }
         val first = result.scheduled.first().at
         val last = result.scheduled.last().at
-        val range = if (first.toLocalDate() == last.toLocalDate()) IdDate.dayMonth(first) else IdDate.dayMonth(first) + " – " + IdDate.dayMonth(last)
+        val range = if (first.date == last.date) IdDate.dayMonth(first) else IdDate.dayMonth(first) + " – " + IdDate.dayMonth(last)
         return "${result.scheduled.size} klip dijadwalkan, $range." +
             (if (result.left > 0) " ${result.left} klip belum kebagian slot." else "") +
             (if (result.blocked > 0) " ${result.blocked} bagian seri menunggu bagian sebelumnya." else "")
     }
 }
 
-/** Waktu dipotong ke menit, sama dengan kunci 'Y-m-d H:i' desktop. */
-fun LocalDateTime.minute(): LocalDateTime = truncatedTo(ChronoUnit.MINUTES)

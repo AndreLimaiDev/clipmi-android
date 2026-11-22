@@ -12,6 +12,7 @@ on:
       - "composeApp/**"
       - "iosApp/**"
       - "shared/**"
+      - "core/**"
       - "app/src/main/cpp/text_measure_core.*"
       - "app/src/main/cpp/ass_core.*"
       - "app/src/main/assets/fonts/**"

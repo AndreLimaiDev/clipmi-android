@@ -1,14 +1,13 @@
 package id.clipmi.core.schedule
 
+import id.clipmi.core.php.Php
 import id.clipmi.core.youtube.YouTubeUrl
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
-import java.net.URI
-import java.time.Duration
-import java.time.LocalDateTime
+import kotlinx.datetime.LocalDateTime
 import kotlin.math.roundToLong
 
 /** Angka statistik satu pengambilan; null bila platform tidak menampilkannya. */
@@ -95,7 +94,8 @@ object PostStats {
 
     /** Pesan kegagalan yt-dlp dalam bahasa pengguna (`PostStatsFetcher::explain`). */
     fun explain(url: String, error: String): String {
-        val host = runCatching { URI(url).host }.getOrNull().orEmpty().lowercase()
+        // Host dari link (pengganti java.net.URI): bagian sesudah "skema://" sampai "/", "?", "#", atau ":".
+        val host = Regex("^[A-Za-z][A-Za-z0-9+.-]*://(?:[^@/?#]*@)?([^/?#:]*)").find(url)?.groupValues?.get(1).orEmpty().lowercase()
         return when {
             "instagram.com" in host -> "Instagram tidak mengizinkan statistik dibaca tanpa login. Isi angkanya manual."
             "facebook.com" in host || "fb.watch" in host -> "Facebook tidak mengizinkan statistik dibaca tanpa login. Isi angkanya manual."
@@ -115,7 +115,7 @@ object PostStats {
         publishedAt ?: return null
         val until = publishedAt.plusDays(days.toLong())
         val from = publishedAt.plusMinutes((days * 24 * 60 * 0.75).roundToLong())
-        return stats.lastOrNull { !it.recordedAt.isBefore(from) && !it.recordedAt.isAfter(until) }
+        return stats.lastOrNull { it.recordedAt >= from && it.recordedAt <= until }
     }
 
     /**
@@ -125,13 +125,13 @@ object PostStats {
     fun isDue(publishedAt: LocalDateTime, checkedAt: LocalDateTime?, now: LocalDateTime): Boolean {
         checkedAt ?: return true
         // Carbon 3 diffInHours: selisih pecahan jam.
-        val age = Duration.between(publishedAt, now).toMillis() / 3_600_000.0
+        val age = (now.wallMillis() - publishedAt.wallMillis()) / 3_600_000.0
         val interval = INTERVALS.first { age < it.first }.second
-        return !checkedAt.isAfter(now.minusHours(interval).plusMinutes(5))
+        return checkedAt <= now.plusMinutes(-interval * 60 + 5)
     }
 
     /** Batas umur untuk pembaruan otomatis: terbit sejak waktu ini. */
-    fun refreshFrom(now: LocalDateTime): LocalDateTime = now.minusDays(MAX_AGE_DAYS)
+    fun refreshFrom(now: LocalDateTime): LocalDateTime = now.plusDays(-MAX_AGE_DAYS)
 
     /** Ringkasan satu akun dari tayangan terakhir tiap postingannya: total, median (pembanding "×"), dan terbaik. */
     fun summary(latestViews: List<Long?>): AccountSummary {
@@ -174,9 +174,11 @@ object PostStats {
 
     /** Satu desimal dengan koma, dibulatkan seperti number_format PHP (setengah menjauhi nol). */
     fun decimal(value: Double): String {
-        val rounded = java.math.BigDecimal(value.toString()).setScale(1, java.math.RoundingMode.HALF_UP)
-        val text = rounded.abs().toPlainString()
-        return (if (rounded.signum() < 0) "-" else "") + group(text.substringBefore('.')) + "," + text.substringAfter('.')
+        // Pembulatan PHP (Php.numberFormat, setengah menjauhi nol), lalu titik ribuan dan koma desimal.
+        val text = Php.numberFormat(value, 1)
+        val negative = text.startsWith("-")
+        val digits = text.removePrefix("-")
+        return (if (negative) "-" else "") + group(digits.substringBefore('.')) + "," + digits.substringAfter('.')
     }
 }
 

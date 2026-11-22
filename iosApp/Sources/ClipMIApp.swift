@@ -5,6 +5,7 @@ import ComposeApp
 import SwiftUI
 import UIKit
 import UniformTypeIdentifiers
+import UserNotifications
 import Vision
 
 @main
@@ -22,7 +23,10 @@ struct ComposeView: UIViewControllerRepresentable {
         let documents = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0].path
         // Pratinjau editor bersuara walau tombol senyap aktif (seperti aplikasi video).
         try? AVAudioSession.sharedInstance().setCategory(.playback)
-        return MainViewControllerKt.MainViewController(engine: IOSMediaEngine(), documents: documents)
+        let engine = IOSMediaEngine()
+        // Pengingat jadwal tetap tampil sebagai banner walau aplikasi sedang dibuka.
+        UNUserNotificationCenter.current().delegate = engine
+        return MainViewControllerKt.MainViewController(engine: engine, documents: documents)
     }
 
     func updateUIViewController(_ uiViewController: UIViewController, context: Context) {}
@@ -241,6 +245,64 @@ final class IOSMediaEngine: NSObject, MediaEngine {
         return "\(width)x\(height)"
     }
 
+    // MARK: Statistik postingan
+
+    func fetchStats(url: String, directory: String, listener: ResultListener) {
+        if let error = ClipPythonStart() {
+            listener.finished(resultJson: Self.json(["ok": false, "error": "Python gagal menyala: \(error)"]))
+            return
+        }
+        let thread = Thread {
+            try? FileManager.default.createDirectory(atPath: directory, withIntermediateDirectories: true)
+            let result = ClipPythonCall("clipmi_youtube", "stats", [url, directory + "/yt-dlp-cache", directory + "/stats.log"])
+            DispatchQueue.main.async { listener.finished(resultJson: result) }
+        }
+        thread.stackSize = 16 * 1024 * 1024
+        thread.start()
+    }
+
+    // MARK: Pengingat jadwal
+
+    private static let reminderPrefix = "clipmi-schedule-"
+
+    func scheduleReminders(json: String) {
+        let center = UNUserNotificationCenter.current()
+        guard let data = json.data(using: .utf8),
+              let items = (try? JSONSerialization.jsonObject(with: data)) as? [[String: Any]] else { return }
+        center.requestAuthorization(options: [.alert, .sound, .badge]) { granted, _ in
+            center.getPendingNotificationRequests { requests in
+                let old = requests.map { $0.identifier }.filter { $0.hasPrefix(Self.reminderPrefix) }
+                center.removePendingNotificationRequests(withIdentifiers: old)
+                guard granted else { return }
+                for item in items {
+                    guard let id = (item["id"] as? NSNumber)?.int64Value,
+                          let at = (item["at"] as? NSNumber)?.doubleValue else { continue }
+                    let content = UNMutableNotificationContent()
+                    content.title = item["title"] as? String ?? "Waktunya posting"
+                    content.body = item["body"] as? String ?? ""
+                    content.sound = .default
+                    content.userInfo = ["schedule": id]
+                    let date = Date(timeIntervalSince1970: at / 1000)
+                    let parts = Calendar.current.dateComponents([.year, .month, .day, .hour, .minute], from: date)
+                    let trigger = UNCalendarNotificationTrigger(dateMatching: parts, repeats: false)
+                    center.add(UNNotificationRequest(identifier: "\(Self.reminderPrefix)\(id)", content: content, trigger: trigger))
+                }
+            }
+        }
+    }
+
+    func remindersAllowed(listener: AllowedListener) {
+        UNUserNotificationCenter.current().getNotificationSettings { settings in
+            let state: String
+            switch settings.authorizationStatus {
+            case .authorized, .provisional, .ephemeral: state = "allowed"
+            case .denied: state = "denied"
+            default: state = "unknown"
+            }
+            DispatchQueue.main.async { listener.finished(state: state) }
+        }
+    }
+
     // MARK: File
 
     func shareFile(path: String) {
@@ -351,6 +413,15 @@ final class IOSMediaEngine: NSObject, MediaEngine {
         guard let data = try? JSONSerialization.data(withJSONObject: object),
               let text = String(data: data, encoding: .utf8) else { return "{\"ok\": false, \"error\": \"JSON\"}" }
         return text
+    }
+}
+
+extension IOSMediaEngine: UNUserNotificationCenterDelegate {
+    func userNotificationCenter(
+        _ center: UNUserNotificationCenter, willPresent notification: UNNotification,
+        withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void
+    ) {
+        completionHandler([.banner, .sound])
     }
 }
 

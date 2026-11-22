@@ -45,6 +45,7 @@ targets:
       - sdk: Photos.framework
       - sdk: PhotosUI.framework
       - sdk: Vision.framework
+      - sdk: UserNotifications.framework
       - sdk: VideoToolbox.framework
       - sdk: CoreMedia.framework
       - sdk: CoreVideo.framework

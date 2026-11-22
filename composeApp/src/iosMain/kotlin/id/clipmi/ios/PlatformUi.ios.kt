@@ -18,6 +18,9 @@ import androidx.compose.ui.graphics.toComposeImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.UIKitViewController
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.ui.draw.clip
+import id.clipmi.android.data.ClipEntity
 import id.clipmi.android.data.ProjectEntity
 import id.clipmi.android.data.VideoStatus
 import id.clipmi.android.ui.theme.ClipMi
@@ -57,6 +60,26 @@ actual fun ProjectThumbnail(repo: Repository, engine: MediaEngine, project: Proj
             Image(bitmap, contentDescription = null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
         } else {
             Icon(ClipMiIcons.Play, contentDescription = null, tint = ClipMi.colors.textMuted, modifier = Modifier.size(24.dp))
+        }
+    }
+}
+
+@Composable
+actual fun ClipThumbnail(repo: Repository, engine: MediaEngine, clip: ClipEntity, modifier: Modifier) {
+    val image by produceState<ImageBitmap?>(null, clip.id, clip.outputPath, clip.renderedAt) {
+        value = withContext(Dispatchers.Default) {
+            val output = clip.outputPath?.takeIf { !it.contains("://") }?.let { repo.absolute(it) }?.takeIf { fileSize(it) > 0 } ?: return@withContext null
+            val thumb = output.substringBeforeLast('.') + "-${clip.renderedAt ?: 0}.jpg"
+            if (fileSize(thumb) <= 0) engine.videoFrame(output, 0.5, thumb, 256)
+            readBytes(thumb)?.let { bytes -> runCatching { SkiaImage.makeFromEncoded(bytes).toComposeImageBitmap() }.getOrNull() }
+        }
+    }
+    Box(modifier.clip(RoundedCornerShape(10.dp)).background(ClipMi.colors.panel), contentAlignment = Alignment.Center) {
+        val bitmap = image
+        if (bitmap != null) {
+            Image(bitmap, contentDescription = null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
+        } else {
+            Icon(ClipMiIcons.Film, contentDescription = null, tint = ClipMi.colors.textMuted, modifier = Modifier.size(18.dp))
         }
     }
 }

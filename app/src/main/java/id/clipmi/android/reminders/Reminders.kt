@@ -1,5 +1,8 @@
 package id.clipmi.android.reminders
 
+import id.clipmi.core.schedule.notes
+import kotlinx.datetime.toKotlinLocalDateTime
+
 import android.app.AlarmManager
 import android.app.NotificationManager
 import android.app.PendingIntent
@@ -63,7 +66,7 @@ object ReminderAlarm {
             val clip = db.clips().find(schedule.clipId)
             DueSchedule(
                 id = schedule.id,
-                at = Wall.of(schedule.scheduledAt),
+                at = Wall.of(schedule.scheduledAt).toKotlinLocalDateTime(),
                 clipTitle = clip?.let { ClipText.displayTitle(it.title, it.partNumber) } ?: "Klip",
                 pendingAccounts = db.schedules().targets(schedule.id).filter { it.status == TargetStatus.PENDING }.mapNotNull { accounts[it.socialAccountId]?.name },
             )

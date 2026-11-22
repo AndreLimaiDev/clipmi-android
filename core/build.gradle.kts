@@ -23,6 +23,7 @@ kotlin {
         commonMain {
             dependencies {
                 implementation(libs.kotlinx.serialization.json)
+                api(libs.kotlinx.datetime)
             }
         }
         commonTest {

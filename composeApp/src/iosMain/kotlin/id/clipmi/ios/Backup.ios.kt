@@ -267,7 +267,7 @@ class IosBackup(private val repo: Repository) {
         private const val RESTORED_FLAG = "restored.flag"
 
         /** Folder kerja sementara yang tidak dicadangkan. */
-        private val SKIPPED = listOf("$TMP/", "$STAGING/", "render-", "cover-", "speaker/", "silence/", "renders/", "tmp/")
+        private val SKIPPED = listOf("$TMP/", "$STAGING/", "render-", "cover-", "speaker/", "silence/", "renders/", "tmp/", "yt-dlp-cache/", "stats.log")
 
         /** Ekstensi yang sudah terkompresi: disimpan apa adanya di ZIP. */
         private val STORED = setOf("mp4", "mov", "m4a", "mp3", "jpg", "jpeg", "png", "webp", "heic", "zip", "gif")
