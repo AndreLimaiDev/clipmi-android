@@ -2,6 +2,7 @@ package id.clipmi.ios
 
 import androidx.room.immediateTransaction
 import androidx.room.useWriterConnection
+import id.clipmi.android.data.AnalysisStatus
 import id.clipmi.android.data.AppDatabase
 import id.clipmi.android.data.ClipEntity
 import id.clipmi.android.data.ClipSource
@@ -17,6 +18,7 @@ import id.clipmi.core.analysis.ChatPaste
 import id.clipmi.core.analysis.ClipImporter
 import id.clipmi.core.analysis.ImportSegment
 import id.clipmi.core.analysis.PromptBuilder
+import id.clipmi.core.analysis.PromptOptions
 import id.clipmi.core.analysis.PromptSegment
 import id.clipmi.core.analysis.PromptStyles
 import id.clipmi.core.transcript.CorrectionApplier
@@ -97,6 +99,14 @@ class Repository(val db: AppDatabase, val documents: String) {
                 db.clips().update(
                     clip.copy(renderStatus = RenderStatus.Failed.value, renderProgress = null, renderError = "Render terhenti karena aplikasi ditutup. Render ulang."),
                 )
+            }
+            if (AnalysisStatus.isActive(project.analysisStatus)) {
+                db.projects().modify(project.id) {
+                    it.copy(
+                        analysisStatus = AnalysisStatus.FAILED,
+                        analysisMessage = "Analisis terhenti karena aplikasi ditutup. Ketuk Lanjutkan untuk meneruskan bagian yang belum selesai.",
+                    )
+                }
             }
             if (project.video != VideoStatus.Downloading && project.transcript != TranscriptStatus.Fetching) continue
             db.projects().modify(project.id) {
@@ -179,13 +189,20 @@ class Repository(val db: AppDatabase, val documents: String) {
     }
 
     /** Prompt analisis (satu, atau beberapa bagian untuk transkrip panjang) dengan gaya Kajian. */
-    suspend fun prompts(id: Long): List<String> {
+    /**
+     * Satu prompt, atau beberapa bagian bila transkrip panjang (sama dengan Analysis.prompts Android): gaya prompt
+     * project dan opsinya, template dan batas panjang dari Pengaturan bila [settings] diberikan.
+     */
+    suspend fun prompts(id: Long, settings: IosSettings? = null): List<String> {
         val project = db.projects().find(id) ?: return emptyList()
         if (project.transcript != TranscriptStatus.Ready) return emptyList()
         val segments = db.segments().forProject(id).map { PromptSegment(it.sequence, it.startTime, it.endTime, it.text) }
         if (segments.isEmpty()) return emptyList()
-        val style = PromptStyles.BUILT_IN.firstOrNull { it.id == project.promptStyle } ?: PromptStyles.KAJIAN
-        return PromptBuilder.build(project.title, project.durationSeconds, segments, PromptStyles.template(style), null)
+        val styles = settings?.promptStyles() ?: PromptStyles.BUILT_IN
+        val style = styles.firstOrNull { it.id == project.promptStyle } ?: PromptStyles.KAJIAN
+        val options = project.promptOptions?.let { runCatching { json.decodeFromString(PromptOptions.serializer(), it) }.getOrNull() }
+        val template = PromptStyles.template(style, options, settings?.promptTemplate())
+        return PromptBuilder.build(project.title, project.durationSeconds, segments, template, settings?.promptMaxTokens())
     }
 
     /**

@@ -1,5 +1,6 @@
 import AVFoundation
 import Photos
+import Security
 import PhotosUI
 import ComposeApp
 import SwiftUI
@@ -259,6 +260,73 @@ final class IOSMediaEngine: NSObject, MediaEngine {
         }
         thread.stackSize = 16 * 1024 * 1024
         thread.start()
+    }
+
+    // MARK: HTTP (Mode API)
+
+    func httpRequest(method: String, url: String, headersJson: String, body: String?, timeoutSeconds: Int32, listener: HttpListener) {
+        guard let target = URL(string: url) else {
+            listener.finished(status: 0, body: "", retryAfter: nil, error: "Alamat API tidak valid.")
+            return
+        }
+        var request = URLRequest(url: target, timeoutInterval: TimeInterval(timeoutSeconds))
+        request.httpMethod = method
+        if let data = headersJson.data(using: .utf8),
+           let headers = (try? JSONSerialization.jsonObject(with: data)) as? [String: String] {
+            for (name, value) in headers { request.setValue(value, forHTTPHeaderField: name) }
+        }
+        if let body = body {
+            request.httpBody = body.data(using: .utf8)
+            request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        }
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.timeoutIntervalForRequest = TimeInterval(timeoutSeconds)
+        configuration.timeoutIntervalForResource = TimeInterval(timeoutSeconds)
+        let session = URLSession(configuration: configuration)
+        session.dataTask(with: request) { data, response, error in
+            let http = response as? HTTPURLResponse
+            let text = data.flatMap { String(data: $0, encoding: .utf8) } ?? ""
+            let retry = http?.value(forHTTPHeaderField: "retry-after")
+            var failure: String?
+            if let error = error as? URLError {
+                failure = error.code == .timedOut ? "timeout" : error.localizedDescription
+            } else if let error = error {
+                failure = error.localizedDescription
+            }
+            DispatchQueue.main.async {
+                listener.finished(status: Int32(http?.statusCode ?? 0), body: text, retryAfter: retry, error: failure)
+            }
+            session.finishTasksAndInvalidate()
+        }.resume()
+    }
+
+    // MARK: Keychain
+
+    private static let keychainService = "id.clipmi.ios.secrets"
+
+    private func keychainQuery(_ name: String) -> [String: Any] {
+        [kSecClass as String: kSecClassGenericPassword, kSecAttrService as String: Self.keychainService, kSecAttrAccount as String: name]
+    }
+
+    func secretGet(name: String) -> String? {
+        var query = keychainQuery(name)
+        query[kSecReturnData as String] = true
+        query[kSecMatchLimit as String] = kSecMatchLimitOne
+        var item: CFTypeRef?
+        guard SecItemCopyMatching(query as CFDictionary, &item) == errSecSuccess, let data = item as? Data else { return nil }
+        return String(data: data, encoding: .utf8)
+    }
+
+    func secretPut(name: String, value: String) {
+        SecItemDelete(keychainQuery(name) as CFDictionary)
+        var query = keychainQuery(name)
+        query[kSecValueData as String] = value.data(using: .utf8)
+        query[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
+        SecItemAdd(query as CFDictionary, nil)
+    }
+
+    func secretRemove(name: String) {
+        SecItemDelete(keychainQuery(name) as CFDictionary)
     }
 
     // MARK: Pengingat jadwal

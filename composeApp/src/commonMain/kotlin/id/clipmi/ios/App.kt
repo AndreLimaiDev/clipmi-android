@@ -44,6 +44,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
@@ -61,6 +62,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import id.clipmi.android.data.AnalysisStatus
 import id.clipmi.android.data.ClipEntity
 import id.clipmi.android.data.ClipSource
 import id.clipmi.android.data.ProjectEntity
@@ -74,6 +76,7 @@ import id.clipmi.android.ui.components.ChipRow
 import id.clipmi.android.ui.components.ClipMiCard
 import id.clipmi.android.ui.components.ClipMiSheet
 import id.clipmi.android.ui.components.ClipMiSnackbarHost
+import id.clipmi.android.ui.components.ConfirmDialog
 import id.clipmi.android.ui.components.EmptyState
 import id.clipmi.android.ui.components.Field
 import id.clipmi.android.ui.components.FilterPill
@@ -121,14 +124,19 @@ private sealed interface Route {
     data class ScheduleEdit(val id: Long = 0, val clipId: Long = 0, val date: LocalDate? = null) : Route
     data class Ready(val id: Long) : Route
     data object Accounts : Route
+    data object AiSettings : Route
 }
 
 @Composable
 fun App(repo: Repository, engine: MediaEngine) = ClipMiTheme {
     val scope = rememberCoroutineScope()
-    val downloads = remember { Downloads(repo, engine, scope) }
+    val settings = remember { IosSettings(repo, engine) }
+    val ai = remember { IosAiClient(engine) }
+    val analysis = remember { IosAnalysis(repo, settings, ai, scope) }
+    // Analisis otomatis (bila diaktifkan) begitu unduhan selesai dan transkrip siap.
+    val downloads = remember { Downloads(repo, engine, scope).also { it.onFinished = { id -> analysis.startAutomatically(id) } } }
     val renders = remember { Renders(IosRenderer(repo, engine), scope) }
-    val scheduler = remember { IosScheduler(repo, engine) }
+    val scheduler = remember { IosScheduler(repo, engine) { settings.youtubeKey() } }
     val notifier = remember { Notifier(SnackbarHostState(), scope) }
     var tab by remember { mutableStateOf(MainTab.Projects) }
     // Tumpukan layar di atas tab (kembali = ambil yang teratas).
@@ -150,7 +158,7 @@ fun App(repo: Repository, engine: MediaEngine) = ClipMiTheme {
                     }
                 }
                 is Route.Project -> ProjectScreen(
-                    repo, engine, downloads, renders, top.id, onBack = pop, onEdit = { push(Route.Editor(it)) }, onSchedule = { push(Route.ScheduleEdit(clipId = it)) },
+                    repo, engine, downloads, renders, analysis, top.id, onBack = pop, onEdit = { push(Route.Editor(it)) }, onSchedule = { push(Route.ScheduleEdit(clipId = it)) },
                 )
                 Route.Backup -> Box(Modifier.statusBarsPadding()) { BackupScreen(repo, engine, onBack = pop) }
                 is Route.ScheduleEdit -> Box(Modifier.fillMaxSize()) {
@@ -166,6 +174,7 @@ fun App(repo: Repository, engine: MediaEngine) = ClipMiTheme {
                     )
                 }
                 Route.Accounts -> Box(Modifier.fillMaxSize()) { AccountsScreen(repo, scheduler, onBack = pop) }
+                Route.AiSettings -> Box(Modifier.fillMaxSize()) { AnalysisSettingsScreen(settings, ai, onBack = pop) }
                 null -> when (tab) {
                     MainTab.Projects -> ProjectListScreen(repo, engine, downloads, onOpen = { push(Route.Project(it)) })
                     MainTab.Schedule -> ScheduleScreen(
@@ -175,7 +184,7 @@ fun App(repo: Repository, engine: MediaEngine) = ClipMiTheme {
                         onNewSchedule = { clip, date -> push(Route.ScheduleEdit(clipId = clip, date = date)) },
                     )
                     MainTab.Stats -> StatsScreen(repo, engine, scheduler, downloads, onOpenSchedule = { push(Route.Ready(it)) })
-                    MainTab.Settings -> SettingsScreen(onBackup = { push(Route.Backup) })
+                    MainTab.Settings -> SettingsScreen(settings, onAnalysis = { push(Route.AiSettings) }, onBackup = { push(Route.Backup) })
                 }
             }
             val topLevel = stack.isEmpty()
@@ -231,13 +240,30 @@ private fun FloatingNavBar(selected: MainTab, onSelect: (MainTab) -> Unit) {
 }
 
 @Composable
-private fun SettingsScreen(onBackup: () -> Unit) {
+private fun SettingsScreen(settings: IosSettings, onAnalysis: () -> Unit, onBackup: () -> Unit) {
+    val analysis by produceState<Pair<String, Boolean>?>(null) {
+        val cfg = settings.analysis()
+        value = if (cfg != null) "${cfg.provider.label.substringBefore(" (")} · ${cfg.model}" to true else "Belum diatur" to false
+    }
+    var hasYoutubeKey by remember { mutableStateOf(settings.youtubeKey() != null) }
+    var editingYoutubeKey by remember { mutableStateOf(false) }
+    if (editingYoutubeKey) YoutubeKeySheet(settings, hasYoutubeKey, onDone = { editingYoutubeKey = false; hasYoutubeKey = settings.youtubeKey() != null })
     LazyColumn(
         Modifier.fillMaxSize(),
         contentPadding = PaddingValues(start = ScreenGutter, end = ScreenGutter, bottom = FloatingNavSpace + 16.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp),
     ) {
         item { ScreenHeader("Pengaturan", Modifier.statusBarsPadding().padding(top = 12.dp)) }
+        item {
+            SettingsGroup("AI") {
+                SettingsRow("Analisis AI", analysis?.first, onClick = onAnalysis, trailing = { analysis?.let { ReadyMark(it.second) } })
+            }
+        }
+        item {
+            SettingsGroup("Jadwal & statistik") {
+                SettingsRow("YouTube Data API", if (hasYoutubeKey) "Key tersimpan" else "Opsional", onClick = { editingYoutubeKey = true }, trailing = { ReadyMark(hasYoutubeKey) })
+            }
+        }
         item {
             SettingsGroup("Data") {
                 SettingsRow("Cadangkan & pulihkan", "Satu file ZIP, sama dengan ClipMI Android", onClick = onBackup)
@@ -491,7 +517,7 @@ private fun NewProjectSheet(repo: Repository, downloads: Downloads, onDismiss: (
 
 @Composable
 private fun ProjectScreen(
-    repo: Repository, engine: MediaEngine, downloads: Downloads, renders: Renders, id: Long, onBack: () -> Unit, onEdit: (Long) -> Unit, onSchedule: (Long) -> Unit,
+    repo: Repository, engine: MediaEngine, downloads: Downloads, renders: Renders, analysis: IosAnalysis, id: Long, onBack: () -> Unit, onEdit: (Long) -> Unit, onSchedule: (Long) -> Unit,
 ) {
     val project by remember(id) { repo.db.projects().observe(id) }.collectAsState(null)
     val clips by remember(id) { repo.db.clips().observe(id) }.collectAsState(emptyList())
@@ -526,7 +552,7 @@ private fun ProjectScreen(
                 }
             }
             if (tab == 0) {
-                item { ClipsSection(repo, engine, renders, p, clips, onEdit, onSchedule) }
+                item { ClipsSection(repo, engine, renders, analysis, p, clips, onEdit, onSchedule) }
             } else {
                 if (segments.isEmpty()) item {
                     Text("Transkrip belum ada.", style = MaterialTheme.typography.bodyMedium, color = c.textMuted, modifier = Modifier.padding(ScreenGutter))
@@ -584,7 +610,7 @@ private enum class ReviewFilter(val label: String) {
 }
 
 @Composable
-private fun ClipsSection(repo: Repository, engine: MediaEngine, renders: Renders, project: ProjectEntity, clips: List<ClipEntity>, onEdit: (Long) -> Unit, onSchedule: (Long) -> Unit) {
+private fun ClipsSection(repo: Repository, engine: MediaEngine, renders: Renders, analysis: IosAnalysis, project: ProjectEntity, clips: List<ClipEntity>, onEdit: (Long) -> Unit, onSchedule: (Long) -> Unit) {
     val c = ClipMi.colors
     var filter by remember { mutableStateOf(ReviewFilter.Active) }
     Column(Modifier.padding(start = ScreenGutter, end = ScreenGutter, top = 12.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -596,7 +622,7 @@ private fun ClipsSection(repo: Repository, engine: MediaEngine, renders: Renders
                 }
             }
         } else {
-            AnalysisCard(repo, project, compact = clips.isNotEmpty())
+            AnalysisCard(repo, analysis, project, compact = clips.isNotEmpty())
         }
         if (clips.isNotEmpty()) {
             val counts = ReviewFilter.entries.associateWith { f -> clips.count(f::matches) }
@@ -613,28 +639,101 @@ private fun ClipsSection(repo: Repository, engine: MediaEngine, renders: Renders
     }
 }
 
-/** Kartu "Pilih momen dengan AI": lewat chat AI (salin prompt, tempel balasan). Mode API menyusul di iOS. */
+/** Kartu "Pilih momen dengan AI": Mode API (otomatis) atau lewat chat AI (salin prompt, tempel balasan), sama dengan Android. */
 @Composable
-private fun AnalysisCard(repo: Repository, project: ProjectEntity, compact: Boolean) {
+private fun AnalysisCard(repo: Repository, analysis: IosAnalysis, project: ProjectEntity, compact: Boolean) {
+    val scope = rememberCoroutineScope()
     val c = ClipMi.colors
     var manual by remember { mutableStateOf(false) }
-    var prompts by remember { mutableStateOf<List<String>>(emptyList()) }
-    LaunchedEffect(project.id, project.transcriptStatus, project.updatedAt) { prompts = repo.prompts(project.id) }
-    if (compact) {
-        ActionChip("Analisis lagi lewat chat AI", { manual = true }, Modifier.fillMaxWidth(), height = 40.dp, icon = ClipMiIcons.Sparkle, enabled = prompts.isNotEmpty())
-    } else {
-        ClipMiCard(spacing = 12.dp) {
-            Row(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically) {
-                IconBadge(ClipMiIcons.Sparkle)
-                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                    Text("Pilih momen dengan AI", style = MaterialTheme.typography.titleSmall, color = c.text)
-                    Text("Lewat chat AI (gratis) · mode API menyusul di iPhone", style = MaterialTheme.typography.bodySmall, color = c.textMuted)
+    val prompts by produceState(emptyList<String>(), project.id, project.transcriptStatus, project.updatedAt) { value = analysis.prompts(project) }
+    val config by produceState<AiConfig?>(null, project.analysisStatus) { value = analysis.config() }
+    val resumable by produceState(emptyList<Int>(), prompts, project.analysisParts, project.analysisStatus) {
+        value = if (AnalysisStatus.isActive(project.analysisStatus) || prompts.size < 2) emptyList() else {
+            val done = analysis.completedParts(project.id, prompts)
+            if (done.isEmpty()) emptyList() else prompts.indices.filter { it !in done }
+        }
+    }
+    val active = AnalysisStatus.isActive(project.analysisStatus) || analysis.active == project.id
+    val cfg = config
+    fun summary(cfg: AiConfig, parts: List<Int>?): String {
+        val estimate = analysis.estimate(prompts, cfg, parts)
+        return listOfNotNull(
+            cfg.provider.label.substringBefore(" ("),
+            "±${IosAnalysis.groupThousands(estimate.tokens)} token",
+            estimate.cost?.let { "±$" + fixed(it, if (it < 0.1) 3 else 2) },
+            if (!parts.isNullOrEmpty()) "${parts.size} bagian tersisa" else null,
+        ).joinToString(" · ")
+    }
+
+    // Sudah ada klip dan tidak ada yang berjalan/tersisa: cukup dua tombol kecil, analisis ulang dikonfirmasi dulu.
+    if (compact && !active && project.analysisMessage == null && resumable.isEmpty()) {
+        var confirmAgain by remember { mutableStateOf(false) }
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            if (cfg != null) ActionChip("Analisis lagi", { confirmAgain = true }, Modifier.weight(1f), height = 40.dp, icon = ClipMiIcons.Sparkle, enabled = prompts.isNotEmpty())
+            ActionChip("Lewat chat AI", { manual = true }, Modifier.weight(1f), height = 40.dp, icon = if (cfg == null) ClipMiIcons.Sparkle else null, enabled = prompts.isNotEmpty())
+        }
+        if (confirmAgain && cfg != null) {
+            ConfirmDialog(
+                "Analisis lagi?", summary(cfg, null), "Analisis",
+                onConfirm = { confirmAgain = false; analysis.start(project.id) },
+                onDismiss = { confirmAgain = false },
+            )
+        }
+        if (manual) ManualAnalysisSheet(repo, project, prompts, onDismiss = { manual = false })
+        return
+    }
+
+    ClipMiCard(spacing = 12.dp) {
+        Row(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically) {
+            IconBadge(ClipMiIcons.Sparkle)
+            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                Text("Pilih momen dengan AI", style = MaterialTheme.typography.titleSmall, color = c.text)
+                Text(
+                    if (cfg == null) "Mode API belum diatur · lewat chat AI tetap gratis" else summary(cfg, resumable.ifEmpty { null }),
+                    style = MaterialTheme.typography.bodySmall, color = c.textMuted,
+                )
+            }
+        }
+        if (active) {
+            ProgressBar(null, color = c.busy)
+            project.analysisMessage?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = c.textBody) }
+            SecondaryButton("Batalkan", onClick = { scope.launch { analysis.cancel(project.id) } }, height = 44.dp, modifier = Modifier.fillMaxWidth())
+        } else {
+            project.analysisMessage?.let { message ->
+                val color = when (project.analysisStatus) {
+                    AnalysisStatus.DONE -> c.accent
+                    AnalysisStatus.FAILED -> c.bad
+                    else -> c.textMuted
+                }
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(message, color = color, style = MaterialTheme.typography.bodySmall, modifier = Modifier.weight(1f))
+                    IconCircle(ClipMiIcons.Close, "Tutup pesan", { scope.launch { analysis.dismiss(project.id) } }, size = 36.dp, background = Color.Transparent, border = false, tint = c.textMuted)
                 }
             }
-            PrimaryButton("Lewat chat AI", onClick = { manual = true }, enabled = prompts.isNotEmpty(), height = 44.dp, modifier = Modifier.fillMaxWidth())
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                if (cfg != null) {
+                    if (resumable.isNotEmpty()) {
+                        PrimaryButton("Lanjutkan", onClick = { analysis.start(project.id, resume = true) }, height = 44.dp, modifier = Modifier.weight(1f))
+                    } else {
+                        PrimaryButton("Analisis otomatis", onClick = { analysis.start(project.id) }, enabled = prompts.isNotEmpty(), height = 44.dp, modifier = Modifier.weight(1f))
+                    }
+                }
+                SecondaryButton("Lewat chat AI", onClick = { manual = true }, enabled = prompts.isNotEmpty(), height = 44.dp, modifier = Modifier.weight(1f))
+            }
+            if (cfg != null && resumable.isNotEmpty()) {
+                GhostButton("Analisis ulang dari awal", onClick = { analysis.start(project.id) })
+            }
         }
     }
     if (manual) ManualAnalysisSheet(repo, project, prompts, onDismiss = { manual = false })
+}
+
+/** Angka dengan [decimals] desimal dan titik desimal (pengganti String.format di Kotlin/Native). */
+private fun fixed(value: Double, decimals: Int): String {
+    var factor = 1L
+    repeat(decimals) { factor *= 10 }
+    val scaled = kotlin.math.round(value * factor).toLong()
+    return "${scaled / factor}." + (scaled % factor).toString().padStart(decimals, '0')
 }
 
 /** Salin prompt ke aplikasi chat AI, lalu tempel balasan JSON-nya (sama dengan Android). */

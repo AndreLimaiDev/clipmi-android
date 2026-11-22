@@ -18,6 +18,9 @@ class Downloads(private val repo: Repository, private val engine: MediaEngine, p
     var status by mutableStateOf("")
         private set
 
+    /** Dipanggil setelah unduhan selesai disimpan (misalnya analisis otomatis bila transkrip siap). */
+    var onFinished: (suspend (Long) -> Unit)? = null
+
     fun start(id: Long) {
         if (active != null) return
         active = id
@@ -42,6 +45,7 @@ class Downloads(private val repo: Repository, private val engine: MediaEngine, p
                         scope.launch {
                             try {
                                 repo.finishDownload(id, resultJson)
+                                onFinished?.invoke(id)
                             } finally {
                                 active = null
                             }

@@ -9,6 +9,7 @@ import id.clipmi.android.data.PostStatEntity
 import id.clipmi.core.schedule.PostStats
 import id.clipmi.core.schedule.StatNumbers
 import id.clipmi.core.schedule.StatSource
+import id.clipmi.core.schedule.StatsException
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -80,7 +81,7 @@ object SlotCodec {
  * jadwal per klip ke banyak akun, Isi otomatis, jadwal ulang, dan status terbit per akun. Setiap perubahan memasang
  * ulang pengingat (notifikasi lokal iOS). Statistik dan pengambilan angka dari link menyusul.
  */
-class IosScheduler(private val repo: Repository, private val engine: MediaEngine) {
+class IosScheduler(private val repo: Repository, private val engine: MediaEngine, private val youtubeKey: () -> String? = { null }) {
     private val db get() = repo.db
     private val dao get() = repo.db.schedules()
     private val strings = ListSerializer(String.serializer())
@@ -269,6 +270,19 @@ class IosScheduler(private val repo: Repository, private val engine: MediaEngine
             val row = dao.target(id) ?: continue
             val url = row.url ?: continue
             val now = Wall.millis(Wall.now())
+            // YouTube lewat YouTube Data API bila key diisi (resmi, tanpa login), selain itu yt-dlp (sama dengan Android).
+            val videoId = PostStats.youtubeApiVideoId(url)
+            val key = youtubeKey()
+            if (videoId != null && key != null) {
+                try {
+                    val numbers = fromYouTubeApi(videoId, key)
+                    dao.insertStat(PostStatEntity(scheduleAccountId = row.id, views = numbers.views, likes = numbers.likes, comments = numbers.comments, shares = numbers.shares, source = StatSource.YOUTUBE_API, recordedAt = now))
+                    dao.setStatsChecked(row.id, now, null)
+                } catch (e: StatsException) {
+                    dao.setStatsChecked(row.id, now, e.message)
+                }
+                continue
+            }
             val result = runCatching { json.parseToJsonElement(readStats(url)).jsonObject }.getOrNull()
             if (result == null || result["ok"]?.jsonPrimitive?.booleanOrNull != true) {
                 val error = result?.get("error")?.jsonPrimitive?.contentOrNull ?: "yt-dlp tidak memberi jawaban."
@@ -286,6 +300,14 @@ class IosScheduler(private val repo: Repository, private val engine: MediaEngine
             dao.insertStat(PostStatEntity(scheduleAccountId = row.id, views = numbers.views, likes = numbers.likes, comments = numbers.comments, shares = numbers.shares, source = StatSource.YTDLP, recordedAt = now))
             dao.setStatsChecked(row.id, now, null)
         }
+    }
+
+    private suspend fun fromYouTubeApi(videoId: String, key: String): StatNumbers {
+        // Key lewat header, bukan query, supaya tidak ikut tercatat di log URL.
+        val response = engine.http("GET", "https://www.googleapis.com/youtube/v3/videos?part=statistics&id=$videoId", mapOf("X-Goog-Api-Key" to key), null, 20)
+        if (response.error != null) throw StatsException("Tidak bisa terhubung ke YouTube. Periksa koneksi internet.")
+        val body = runCatching { json.parseToJsonElement(response.body) as? kotlinx.serialization.json.JsonObject }.getOrNull()
+        return PostStats.parseYouTubeApi(response.status, body)
     }
 
     private suspend fun readStats(url: String): String = suspendCancellableCoroutine { cont ->

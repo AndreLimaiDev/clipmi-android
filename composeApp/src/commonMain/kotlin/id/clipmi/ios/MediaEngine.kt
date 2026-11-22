@@ -81,6 +81,21 @@ interface MediaEngine {
      */
     fun fetchStats(url: String, directory: String, listener: ResultListener)
 
+    /**
+     * Permintaan HTTP (URLSession) untuk Mode API AI dan YouTube Data API. [headersJson] objek JSON nama → nilai; [body]
+     * null untuk GET. [listener] dipanggil di main thread: kode HTTP (0 = tidak tersambung), isi jawaban, header
+     * `retry-after` bila ada, dan pesan kesalahan jaringan ("timeout" bila melewati [timeoutSeconds]).
+     */
+    fun httpRequest(method: String, url: String, headersJson: String, body: String?, timeoutSeconds: Int, listener: HttpListener)
+
+    // Rahasia (API key) di Keychain iOS, padanan Keystore Android; tidak ikut cadangan.
+
+    fun secretGet(name: String): String?
+
+    fun secretPut(name: String, value: String)
+
+    fun secretRemove(name: String)
+
     /** Pengingat diizinkan pengguna (null = belum pernah ditanya). [listener] dipanggil di main thread. */
     fun remindersAllowed(listener: AllowedListener)
 
@@ -123,6 +138,10 @@ interface RenderListener {
 interface SaveListener {
     /** null = tersimpan; selain itu pesan gagal. */
     fun finished(error: String?)
+}
+
+interface HttpListener {
+    fun finished(status: Int, body: String, retryAfter: String?, error: String?)
 }
 
 interface ResultListener {
