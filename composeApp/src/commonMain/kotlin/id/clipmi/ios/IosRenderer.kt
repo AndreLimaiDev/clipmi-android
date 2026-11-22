@@ -1,22 +1,36 @@
 package id.clipmi.ios
 
+import id.clipmi.android.data.CaptionStyleEntity
 import id.clipmi.android.data.ClipEntity
+import id.clipmi.android.data.FrameStyleEntity
+import id.clipmi.android.data.ProjectEntity
 import id.clipmi.android.data.RenderStatus
 import id.clipmi.core.php.Php
 import id.clipmi.core.render.AssWriter
 import id.clipmi.core.render.CaptionStyle
 import id.clipmi.core.render.ClipCuts
 import id.clipmi.core.render.ClipRender
+import id.clipmi.core.render.ClipSilence
 import id.clipmi.core.render.ClipSpec
+import id.clipmi.core.render.Composition
+import id.clipmi.core.render.CoverTitle
 import id.clipmi.core.render.Fonts
 import id.clipmi.core.render.FrameStyle
+import id.clipmi.core.render.Range
 import id.clipmi.core.render.RenderGraph
 import id.clipmi.core.render.SegmentWords
 import id.clipmi.core.render.SpeakerTrack
 import id.clipmi.core.render.SubtitleEdits
 import id.clipmi.core.render.TextMeasurer
 import id.clipmi.core.transcript.Word
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.suspendCancellableCoroutine
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.withContext
 import kotlinx.serialization.builtins.ListSerializer
 import kotlinx.serialization.builtins.serializer
 import kotlinx.serialization.json.Json
@@ -66,31 +80,40 @@ class IosFontMeasurer(private val engine: MediaEngine, private val fontsDir: Str
 }
 
 /**
- * Render klip di iPhone, padanan `Renderer.render` Android: komposisi, filtergraph, dan subtitle ASS dari core (identik
- * dengan desktop dan Android), FFmpeg di dalam proses dengan VideoToolbox, lalu disimpan ke Photos. Intro/outro dari
- * pustaka dan sampul belum ada di iOS; kartu pembuka hook didukung.
+ * Render klip di iPhone, padanan `Renderer` Android: komposisi, filtergraph, dan subtitle ASS dari core (identik dengan
+ * desktop dan Android), FFmpeg di dalam proses dengan VideoToolbox, lalu disimpan ke Photos. Sampul (frame atau gambar
+ * galeri, judul) dan kartu pembuka hook didukung; intro/outro pustaka belum ada di iOS.
+ *
+ * FFmpeg di dalam proses memakai keadaan global, jadi semua pemanggilan (render, sampul, deteksi jeda) antre lewat
+ * [ffmpegLock] dan selalu ditunggu sampai benar-benar selesai.
  */
 class IosRenderer(private val repo: Repository, val engine: MediaEngine) {
     private val json = Json { ignoreUnknownKeys = true }
     private val strings = ListSerializer(String.serializer())
     private val words = ListSerializer(Word.serializer())
     private val db get() = repo.db
+    private val ffmpegLock = Mutex()
     val fontsDir get() = engine.fontsDirectory()
 
-    private suspend fun captionStyle(id: Long?): CaptionStyle =
-        (id?.let { db.styles().captionStyle(it) } ?: db.styles().defaultCaptionStyle())?.toCore() ?: CaptionStyle.DEFAULT
+    /** Gaya klip, bawaan, atau yang pertama (sama dengan editor Android). */
+    fun captionFor(id: Long?, styles: List<CaptionStyleEntity>): CaptionStyle =
+        (id?.let { i -> styles.firstOrNull { it.id == i } } ?: styles.firstOrNull { it.isDefault } ?: styles.firstOrNull())?.toCore() ?: CaptionStyle.DEFAULT
 
-    private suspend fun frameStyle(id: Long?): FrameStyle =
-        (id?.let { db.styles().frameStyle(it) } ?: db.styles().defaultFrameStyle())?.toCore() ?: FrameStyle.DEFAULT
+    fun frameFor(id: Long?, styles: List<FrameStyleEntity>): FrameStyle =
+        (id?.let { i -> styles.firstOrNull { it.id == i } } ?: styles.firstOrNull { it.isDefault } ?: styles.firstOrNull())?.toCore() ?: FrameStyle.DEFAULT
 
-    /** Data klip untuk core render dengan gaya yang berlaku (dipakai juga pratinjau editor). */
-    suspend fun spec(clip: ClipEntity, projectCrop: Int): ClipSpec = ClipSpec(
+    fun keywords(clip: ClipEntity): List<String>? = clip.keywords?.let { runCatching { json.decodeFromString(strings, it) }.getOrNull() }
+
+    fun encodeKeywords(list: List<String>): String? = list.takeIf { it.isNotEmpty() }?.let { json.encodeToString(strings, it) }
+
+    /** Data klip untuk core render dengan gaya yang sudah dipilih (dipakai juga pratinjau editor). */
+    fun specFor(clip: ClipEntity, projectCrop: Int, caption: CaptionStyle, frame: FrameStyle): ClipSpec = ClipSpec(
         startTime = clip.startTime,
         endTime = clip.endTime,
         title = clip.title,
         partNumber = clip.partNumber,
         hook = clip.hook,
-        keywords = clip.keywords?.let { runCatching { json.decodeFromString(strings, it) }.getOrNull() },
+        keywords = keywords(clip),
         cuts = clip.cuts?.let { runCatching { json.parseToJsonElement(it) as? JsonObject }.getOrNull() },
         showHookOverlay = clip.showHookOverlay,
         hookLayout = clip.hookLayout?.let { runCatching { json.parseToJsonElement(it) as? JsonObject }.getOrNull() },
@@ -100,9 +123,12 @@ class IosRenderer(private val repo: Repository, val engine: MediaEngine) {
         cropY = clip.cropY,
         cropPosition = clip.cropPosition,
         projectCropPosition = projectCrop,
-        style = captionStyle(clip.captionStyleId),
-        frame = frameStyle(clip.frameStyleId),
+        style = caption,
+        frame = frame,
     )
+
+    suspend fun spec(clip: ClipEntity, projectCrop: Int): ClipSpec =
+        specFor(clip, projectCrop, captionFor(clip.captionStyleId, db.styles().captionStyles()), frameFor(clip.frameStyleId, db.styles().frameStyles()))
 
     suspend fun segments(projectId: Long): List<SegmentWords> = db.segments().forProject(projectId).map {
         SegmentWords(it.startTime, it.endTime, it.words?.let { w -> runCatching { json.decodeFromString(words, w) }.getOrNull() })
@@ -118,6 +144,10 @@ class IosRenderer(private val repo: Repository, val engine: MediaEngine) {
         }.getOrNull()
     }
 
+    /** Satu frame video sebagai JPEG kecil (latar blur pratinjau); false bila gagal. */
+    suspend fun videoFrame(source: String, seconds: Double, output: String, maxSize: Int = 360): Boolean =
+        withContext(Dispatchers.Default) { engine.videoFrame(source, seconds, output, maxSize) }
+
     /**
      * Merender [clipId]; status klip (render_status/progress/error/output_path) diperbarui di database.
      * @param onProgress 0..1.
@@ -126,9 +156,11 @@ class IosRenderer(private val repo: Repository, val engine: MediaEngine) {
         val clip = db.clips().find(clipId) ?: throw RenderException("Klip tidak ditemukan.")
         setStatus(clipId, RenderStatus.Rendering, progress = 0)
         try {
-            val output = renderFile(clip, onProgress)
-            val error = saveToPhotos(output)
+            val (output, cover) = renderFile(clip, onProgress)
+            val error = saveToPhotos(output, image = false)
             if (error != null) throw RenderException("Video selesai tetapi gagal disimpan ke Photos: $error")
+            // Sampul ikut disimpan, siap dipakai sebagai cover saat mengunggah; gagal di sini tidak menggagalkan render.
+            if (cover != null) saveToPhotos(cover, image = true)
             db.clips().find(clipId)?.let {
                 db.clips().update(
                     it.copy(
@@ -149,10 +181,36 @@ class IosRenderer(private val repo: Repository, val engine: MediaEngine) {
         }
     }
 
-    /** @return path absolut MP4 hasil (Documents/renders/<id>.mp4). */
-    private suspend fun renderFile(clip: ClipEntity, onProgress: (Double) -> Unit): String {
+    /** Font bawaan ke folder kerja (ass=...:fontsdir=fonts), seperti Android. */
+    private fun copyFonts(workDir: String) {
+        createDirectory("$workDir/fonts")
+        for (file in Fonts.AVAILABLE.values.map { it.file } + Fonts.COVER.values.map { it.file }) {
+            copyItem("$fontsDir/$file", "$workDir/fonts/$file")
+        }
+    }
+
+    /** Gambar bingkai (latar, template, logo) dari Documents ke folder kerja; nomor input mulai dari 1. */
+    private fun frameImages(frame: FrameStyle, workDir: String): Pair<RenderGraph.Inputs, MutableList<String>> {
+        val images = linkedMapOf(
+            "background" to (if (frame.background == "image" && !frame.usesTemplate()) frame.backgroundPath else null),
+            "template" to (if (frame.usesTemplate()) frame.templatePath else null),
+            "logo" to frame.logoPath,
+        ).mapValues { (_, path) -> path?.let { repo.absolute(it) }?.takeIf { exists(it) } }.filterValues { it != null }
+        val args = mutableListOf<String>()
+        val numbers = HashMap<String, Int>()
+        images.entries.forEachIndexed { i, (name, path) ->
+            numbers[name] = i + 1
+            val copy = "$name.${path!!.substringAfterLast('.', "png").lowercase()}"
+            copyItem(path, "$workDir/$copy")
+            args += listOf("-i", copy)
+        }
+        return RenderGraph.Inputs(numbers["background"], numbers["template"], numbers["logo"]) to args
+    }
+
+    /** @return path absolut MP4 hasil (Documents/renders/<id>.mp4) dan sampul yang dipakai (bila ada). */
+    private suspend fun renderFile(clip: ClipEntity, onProgress: (Double) -> Unit): Pair<String, String?> {
         val project = db.projects().find(clip.projectId) ?: throw RenderException("Project tidak ditemukan.")
-        val source = project.videoPath?.let { repo.absolute(it) }?.takeIf { readBytesExists(it) }
+        val source = project.videoPath?.let { repo.absolute(it) }?.takeIf { exists(it) }
             ?: throw RenderException("Video sumber tidak ditemukan. Unduh ulang video project ini.")
         val info = probe(source)
 
@@ -166,14 +224,12 @@ class IosRenderer(private val repo: Repository, val engine: MediaEngine) {
         val cuts = spec.cutRanges()
         val keep = if (cuts.isNotEmpty()) ClipCuts.selectExpression(ClipCuts.kept(cuts, spec.startTime, spec.endTime), spec.startTime) else null
         val enhance = db.settings().get(KEY_ENHANCE_AUDIO) != "0"
+        // Sampul dibuat sebelum folder kerja render (FFmpeg sendiri); gagal = render tanpa sampul.
+        val cover = if (clip.hasCover) runCatching { cover(clip, project) }.getOrNull() else null
 
         val workDir = repo.absolute("render-${clip.id}")
         removeItem(workDir)
-        createDirectory("$workDir/fonts")
-        // Font bawaan ke folder kerja (ass=...:fontsdir=fonts), seperti Android.
-        for (file in Fonts.AVAILABLE.values.map { it.file } + Fonts.COVER.values.map { it.file }) {
-            copyItem("$fontsDir/$file", "$workDir/fonts/$file")
-        }
+        copyFonts(workDir)
 
         val leadKind = spec.leadKind()
         val hook = spec.shownHook()
@@ -183,25 +239,16 @@ class IosRenderer(private val repo: Repository, val engine: MediaEngine) {
             core.subtitleTrack(spec, composition, core.relativeLines(spec, segments(clip.projectId)), length, if (hookAfterJoin) null else hook, hookLayout = spec.hookLayout()),
         )
         composition.watermark?.let { writeText("$workDir/watermark.txt", it.text) }
-
-        // Gambar bingkai (latar, template, logo) dari Documents.
-        val images = linkedMapOf(
-            "background" to (if (frame.background == "image" && !frame.usesTemplate()) frame.backgroundPath else null),
-            "template" to (if (frame.usesTemplate()) frame.templatePath else null),
-            "logo" to frame.logoPath,
-        ).mapValues { (_, path) -> path?.let { repo.absolute(it) }?.takeIf { readBytesExists(it) } }.filterValues { it != null }
-        val imageArgs = mutableListOf<String>()
-        val numbers = HashMap<String, Int>()
-        images.entries.forEachIndexed { i, (name, path) ->
-            numbers[name] = i + 1
-            val copy = "$name.${path!!.substringAfterLast('.', "png").lowercase()}"
-            copyItem(path, "$workDir/$copy")
-            imageArgs += listOf("-i", copy)
-        }
-        val inputs = RenderGraph.Inputs(numbers["background"], numbers["template"], numbers["logo"])
+        val (inputs, imageArgs) = frameImages(frame, workDir)
 
         var filter = RenderGraph.filter(composition, inputs, keep).removeSuffix("[v]") + "[joined]"
         var next = imageArgs.count { it == "-i" } + 1
+        var coverInput: Int? = null
+        if (cover != null && clip.coverInVideo) {
+            coverInput = next++
+            copyItem(cover, "$workDir/cover.jpg")
+            imageArgs += listOf("-i", "cover.jpg")
+        }
         var total = length
         var audio: String? = null
         var joined = "joined"
@@ -226,7 +273,14 @@ class IosRenderer(private val repo: Repository, val engine: MediaEngine) {
                 joined = "hooked"
             }
         }
-        filter = RenderGraph.lgpl("$filter;[$joined]null[v]")
+        // Sampul di awal video: menutupi 0,1 detik pertama (3 frame) untuk platform yang memakai frame pertama sebagai
+        // cover, tanpa menggeser suara (sama dengan Android).
+        filter += if (coverInput != null) {
+            ";[$coverInput:v]scale=${frame.canvasWidth()}:${frame.canvasHeight()},setsar=1[cover];[$joined][cover]overlay=0:0:enable='lt(t,0.1)'[v]"
+        } else {
+            ";[$joined]null[v]"
+        }
+        filter = RenderGraph.lgpl(filter)
 
         val canvas = composition.canvas
         val bitrate = maxOf(3_000_000L, VIDEO_BITRATE * canvas.width * canvas.height / (1080L * 1920))
@@ -248,47 +302,198 @@ class IosRenderer(private val repo: Repository, val engine: MediaEngine) {
                 removeItem(target)
                 moveItem(output, target)
                 removeItem(workDir)
-                return target
+                return target to cover
             }
             lastError = "FFmpeg gagal ($code). ${tail.lines().takeLast(4).joinToString(" ").take(400)}"
         }
         throw RenderException(lastError)
     }
 
+    // ---------------------------------------------------------------------------------------------------------------
+    // Sampul
+    // ---------------------------------------------------------------------------------------------------------------
+
+    /**
+     * Sampul klip (padanan `Renderer.ensureCover` Android), dibuat saat pertama diminta. Nama file memuat kunci dari
+     * pengaturan sampul, judul, gaya, dan crop, jadi dibuat ulang begitu salah satunya berubah.
+     * @return path absolut JPEG.
+     */
+    suspend fun cover(clip: ClipEntity, project: ProjectEntity, caption: CaptionStyle? = null, frame: FrameStyle? = null): String {
+        val spec = if (caption != null && frame != null) specFor(clip, project.cropPosition, caption, frame) else spec(clip, project.cropPosition)
+        val dir = repo.absolute("${repo.projectDir(project.id)}/covers")
+        createDirectory(dir)
+        val name = "clip-${clip.id}-${coverKey(clip, project, spec)}.jpg"
+        val file = "$dir/$name"
+        if (!exists(file)) {
+            listDirectory(dir).filter { it.startsWith("clip-${clip.id}-") }.forEach { removeItem("$dir/$it") }
+            renderCover(clip, project, spec, file)
+        }
+        return file
+    }
+
+    /** Menyimpan sampul klip ke Photos; null = tersimpan, selain itu pesan gagal. */
+    suspend fun saveCover(clip: ClipEntity, project: ProjectEntity, caption: CaptionStyle, frame: FrameStyle): String? =
+        saveToPhotos(cover(clip, project, caption, frame), image = true)
+
+    private fun coverKey(clip: ClipEntity, project: ProjectEntity, spec: ClipSpec): String {
+        val parts = listOf(
+            // Versi cara membuat sampul (sama dengan Android v2: sampul dari frame hanya berisi video).
+            "v2",
+            clip.coverTime, clip.coverPath, clip.coverTitle, clip.coverLayout, clip.keywords, spec.displayTitle(), spec.frame, spec.style,
+            spec.speakerKeyframes, spec.effectiveCropPosition(), spec.effectiveZoom(), spec.effectiveCropY(), clip.startTime, project.videoPath,
+        )
+        // FNV-1a 64 bit (MD5 tidak ada di Kotlin common); cukup untuk membedakan pengaturan sampul.
+        var hash = -0x340d631b7bdddcdbL
+        for (byte in parts.toString().encodeToByteArray()) {
+            hash = hash xor (byte.toLong() and 0xFF)
+            hash *= 0x100000001b3L
+        }
+        return hash.toULong().toString(16).padStart(16, '0').take(12)
+    }
+
+    /**
+     * Satu frame video saja (crop, zoom, posisi klip; tanpa bingkai, logo, watermark, dan subtitle), atau gambar dari
+     * galeri yang dipotong seukuran layar; judul klip bisa ditulis besar di atasnya (sama dengan Android).
+     */
+    private suspend fun renderCover(clip: ClipEntity, project: ProjectEntity, spec: ClipSpec, output: String) {
+        val frame = spec.frame
+        val image = clip.coverPath?.let { repo.absolute(it) }?.takeIf { exists(it) }
+        val video = project.videoPath?.let { repo.absolute(it) }?.takeIf { exists(it) }
+        if (image == null && video == null) throw RenderException("Sampul butuh video klip atau gambar sampul.")
+
+        val width = frame.canvasWidth()
+        val height = frame.canvasHeight()
+        // Model judul tipografi (bukan klasik): judul digambar di atas frame jadi.
+        val layout = CoverTitle.parse(clip.coverLayout)
+        val styled = clip.coverTitle && !layout.classic
+        val title = if (clip.coverTitle && !styled) spec.displayTitle() else null
+        // Judul besar di sekitar tiga perlima tinggi layar, di atas area subtitle.
+        val titleTop = Php.roundInt(height * 0.58)
+        val measurer = IosFontMeasurer(engine, fontsDir)
+        val core = ClipRender(AssWriter(measurer))
+        val workDir = repo.absolute("cover-${clip.id}")
+        removeItem(workDir)
+        copyFonts(workDir)
+        try {
+            val (args, filter) = if (image != null) {
+                writeText(
+                    "$workDir/subs.ass",
+                    AssWriter(measurer).build(emptyList(), 2.0, title, spec.style, null, null, Triple(width, height, frame.uiScale()), titleTop, COVER_TITLE_SIZE),
+                )
+                copyItem(image, "$workDir/upload.jpg")
+                listOf("-loop", "1", "-t", "1", "-i", "upload.jpg") to
+                    "[0:v]scale=$width:$height:force_original_aspect_ratio=increase,crop=$width:$height,setsar=1,ass=subs.ass:fontsdir=fonts[v]"
+            } else {
+                val time = clip.coverTime ?: clip.startTime
+                val speaker = spec.speakerKeyframes?.let { listOf(listOf(0.0, SpeakerTrack.positionAt(it, time - clip.startTime))) }
+                val plain = FrameStyle(aspect = frame.aspect, mode = "crop", zoom = frame.zoom)
+                val composition = Composition.make(plain, null, spec.effectiveCropPosition(), spec.effectiveZoom(), spec.effectiveCropY(), speaker)
+                val plainSpec = spec.copy(frame = plain)
+                writeText("$workDir/subs.ass", core.subtitleTrack(plainSpec, composition, emptyList(), 2.0, title, titleTop, COVER_TITLE_SIZE))
+                composition.watermark?.let { writeText("$workDir/watermark.txt", it.text) }
+                val (inputs, imageArgs) = frameImages(plain, workDir)
+                (listOf("-ss", RenderGraph.seconds(maxOf(0.0, time - 0.4)), "-t", "1.5", "-i", video!!) + imageArgs) to RenderGraph.filter(composition, inputs)
+            }
+            var graph = filter
+            if (styled) {
+                val keywords = keywords(clip).orEmpty()
+                writeText("$workDir/cover.ass", CoverTitle.build(layout, spec.displayTitle(), keywords, width, height, measurer))
+                graph = graph.removeSuffix("[v]") + "[vt];[vt]ass=cover.ass:fontsdir=fonts[v]"
+            }
+            // Frame di detik 0,4: judul sudah selesai muncul pelan.
+            val (code, tail) = runFfmpeg(
+                listOf("-y") + args + listOf("-filter_complex", RenderGraph.lgpl(graph), "-map", "[v]", "-ss", "0.4", "-frames:v", "1", "-q:v", "3", "cover.jpg"),
+                workDir, 0.0,
+            ) {}
+            if (code != 0 || fileSize("$workDir/cover.jpg") <= 0) {
+                throw RenderException("Sampul tidak berhasil dibuat ($code). ${tail.lines().takeLast(3).joinToString(" ").take(300)}")
+            }
+            moveItem("$workDir/cover.jpg", output)
+        } finally {
+            removeItem(workDir)
+        }
+    }
+
+    // ---------------------------------------------------------------------------------------------------------------
+    // Jeda
+    // ---------------------------------------------------------------------------------------------------------------
+
+    /** Jeda di suara klip (volumedetect lalu silencedetect, sama dengan `Ffmpeg.silences` Android). */
+    suspend fun silences(source: String, start: Double, duration: Double): List<Range> {
+        val dir = repo.absolute("silence")
+        removeItem(dir)
+        createDirectory(dir)
+        try {
+            val input = listOf("-ss", Php.numberFormat(start, 3), "-t", Php.numberFormat(duration, 3), "-i", source, "-vn")
+            val volume = ffmpegLog(input + listOf("-af", "volumedetect", "-f", "null", "-"), dir)
+            val mean = Regex("""mean_volume:\s*(-?[\d.]+) dB""").find(volume)?.groupValues?.get(1)?.toDouble()
+                ?: throw RenderException("Volume klip tidak terbaca")
+            val noise = ClipSilence.noiseThreshold(mean)
+            val log = ffmpegLog(input + listOf("-af", "silencedetect=noise=${Php.numberFormat(noise, 1)}dB:d=${ClipSilence.MIN}", "-f", "null", "-"), dir)
+            return ClipSilence.parse(log, start, start + duration)
+        } finally {
+            removeItem(dir)
+        }
+    }
+
+    /** Log lengkap satu pemanggilan FFmpeg (file log ditulis bersambung, jadi dihapus dulu). */
+    private suspend fun ffmpegLog(args: List<String>, dir: String): String {
+        removeItem("$dir/ffmpeg.log")
+        val (code, tail) = runFfmpeg(args, dir, 0.0) {}
+        if (code != 0) throw RenderException("FFmpeg gagal ($code). ${tail.lines().takeLast(3).joinToString(" ").take(300)}")
+        return readText("$dir/ffmpeg.log").orEmpty()
+    }
+
+    // ---------------------------------------------------------------------------------------------------------------
+
+    /**
+     * Satu FFmpeg pada satu waktu. Bila coroutine dibatalkan, FFmpeg dihentikan lalu tetap ditunggu sampai selesai
+     * sebelum giliran berikutnya (keadaan global FFmpeg tidak boleh dipakai dua pemanggilan sekaligus).
+     */
     private suspend fun runFfmpeg(args: List<String>, directory: String, duration: Double, onProgress: (Double) -> Unit): Pair<Int, String> =
-        suspendCancellableCoroutine { cont ->
-            cont.invokeOnCancellation { engine.cancelFfmpeg() }
-            engine.runFfmpeg(
-                args, directory, duration,
-                object : RenderListener {
-                    override fun progress(fraction: Double) = onProgress(fraction)
-                    override fun finished(code: Int, logTail: String) {
-                        if (cont.isActive) cont.resume(code to logTail)
-                    }
-                },
-            )
+        ffmpegLock.withLock {
+            withContext(Dispatchers.Main) {
+                val done = CompletableDeferred<Pair<Int, String>>()
+                engine.runFfmpeg(
+                    args, directory, duration,
+                    object : RenderListener {
+                        override fun progress(fraction: Double) = onProgress(fraction)
+                        override fun finished(code: Int, logTail: String) {
+                            done.complete(code to logTail)
+                        }
+                    },
+                )
+                try {
+                    done.await()
+                } catch (e: CancellationException) {
+                    engine.cancelFfmpeg()
+                    withContext(NonCancellable) { done.await() }
+                    throw e
+                }
+            }
         }
 
-    private suspend fun saveToPhotos(path: String): String? = suspendCancellableCoroutine { cont ->
-        engine.saveVideoToPhotos(
-            path,
-            object : SaveListener {
-                override fun finished(error: String?) {
-                    if (cont.isActive) cont.resume(error)
-                }
-            },
-        )
+    private suspend fun saveToPhotos(path: String, image: Boolean): String? = suspendCancellableCoroutine { cont ->
+        val listener = object : SaveListener {
+            override fun finished(error: String?) {
+                if (cont.isActive) cont.resume(error)
+            }
+        }
+        if (image) engine.saveImageToPhotos(path, listener) else engine.saveVideoToPhotos(path, listener)
     }
 
     fun cancel() = engine.cancelFfmpeg()
 
-    private fun readBytesExists(path: String) = fileSize(path) > 0
+    private fun exists(path: String) = fileSize(path) > 0
 
     companion object {
         const val KEY_ENHANCE_AUDIO = "render.enhance_audio"
 
         /** 6 Mbps untuk 1080×1920 (sama dengan Android); rasio lain sebanding jumlah piksel. */
         const val VIDEO_BITRATE = 6_000_000L
+
+        /** Ukuran judul klasik di sampul (sama dengan Android). */
+        const val COVER_TITLE_SIZE = 92
 
         /** VideoToolbox (encoder hardware iPhone): nv12 dulu, lalu yuv420p. */
         val ENCODERS = listOf(

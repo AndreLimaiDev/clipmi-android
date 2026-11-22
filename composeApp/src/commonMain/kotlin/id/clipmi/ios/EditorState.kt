@@ -7,112 +7,313 @@ import id.clipmi.android.data.CaptionStyleEntity
 import id.clipmi.android.data.ClipEntity
 import id.clipmi.android.data.FrameStyleEntity
 import id.clipmi.android.data.ProjectEntity
-import id.clipmi.core.php.Php
+import id.clipmi.core.analysis.Keywords
 import id.clipmi.core.render.AssWriter
+import id.clipmi.core.render.CaptionStyle
+import id.clipmi.core.render.ClipEditor
 import id.clipmi.core.render.ClipRender
 import id.clipmi.core.render.ClipSpec
 import id.clipmi.core.render.Composition
+import id.clipmi.core.render.CutSet
+import id.clipmi.core.render.EditableClip
+import id.clipmi.core.render.FrameStyle
+import id.clipmi.core.render.HookLayout
 import id.clipmi.core.render.PreviewTracks
+import id.clipmi.core.render.Range
 import id.clipmi.core.render.SegmentWords
+import id.clipmi.core.render.SubtitleEdits
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonObject
+
+/** Semua yang bisa diubah di editor iOS; satu langkah urungkan = satu snapshot (subset EditorSnapshot Android). */
+data class EditorSnapshot(
+    val clip: EditableClip,
+    val title: String,
+    val captionStyleId: Long?,
+    val frameStyleId: Long?,
+    val hook: String?,
+    val showHookOverlay: Boolean,
+    val hookLayout: JsonObject?,
+    val keywords: List<String>,
+    val coverTime: Double? = null,
+    val coverPath: String? = null,
+    val coverTitle: Boolean = false,
+    val coverInVideo: Boolean = true,
+    val coverLayout: String? = null,
+) {
+    val hasCover: Boolean get() = coverTime != null || coverPath != null
+}
 
 /**
- * Isian editor klip iOS (subset EditorState Android): rentang waktu, judul, hook, gaya subtitle, dan gaya bingkai.
- * Pratinjau dihitung core seperti render: [composition] untuk tata letak video dan [tracks] (ASS) untuk libass.
+ * Keadaan editor klip iOS, padanan EditorState Android: snapshot saat ini, riwayat urungkan/ulangi, penyimpanan ke
+ * database setiap perubahan, komposisi pratinjau, dan subtitle pratinjau (ASS yang sama dengan render) yang dihitung
+ * ulang sesaat setelah perubahan berhenti.
  */
 class EditorState(
     private val repo: Repository,
-    private val renderer: IosRenderer,
+    val renderer: IosRenderer,
     private val scope: CoroutineScope,
-    val clip: ClipEntity,
+    val entity: ClipEntity,
     val project: ProjectEntity,
     val captionStyles: List<CaptionStyleEntity>,
     val frameStyles: List<FrameStyleEntity>,
-    private val segments: List<SegmentWords>,
+    val segments: List<SegmentWords>,
+    /** Video sumber (path absolut). */
+    val source: String,
     /** Panjang video sumber (detik), batas rentang klip. */
-    val sourceDuration: Double,
+    val sourceDuration: Double?,
     /** Ukuran video sumber setelah rotasi, untuk tata letak pratinjau dan mode "fit". */
     val sourceSize: Pair<Int, Int>?,
+    /** Frame kecil video untuk latar blur pratinjau (path absolut), atau null. */
+    val thumbnail: String?,
+    initial: EditorSnapshot,
 ) {
-    var start by mutableStateOf(clip.startTime)
-    var end by mutableStateOf(clip.endTime)
-    var title by mutableStateOf(clip.title)
-    var hook by mutableStateOf(clip.hook.orEmpty())
-    var showHook by mutableStateOf(clip.showHookOverlay)
-    var captionStyleId by mutableStateOf(clip.captionStyleId ?: captionStyles.firstOrNull { it.isDefault }?.id)
-    var frameStyleId by mutableStateOf(clip.frameStyleId ?: frameStyles.firstOrNull { it.isDefault }?.id)
+    private val json = Json { ignoreUnknownKeys = true }
+    private val undo = ArrayDeque<EditorSnapshot>()
+    private val redo = ArrayDeque<EditorSnapshot>()
+    private val saving = Mutex()
+    private var lastSave: Job? = null
+    private var gestureStart: EditorSnapshot? = null
+    private var tracksJob: Job? = null
+    private val core = ClipRender(AssWriter(IosFontMeasurer(renderer.engine, renderer.fontsDir)))
 
-    var spec by mutableStateOf<ClipSpec?>(null)
+    var snapshot by mutableStateOf(initial)
         private set
-    var composition by mutableStateOf<Composition?>(null)
+    var canUndo by mutableStateOf(false)
+        private set
+    var canRedo by mutableStateOf(false)
+        private set
+    var composition by mutableStateOf(layout(initial))
         private set
     var tracks by mutableStateOf<PreviewTracks?>(null)
         private set
-    var saving by mutableStateOf(false)
+    var silences by mutableStateOf<List<Range>?>(null)
         private set
+    var silenceError by mutableStateOf<String?>(null)
+        private set
+    private var silenceJob: Job? = null
 
     val engine: MediaEngine get() = renderer.engine
 
     /** Klip ini dari database (status render terbaru). */
-    fun liveClip(): Flow<ClipEntity?> = repo.db.clips().observe(clip.projectId).map { list -> list.firstOrNull { it.id == clip.id } }
+    fun liveClip(): Flow<ClipEntity?> = repo.db.clips().observeOne(entity.id)
 
-    private val core = ClipRender(AssWriter(IosFontMeasurer(renderer.engine, renderer.fontsDir)))
-    private var job: Job? = null
+    fun captionStyle(s: EditorSnapshot = snapshot): CaptionStyle = renderer.captionFor(s.captionStyleId, captionStyles)
 
-    val changed: Boolean
-        get() = start != clip.startTime || end != clip.endTime || title != clip.title || hook != clip.hook.orEmpty() ||
-            showHook != clip.showHookOverlay || captionStyleId != (clip.captionStyleId ?: captionStyles.firstOrNull { it.isDefault }?.id) ||
-            frameStyleId != (clip.frameStyleId ?: frameStyles.firstOrNull { it.isDefault }?.id)
+    fun frameStyle(s: EditorSnapshot = snapshot): FrameStyle = renderer.frameFor(s.frameStyleId, frameStyles)
 
-    /** Klip dengan isian editor (belum disimpan). */
-    fun edited(): ClipEntity = clip.copy(
-        startTime = Php.round(start, 3),
-        endTime = Php.round(end, 3),
-        title = title.trim().ifEmpty { clip.title },
-        hook = hook.trim().ifEmpty { null },
-        showHookOverlay = showHook,
-        captionStyleId = captionStyleId,
-        frameStyleId = frameStyleId,
+    /** Id gaya yang benar-benar dipakai (klip, bawaan, atau yang pertama), untuk menandai pilihan. */
+    fun captionStyleId(): Long? = captionStyles.firstOrNull { it.id == snapshot.captionStyleId }?.id
+        ?: captionStyles.firstOrNull { it.isDefault }?.id ?: captionStyles.firstOrNull()?.id
+
+    fun frameStyleId(): Long? = frameStyles.firstOrNull { it.id == snapshot.frameStyleId }?.id
+        ?: frameStyles.firstOrNull { it.isDefault }?.id ?: frameStyles.firstOrNull()?.id
+
+    fun editor() = ClipEditor(segments, captionStyle(), sourceDuration ?: project.durationSeconds)
+
+    fun spec(s: EditorSnapshot = snapshot) = ClipSpec(
+        startTime = s.clip.startTime,
+        endTime = s.clip.endTime,
+        title = s.title,
+        partNumber = entity.partNumber,
+        hook = s.hook,
+        keywords = s.keywords,
+        cuts = s.clip.cuts.toJson(),
+        showHookOverlay = s.showHookOverlay,
+        hookLayout = s.hookLayout,
+        subtitleLines = s.clip.subtitleLines,
+        subtitleEdited = s.clip.subtitleEdited,
+        cropZoom = entity.cropZoom,
+        cropY = entity.cropY,
+        cropPosition = entity.cropPosition,
+        projectCropPosition = project.cropPosition,
+        style = captionStyle(s),
+        frame = frameStyle(s),
     )
 
-    /** Menghitung ulang komposisi dan trek pratinjau (ditunda sebentar saat isian berubah cepat). */
-    fun refresh(immediate: Boolean = false) {
-        job?.cancel()
-        job = scope.launch {
-            if (!immediate) delay(150)
-            val next = renderer.spec(edited(), project.cropPosition)
-            val layout = core.composition(next, if (next.frame.mode == "fit" && next.frame.framesVideo()) sourceSize else null)
-            spec = next
-            composition = layout
-            tracks = core.previewTracks(next, layout, segments)
+    /** Klip dengan isian editor saat ini (untuk sampul: kuncinya ikut berubah begitu tampilan berubah). */
+    fun entitySnapshot(s: EditorSnapshot = snapshot): ClipEntity = entity.copy(
+        title = s.title, startTime = s.clip.startTime, endTime = s.clip.endTime, cuts = s.clip.cuts.toJson()?.toString(),
+        subtitleLines = s.clip.subtitleLines?.let { json.encodeToString(SubtitleEdits.serializer(), it) }, subtitleEdited = s.clip.subtitleEdited,
+        hook = s.hook, showHookOverlay = s.showHookOverlay, hookLayout = s.hookLayout?.toString(), keywords = renderer.encodeKeywords(s.keywords),
+        captionStyleId = s.captionStyleId, frameStyleId = s.frameStyleId, coverTime = s.coverTime, coverPath = s.coverPath,
+        coverTitle = s.coverTitle, coverInVideo = s.coverInVideo, coverLayout = s.coverLayout,
+    )
+
+    fun hookLayout(): HookLayout = spec().hookLayout()
+
+    private fun layout(s: EditorSnapshot): Composition {
+        val spec = spec(s)
+        return core.composition(spec, if (spec.frame.mode == "fit" && spec.frame.framesVideo()) sourceSize else null)
+    }
+
+    /** Perubahan satu langkah (masuk riwayat). Mengembalikan false bila ditolak (null) atau tidak mengubah apa-apa. */
+    fun apply(change: (EditorSnapshot) -> EditorSnapshot?): Boolean {
+        val next = change(snapshot) ?: return false
+        if (next == snapshot) return false
+        push(snapshot)
+        set(next)
+        return true
+    }
+
+    fun applyClip(change: (EditableClip) -> EditableClip?): Boolean = apply { s -> change(s.clip)?.let { s.copy(clip = it) } }
+
+    /** Perubahan terus-menerus (seret, geser slider): satu langkah riwayat untuk satu gerakan. */
+    fun drag(change: (EditorSnapshot) -> EditorSnapshot) {
+        if (gestureStart == null) gestureStart = snapshot
+        update(change(snapshot))
+    }
+
+    fun endDrag() {
+        val start = gestureStart ?: return
+        gestureStart = null
+        if (start != snapshot) {
+            push(start)
+            persist()
         }
     }
 
-    /** Geser awal/akhir klip (detik), dalam batas video dan minimal 1 detik. */
-    fun nudgeStart(delta: Double) {
-        start = (start + delta).coerceIn(0.0, end - 1.0)
-        refresh()
+    fun undo() {
+        val previous = undo.removeLastOrNull() ?: return
+        redo.addLast(snapshot)
+        set(previous)
     }
 
-    fun nudgeEnd(delta: Double) {
-        end = (end + delta).coerceIn(start + 1.0, if (sourceDuration > 0) sourceDuration else end + delta)
-        refresh()
+    fun redo() {
+        val next = redo.removeLastOrNull() ?: return
+        undo.addLast(snapshot)
+        set(next)
     }
 
-    suspend fun save(): ClipEntity {
-        saving = true
-        try {
-            val now = nowMillis()
-            val updated = edited().copy(editedAt = now, updatedAt = now)
-            repo.db.clips().update(updated)
-            return updated
-        } finally {
-            saving = false
+    fun toggleKeyword(phrase: String) = apply { it.copy(keywords = Keywords.toggle(it.keywords, phrase)) }
+
+    private fun push(previous: EditorSnapshot) {
+        undo.addLast(previous)
+        while (undo.size > HISTORY) undo.removeFirst()
+        redo.clear()
+    }
+
+    private fun set(next: EditorSnapshot) {
+        update(next)
+        persist()
+    }
+
+    /** Mengganti snapshot: komposisi langsung, subtitle pratinjau sesaat kemudian, jeda dicari ulang bila rentang berubah. */
+    private fun update(next: EditorSnapshot) {
+        val rangeChanged = next.clip.startTime != snapshot.clip.startTime || next.clip.endTime != snapshot.clip.endTime
+        snapshot = next
+        canUndo = undo.isNotEmpty()
+        canRedo = redo.isNotEmpty()
+        if (rangeChanged) {
+            silenceJob?.cancel()
+            silences = null
+            silenceError = null
+        }
+        composition = layout(next)
+        refreshTracks()
+    }
+
+    /** Disimpan ke database (kolom editor saja, supaya status render yang berubah di latar tidak tertimpa). */
+    private fun persist() {
+        canUndo = undo.isNotEmpty()
+        canRedo = redo.isNotEmpty()
+        val s = snapshot
+        lastSave = scope.launch {
+            saving.withLock {
+                val clips = repo.db.clips()
+                val fresh = clips.find(entity.id) ?: return@withLock
+                val keywords = renderer.encodeKeywords(s.keywords)
+                if (s.title != fresh.title || s.hook != fresh.hook || keywords != fresh.keywords) {
+                    clips.updateText(entity.id, s.title, s.hook, fresh.caption, fresh.hashtags, keywords, changesRender = true)
+                }
+                clips.updateEditor(
+                    entity.id, s.clip.startTime, s.clip.endTime,
+                    s.clip.cuts.toJson()?.toString(),
+                    s.clip.subtitleLines?.let { json.encodeToString(SubtitleEdits.serializer(), it) },
+                    s.clip.subtitleEdited, s.captionStyleId, s.frameStyleId, fresh.cropPosition, fresh.cropZoom, fresh.cropY,
+                    s.hook, s.showHookOverlay, s.hookLayout?.toString(), keywords,
+                    s.coverTime, s.coverPath, s.coverTitle, s.coverInVideo, s.coverLayout, fresh.introId, fresh.outroId,
+                )
+            }
+        }
+    }
+
+    /** Menunggu penyimpanan terakhir selesai (sebelum render). */
+    suspend fun flush() {
+        lastSave?.join()
+    }
+
+    /** Subtitle pratinjau dihitung ulang sesaat setelah perubahan berhenti. */
+    fun refreshTracks() {
+        tracksJob?.cancel()
+        tracksJob = scope.launch {
+            delay(if (tracks == null) 0 else 120)
+            val spec = spec()
+            tracks = core.previewTracks(spec, composition, segments)
+        }
+    }
+
+    /** Jeda dari suara klip (silencedetect), dibaca sekali per rentang klip. */
+    fun detectSilences() {
+        if (silences != null || silenceJob?.isActive == true) return
+        val clip = snapshot.clip
+        silenceError = null
+        silenceJob = scope.launch {
+            runCatching { renderer.silences(source, clip.startTime, clip.duration()) }
+                .onSuccess { silences = it }
+                .onFailure { if (it !is kotlinx.coroutines.CancellationException) silenceError = it.message ?: "Jeda tidak terbaca." }
+        }
+    }
+
+    /** Folder gambar sampul dari galeri (relatif Documents). */
+    fun coverImagePath(): String = "${repo.projectDir(project.id)}/cover-images/clip-${entity.id}-${nowMillis()}.jpg"
+
+    fun absolute(relative: String) = repo.absolute(relative)
+
+    companion object {
+        const val HISTORY = 50
+
+        suspend fun load(repo: Repository, renderer: IosRenderer, scope: CoroutineScope, clipId: Long): EditorState? {
+            val clip = repo.db.clips().find(clipId) ?: return null
+            val project = repo.db.projects().find(clip.projectId) ?: return null
+            val source = project.videoPath?.let { repo.absolute(it) }?.takeIf { fileSize(it) > 0 } ?: return null
+            val info = renderer.probe(source)
+            val captionStyles = repo.db.styles().captionStyles()
+            val frameStyles = repo.db.styles().frameStyles()
+            val spec = renderer.specFor(clip, project.cropPosition, renderer.captionFor(clip.captionStyleId, captionStyles), renderer.frameFor(clip.frameStyleId, frameStyles))
+            // Latar blur pratinjau: satu frame di awal klip (Android memakai thumbnail YouTube).
+            val thumbnail = repo.absolute("${repo.projectDir(project.id)}/editor-thumb.jpg")
+            createDirectory(repo.absolute(repo.projectDir(project.id)))
+            val hasThumbnail = renderer.videoFrame(source, clip.startTime + 0.5, thumbnail)
+            val snapshot = EditorSnapshot(
+                clip = EditableClip(spec.startTime, spec.endTime, CutSet.from(spec.cuts), spec.subtitleLines, spec.subtitleEdited),
+                title = clip.title,
+                captionStyleId = clip.captionStyleId,
+                frameStyleId = clip.frameStyleId,
+                hook = clip.hook,
+                showHookOverlay = clip.showHookOverlay,
+                hookLayout = spec.hookLayout,
+                keywords = spec.keywords.orEmpty(),
+                coverTime = clip.coverTime,
+                coverPath = clip.coverPath,
+                coverTitle = clip.coverTitle,
+                coverInVideo = clip.coverInVideo,
+                coverLayout = clip.coverLayout,
+            )
+            return EditorState(
+                repo, renderer, scope, clip, project, captionStyles, frameStyles, renderer.segments(project.id), source,
+                info?.duration ?: project.durationSeconds,
+                info?.let { i -> i.width?.let { w -> i.height?.let { h -> w to h } } },
+                thumbnail.takeIf { hasThumbnail },
+                snapshot,
+            ).also { it.refreshTracks() }
         }
     }
 }

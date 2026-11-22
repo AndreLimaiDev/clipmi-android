@@ -58,6 +58,10 @@ actual fun copyItem(from: String, to: String) {
 }
 
 @OptIn(ExperimentalForeignApi::class)
+actual fun listDirectory(path: String): List<String> =
+    NSFileManager.defaultManager.contentsOfDirectoryAtPath(path, null)?.mapNotNull { it as? String }.orEmpty()
+
+@OptIn(ExperimentalForeignApi::class)
 actual fun moveItem(from: String, to: String) {
     NSFileManager.defaultManager.removeItemAtPath(to, null)
     NSFileManager.defaultManager.moveItemAtPath(from, to, null)

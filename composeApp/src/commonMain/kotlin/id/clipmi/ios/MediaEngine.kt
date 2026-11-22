@@ -32,6 +32,21 @@ interface MediaEngine {
     /** Menyimpan video ke Photos (meminta izin tambah bila perlu). [listener] dipanggil di main thread. */
     fun saveVideoToPhotos(path: String, listener: SaveListener)
 
+    /** Menyimpan gambar (JPEG) ke Photos, misalnya sampul klip. [listener] dipanggil di main thread. */
+    fun saveImageToPhotos(path: String, listener: SaveListener)
+
+    /**
+     * Satu frame video pada [seconds] (AVAssetImageGenerator, rotasi diterapkan) sebagai JPEG di [output], sisi terpanjang
+     * paling besar [maxSize] piksel. Sinkron; false bila gagal.
+     */
+    fun videoFrame(path: String, seconds: Double, output: String, maxSize: Int): Boolean
+
+    /**
+     * Memilih satu gambar dari Photos (PHPicker, tanpa izin galeri) lalu menyimpannya sebagai JPEG tegak di [output].
+     * [listener] dipanggil di main thread: path = [output], atau null bila batal/gagal.
+     */
+    fun pickImage(output: String, listener: PickListener)
+
     // libass untuk pratinjau (ass_core.c, sama dengan Android). Handle 0 = gagal.
 
     /** Renderer libass seukuran [width]×[height] dengan font bawaan. */
@@ -71,4 +86,9 @@ interface RenderListener {
 interface SaveListener {
     /** null = tersimpan; selain itu pesan gagal. */
     fun finished(error: String?)
+}
+
+interface PickListener {
+    /** Path gambar tersimpan, atau null bila batal/gagal. */
+    fun finished(path: String?)
 }

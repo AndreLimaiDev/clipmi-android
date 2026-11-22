@@ -38,6 +38,7 @@ targets:
       - sdk: WebKit.framework
       - sdk: AVFoundation.framework
       - sdk: Photos.framework
+      - sdk: PhotosUI.framework
       - sdk: VideoToolbox.framework
       - sdk: CoreMedia.framework
       - sdk: CoreVideo.framework

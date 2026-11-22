@@ -21,5 +21,8 @@ expect fun removeItem(path: String)
 /** Menyalin file (tujuan lama diganti). */
 expect fun copyItem(from: String, to: String)
 
+/** Nama isi folder (tanpa path), kosong bila folder tidak ada. */
+expect fun listDirectory(path: String): List<String>
+
 /** Memindahkan file (tujuan lama diganti). */
 expect fun moveItem(from: String, to: String)

@@ -1,5 +1,6 @@
 import AVFoundation
 import Photos
+import PhotosUI
 import ComposeApp
 import SwiftUI
 import UIKit
@@ -135,6 +136,19 @@ final class IOSMediaEngine: NSObject, MediaEngine {
     }
 
     func saveVideoToPhotos(path: String, listener: SaveListener) {
+        Self.saveToPhotos(listener: listener) {
+            _ = PHAssetChangeRequest.creationRequestForAssetFromVideo(atFileURL: URL(fileURLWithPath: path))
+        }
+    }
+
+    func saveImageToPhotos(path: String, listener: SaveListener) {
+        Self.saveToPhotos(listener: listener) {
+            _ = PHAssetChangeRequest.creationRequestForAssetFromImage(atFileURL: URL(fileURLWithPath: path))
+        }
+    }
+
+    /** Izin tambah ke Photos (bila belum), lalu [change]; [listener] di main thread. */
+    static func saveToPhotos(listener: SaveListener, change: @escaping () -> Void) {
         PHPhotoLibrary.requestAuthorization(for: .addOnly) { status in
             guard status == .authorized || status == .limited else {
                 DispatchQueue.main.async {
@@ -142,12 +156,52 @@ final class IOSMediaEngine: NSObject, MediaEngine {
                 }
                 return
             }
-            PHPhotoLibrary.shared().performChanges({
-                _ = PHAssetChangeRequest.creationRequestForAssetFromVideo(atFileURL: URL(fileURLWithPath: path))
-            }) { ok, error in
+            PHPhotoLibrary.shared().performChanges(change) { ok, error in
                 DispatchQueue.main.async { listener.finished(error: ok ? nil : (error?.localizedDescription ?? "gagal")) }
             }
         }
+    }
+
+    // MARK: Gambar
+
+    func videoFrame(path: String, seconds: Double, output: String, maxSize: Int32) -> Bool {
+        let generator = AVAssetImageGenerator(asset: AVURLAsset(url: URL(fileURLWithPath: path)))
+        generator.appliesPreferredTrackTransform = true
+        generator.maximumSize = CGSize(width: Int(maxSize), height: Int(maxSize))
+        let tolerance = CMTime(seconds: 0.5, preferredTimescale: 600)
+        generator.requestedTimeToleranceBefore = tolerance
+        generator.requestedTimeToleranceAfter = tolerance
+        guard let image = try? generator.copyCGImage(at: CMTime(seconds: max(0, seconds), preferredTimescale: 600), actualTime: nil),
+              let data = UIImage(cgImage: image).jpegData(compressionQuality: 0.85) else { return false }
+        return (try? data.write(to: URL(fileURLWithPath: output))) != nil
+    }
+
+    private var picker: ImagePicker?
+
+    func pickImage(output: String, listener: PickListener) {
+        guard let top = Self.topController() else {
+            listener.finished(path: nil)
+            return
+        }
+        var configuration = PHPickerConfiguration()
+        configuration.filter = .images
+        configuration.selectionLimit = 1
+        let controller = PHPickerViewController(configuration: configuration)
+        let delegate = ImagePicker(output: output) { [weak self] path in
+            self?.picker = nil
+            listener.finished(path: path)
+        }
+        picker = delegate
+        controller.delegate = delegate
+        top.present(controller, animated: true)
+    }
+
+    static func topController() -> UIViewController? {
+        let scenes = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }
+        let windows = scenes.flatMap { $0.windows }
+        var top = (windows.first(where: { $0.isKeyWindow }) ?? windows.first)?.rootViewController
+        while let presented = top?.presentedViewController { top = presented }
+        return top
     }
 
     // MARK: libass (pratinjau)
@@ -226,5 +280,45 @@ final class IOSMediaEngine: NSObject, MediaEngine {
         guard let data = try? JSONSerialization.data(withJSONObject: object),
               let text = String(data: data, encoding: .utf8) else { return "{\"ok\": false, \"error\": \"JSON\"}" }
         return text
+    }
+}
+
+/// Satu gambar dari PHPicker, digambar ulang tegak (orientasi EXIF diterapkan; FFmpeg tidak membacanya) sebagai JPEG.
+final class ImagePicker: NSObject, PHPickerViewControllerDelegate {
+    private let output: String
+    private let done: (String?) -> Void
+
+    init(output: String, done: @escaping (String?) -> Void) {
+        self.output = output
+        self.done = done
+    }
+
+    func picker(_ picker: PHPickerViewController, didFinishPicking results: [PHPickerResult]) {
+        picker.dismiss(animated: true)
+        guard let provider = results.first?.itemProvider, provider.canLoadObject(ofClass: UIImage.self) else {
+            done(nil)
+            return
+        }
+        let output = self.output
+        let done = self.done
+        provider.loadObject(ofClass: UIImage.self) { object, _ in
+            var path: String?
+            if let image = object as? UIImage, let data = ImagePicker.upright(image).jpegData(compressionQuality: 0.92),
+               (try? data.write(to: URL(fileURLWithPath: output))) != nil {
+                path = output
+            }
+            DispatchQueue.main.async { done(path) }
+        }
+    }
+
+    /** Tegak dan paling besar 2160 piksel di sisi terpanjang. */
+    static func upright(_ image: UIImage) -> UIImage {
+        let longest = max(image.size.width, image.size.height)
+        let scale = longest > 2160 ? 2160 / longest : 1
+        let size = CGSize(width: (image.size.width * scale).rounded(), height: (image.size.height * scale).rounded())
+        let format = UIGraphicsImageRendererFormat()
+        format.scale = 1
+        format.opaque = true
+        return UIGraphicsImageRenderer(size: size, format: format).image { _ in image.draw(in: CGRect(origin: .zero, size: size)) }
     }
 }
