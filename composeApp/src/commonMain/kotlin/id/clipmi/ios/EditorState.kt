@@ -21,6 +21,7 @@ import id.clipmi.core.render.HookLayout
 import id.clipmi.core.render.PreviewTracks
 import id.clipmi.core.render.Range
 import id.clipmi.core.render.SegmentWords
+import id.clipmi.core.render.SpeakerTrackData
 import id.clipmi.core.render.SubtitleEdits
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
@@ -47,6 +48,11 @@ data class EditorSnapshot(
     val coverTitle: Boolean = false,
     val coverInVideo: Boolean = true,
     val coverLayout: String? = null,
+    val cropPosition: Int? = null,
+    val cropZoom: Int? = null,
+    val cropY: Int? = null,
+    /** Posisi crop manual per adegan saat mengikuti pembicara (waktu project). */
+    val speakerManual: List<SpeakerTrackData.ManualPosition> = emptyList(),
 ) {
     val hasCover: Boolean get() = coverTime != null || coverPath != null
 }
@@ -84,6 +90,19 @@ class EditorState(
     private var tracksJob: Job? = null
     private val core = ClipRender(AssWriter(IosFontMeasurer(renderer.engine, renderer.fontsDir)))
 
+    // Dipakai komposisi awal (spec → jalur pembicara), jadi dideklarasikan lebih dulu.
+    /** Hasil deteksi pembicara klip ini (dari database atau deteksi di editor); null = belum pernah dideteksi. */
+    var speakerBase by mutableStateOf(decodeSpeakerTrack(entity.speakerTrack))
+        private set
+
+    /** Progres deteksi pembicara 0–1; null = tidak sedang mendeteksi. */
+    var speakerProgress by mutableStateOf<Float?>(null)
+        private set
+    var speakerError by mutableStateOf<String?>(null)
+        private set
+    private var speakerJob: Job? = null
+    private var trackCache: Pair<Triple<Double, Double, Any?>, SpeakerTrackData?>? = null
+
     var snapshot by mutableStateOf(initial)
         private set
     var canUndo by mutableStateOf(false)
@@ -101,6 +120,54 @@ class EditorState(
     private var silenceJob: Job? = null
 
     val engine: MediaEngine get() = renderer.engine
+
+    /** Keadaan saat gerakan yang sedang berjalan dimulai (atau keadaan sekarang bila tidak ada gerakan). */
+    val gestureBase: EditorSnapshot get() = gestureStart ?: snapshot
+
+    /** Klip mengikuti pembicara: tanpa posisi crop sendiri dan gaya bingkainya memotong video. */
+    fun followsSpeaker(s: EditorSnapshot = snapshot): Boolean = s.cropPosition == null && frameStyle(s).usesCropPosition()
+
+    /** Jalur pembicara untuk rentang dan posisi manual [s]; null bila hasil deteksi tidak mencakup rentang klip. */
+    fun speakerTrack(s: EditorSnapshot = snapshot): SpeakerTrackData? {
+        val base = speakerBase ?: return null
+        val key = Triple(s.clip.startTime, s.clip.endTime, base to s.speakerManual)
+        trackCache?.let { (k, v) -> if (k == key) return v }
+        val track = if (base.covers(s.clip.startTime, s.clip.endTime)) base.copy(manual = s.speakerManual).retarget(s.clip.startTime, s.clip.endTime) else null
+        trackCache = key to track
+        return track
+    }
+
+    fun speakerKeyframes(s: EditorSnapshot = snapshot): List<List<Double>>? =
+        if (followsSpeaker(s)) speakerTrack(s)?.keyframes?.takeIf { it.isNotEmpty() } else null
+
+    /** Yang disimpan di kolom speaker_track: jalur rentang ini, atau hasil deteksi lama (perlu dideteksi ulang). */
+    private fun storedTrack(s: EditorSnapshot): SpeakerTrackData? = speakerTrack(s) ?: speakerBase?.copy(manual = s.speakerManual)
+
+    /** Perlu dideteksi: mengikuti pembicara tetapi hasil deteksi belum mencakup rentang klip. */
+    fun needsSpeakerDetection(s: EditorSnapshot = snapshot): Boolean = followsSpeaker(s) && speakerTrack(s) == null
+
+    /** Mendeteksi pembicara di rentang klip saat ini; posisi manual yang masih di dalam rentang tetap dipakai. */
+    fun detectSpeaker() {
+        if (speakerJob?.isActive == true) return
+        val s = snapshot
+        speakerError = null
+        speakerProgress = 0f
+        speakerJob = scope.launch {
+            try {
+                val result = renderer.speakers.detect(entitySnapshot(s), project, s.clip.startTime, s.clip.endTime, s.speakerManual) { speakerProgress = it }
+                speakerBase = result
+                // Hasil deteksi bukan langkah urungkan; posisi manual di luar rentang dibuang.
+                update(snapshot.copy(speakerManual = result.manual))
+                persist()
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                speakerError = e.message ?: "Deteksi gagal."
+            } finally {
+                speakerProgress = null
+            }
+        }
+    }
 
     /** Klip ini dari database (status render terbaru). */
     fun liveClip(): Flow<ClipEntity?> = repo.db.clips().observeOne(entity.id)
@@ -130,12 +197,13 @@ class EditorState(
         hookLayout = s.hookLayout,
         subtitleLines = s.clip.subtitleLines,
         subtitleEdited = s.clip.subtitleEdited,
-        cropZoom = entity.cropZoom,
-        cropY = entity.cropY,
-        cropPosition = entity.cropPosition,
+        cropZoom = s.cropZoom,
+        cropY = s.cropY,
+        cropPosition = s.cropPosition,
         projectCropPosition = project.cropPosition,
         style = captionStyle(s),
         frame = frameStyle(s),
+        speakerKeyframes = speakerKeyframes(s),
     )
 
     /** Klip dengan isian editor saat ini (untuk sampul: kuncinya ikut berubah begitu tampilan berubah). */
@@ -145,13 +213,15 @@ class EditorState(
         hook = s.hook, showHookOverlay = s.showHookOverlay, hookLayout = s.hookLayout?.toString(), keywords = renderer.encodeKeywords(s.keywords),
         captionStyleId = s.captionStyleId, frameStyleId = s.frameStyleId, coverTime = s.coverTime, coverPath = s.coverPath,
         coverTitle = s.coverTitle, coverInVideo = s.coverInVideo, coverLayout = s.coverLayout,
+        cropPosition = s.cropPosition, cropZoom = s.cropZoom, cropY = s.cropY, speakerTrack = storedTrack(s)?.let(::encodeSpeakerTrack),
     )
 
     fun hookLayout(): HookLayout = spec().hookLayout()
 
+    /** Tata letak pratinjau; ukuran sumber selalu diberikan (sama dengan EditorPreview Android). */
     private fun layout(s: EditorSnapshot): Composition {
         val spec = spec(s)
-        return core.composition(spec, if (spec.frame.mode == "fit" && spec.frame.framesVideo()) sourceSize else null)
+        return Composition.make(spec.frame, sourceSize, spec.effectiveCropPosition(), spec.effectiveZoom(), spec.effectiveCropY(), spec.speakerKeyframes)
     }
 
     /** Perubahan satu langkah (masuk riwayat). Mengembalikan false bila ditolak (null) atau tidak mengubah apa-apa. */
@@ -237,10 +307,11 @@ class EditorState(
                     entity.id, s.clip.startTime, s.clip.endTime,
                     s.clip.cuts.toJson()?.toString(),
                     s.clip.subtitleLines?.let { json.encodeToString(SubtitleEdits.serializer(), it) },
-                    s.clip.subtitleEdited, s.captionStyleId, s.frameStyleId, fresh.cropPosition, fresh.cropZoom, fresh.cropY,
+                    s.clip.subtitleEdited, s.captionStyleId, s.frameStyleId, s.cropPosition, s.cropZoom, s.cropY,
                     s.hook, s.showHookOverlay, s.hookLayout?.toString(), keywords,
                     s.coverTime, s.coverPath, s.coverTitle, s.coverInVideo, s.coverLayout, fresh.introId, fresh.outroId,
                 )
+                if (speakerBase != null) renderer.speakers.save(entity.id, storedTrack(s))
             }
         }
     }
@@ -256,7 +327,9 @@ class EditorState(
         tracksJob = scope.launch {
             delay(if (tracks == null) 0 else 120)
             val spec = spec()
-            tracks = core.previewTracks(spec, composition, segments)
+            // Komposisi yang sama dengan render (ukuran sumber hanya untuk mode "fit").
+            val render = core.composition(spec, if (spec.frame.mode == "fit" && spec.frame.framesVideo()) sourceSize else null)
+            tracks = core.previewTracks(spec, render, segments)
         }
     }
 
@@ -306,6 +379,10 @@ class EditorState(
                 coverTitle = clip.coverTitle,
                 coverInVideo = clip.coverInVideo,
                 coverLayout = clip.coverLayout,
+                cropPosition = clip.cropPosition,
+                cropZoom = clip.cropZoom,
+                cropY = clip.cropY,
+                speakerManual = decodeSpeakerTrack(clip.speakerTrack)?.manual.orEmpty(),
             )
             return EditorState(
                 repo, renderer, scope, clip, project, captionStyles, frameStyles, renderer.segments(project.id), source,

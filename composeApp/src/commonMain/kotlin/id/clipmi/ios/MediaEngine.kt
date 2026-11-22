@@ -47,6 +47,28 @@ interface MediaEngine {
      */
     fun pickImage(output: String, listener: PickListener)
 
+    /**
+     * Wajah di gambar [imagePath] (Apple Vision, padanan FaceModels Android): JSON array `[{"cx", "w", "open"}]`,
+     * `cx`/`w` = tengah dan lebar kotak wajah sebagai pecahan lebar gambar, `open` = jarak bibir dalam atas–bawah dibagi
+     * lebar mulut (bisa tidak ada). Sinkron.
+     */
+    fun detectFaces(imagePath: String): String
+
+    /**
+     * Gambar [imagePath] sebagai byte abu-abu (1 byte per piksel, baris atas dulu) di [output]; hasil `"lebar×tinggi"`
+     * seperti `"1600x432"`, atau null bila gagal. Sinkron.
+     */
+    fun grayPixels(imagePath: String, output: String): String?
+
+    /** Lembar bagikan iOS untuk file [path] (simpan ke Files, Google Drive, AirDrop, dan seterusnya). */
+    fun shareFile(path: String)
+
+    /**
+     * Memilih satu file ZIP dari aplikasi Files (disalin) ke [output]. [listener] dipanggil di main thread: path =
+     * [output], atau null bila batal/gagal.
+     */
+    fun pickFile(output: String, listener: PickListener)
+
     // libass untuk pratinjau (ass_core.c, sama dengan Android). Handle 0 = gagal.
 
     /** Renderer libass seukuran [width]×[height] dengan font bawaan. */

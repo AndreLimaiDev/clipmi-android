@@ -73,7 +73,12 @@ fun App(repo: Repository, engine: MediaEngine) {
     val renders = remember { Renders(IosRenderer(repo, engine), scope) }
     var opened by remember { mutableStateOf<Long?>(null) }
     var editing by remember { mutableStateOf<Long?>(null) }
-    LaunchedEffect(Unit) { repo.recoverInterrupted() }
+    var backingUp by remember { mutableStateOf(false) }
+    var restored by remember { mutableStateOf<String?>(null) }
+    LaunchedEffect(Unit) {
+        restored = finishRestore(repo)
+        repo.recoverInterrupted()
+    }
 
     MaterialTheme(colorScheme = scheme) {
         Box(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background).safeDrawingPadding()) {
@@ -81,7 +86,10 @@ fun App(repo: Repository, engine: MediaEngine) {
             val clip = editing
             when {
                 clip != null -> ClipEditorScreen(repo, renders, clip, onBack = { editing = null })
-                project == null -> ProjectListScreen(repo, downloads, onOpen = { opened = it })
+                backingUp -> BackupScreen(repo, engine, onBack = { backingUp = false })
+                project == null -> ProjectListScreen(
+                    repo, downloads, restored, onOpen = { opened = it }, onBackup = { backingUp = true }, onDismissRestored = { restored = null },
+                )
                 else -> ProjectScreen(repo, downloads, renders, project, onBack = { opened = null }, onEdit = { editing = it })
             }
         }
@@ -89,7 +97,9 @@ fun App(repo: Repository, engine: MediaEngine) {
 }
 
 @Composable
-private fun ProjectListScreen(repo: Repository, downloads: Downloads, onOpen: (Long) -> Unit) {
+private fun ProjectListScreen(
+    repo: Repository, downloads: Downloads, restored: String?, onOpen: (Long) -> Unit, onBackup: () -> Unit, onDismissRestored: () -> Unit,
+) {
     val projects by remember { repo.db.projects().observeAll() }.collectAsState(emptyList())
     var link by remember { mutableStateOf("") }
     var linkError by remember { mutableStateOf<String?>(null) }
@@ -116,9 +126,24 @@ private fun ProjectListScreen(repo: Repository, downloads: Downloads, onOpen: (L
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         item {
-            Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                Text("ClipMI", color = c.primary, fontWeight = FontWeight.Bold, fontSize = 13.sp)
-                Text("Project", fontWeight = FontWeight.ExtraBold, fontSize = 30.sp, color = c.onBackground)
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                    Text("ClipMI", color = c.primary, fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                    Text("Project", fontWeight = FontWeight.ExtraBold, fontSize = 30.sp, color = c.onBackground)
+                }
+                Text(
+                    "Cadangan", color = c.primary, fontWeight = FontWeight.SemiBold, fontSize = 14.sp,
+                    modifier = Modifier.clip(RoundedCornerShape(12.dp)).background(c.primary.copy(alpha = 0.12f))
+                        .clickable(onClick = onBackup).padding(horizontal = 14.dp, vertical = 10.dp),
+                )
+            }
+        }
+        if (restored != null) {
+            item {
+                Card(Modifier.clickable(onClick = onDismissRestored)) {
+                    Text(restored, color = c.primary, fontWeight = FontWeight.SemiBold)
+                    Text("Ketuk untuk menutup.", fontSize = 12.sp, color = c.muted)
+                }
             }
         }
         item {

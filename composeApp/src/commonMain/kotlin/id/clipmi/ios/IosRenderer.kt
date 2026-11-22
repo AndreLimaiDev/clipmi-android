@@ -95,6 +95,9 @@ class IosRenderer(private val repo: Repository, val engine: MediaEngine) {
     private val ffmpegLock = Mutex()
     val fontsDir get() = engine.fontsDirectory()
 
+    /** Jalur "ikuti pembicara" (Apple Vision). */
+    val speakers = IosSpeakers(repo, this)
+
     /** Gaya klip, bawaan, atau yang pertama (sama dengan editor Android). */
     fun captionFor(id: Long?, styles: List<CaptionStyleEntity>): CaptionStyle =
         (id?.let { i -> styles.firstOrNull { it.id == i } } ?: styles.firstOrNull { it.isDefault } ?: styles.firstOrNull())?.toCore() ?: CaptionStyle.DEFAULT
@@ -125,6 +128,7 @@ class IosRenderer(private val repo: Repository, val engine: MediaEngine) {
         projectCropPosition = projectCrop,
         style = caption,
         frame = frame,
+        speakerKeyframes = clip.speakerKeyframes(),
     )
 
     suspend fun spec(clip: ClipEntity, projectCrop: Int): ClipSpec =
@@ -153,10 +157,14 @@ class IosRenderer(private val repo: Repository, val engine: MediaEngine) {
      * @param onProgress 0..1.
      */
     suspend fun render(clipId: Long, onProgress: (Double) -> Unit) {
-        val clip = db.clips().find(clipId) ?: throw RenderException("Klip tidak ditemukan.")
+        val stored = db.clips().find(clipId) ?: throw RenderException("Klip tidak ditemukan.")
         setStatus(clipId, RenderStatus.Rendering, progress = 0)
         try {
-            val (output, cover) = renderFile(clip, onProgress)
+            // Ikuti pembicara tanpa hasil deteksi untuk rentang ini: dideteksi dulu (30% pertama progres).
+            val frame = frameFor(stored.frameStyleId, db.styles().frameStyles())
+            val detect = speakers.needsDetection(stored, frame)
+            val clip = speakers.ensure(stored, frame) { onProgress(it * 0.3) }
+            val (output, cover) = renderFile(clip) { onProgress(if (detect) 0.3 + it * 0.7 else it) }
             val error = saveToPhotos(output, image = false)
             if (error != null) throw RenderException("Video selesai tetapi gagal disimpan ke Photos: $error")
             // Sampul ikut disimpan, siap dipakai sebagai cover saat mengunggah; gagal di sini tidak menggagalkan render.
@@ -450,7 +458,7 @@ class IosRenderer(private val repo: Repository, val engine: MediaEngine) {
      * Satu FFmpeg pada satu waktu. Bila coroutine dibatalkan, FFmpeg dihentikan lalu tetap ditunggu sampai selesai
      * sebelum giliran berikutnya (keadaan global FFmpeg tidak boleh dipakai dua pemanggilan sekaligus).
      */
-    private suspend fun runFfmpeg(args: List<String>, directory: String, duration: Double, onProgress: (Double) -> Unit): Pair<Int, String> =
+    internal suspend fun runFfmpeg(args: List<String>, directory: String, duration: Double, onProgress: (Double) -> Unit): Pair<Int, String> =
         ffmpegLock.withLock {
             withContext(Dispatchers.Main) {
                 val done = CompletableDeferred<Pair<Int, String>>()

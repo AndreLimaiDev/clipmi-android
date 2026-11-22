@@ -9,6 +9,8 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.gestures.calculatePan
+import androidx.compose.foundation.gestures.calculateZoom
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -67,6 +69,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.toComposeImageBitmap
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.input.pointer.positionChanged
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
@@ -92,6 +95,7 @@ import id.clipmi.core.render.EditorWord
 import id.clipmi.core.render.HookLayout
 import id.clipmi.core.render.Pause
 import id.clipmi.core.render.Range
+import id.clipmi.core.render.SpeakerTrack
 import id.clipmi.core.transcript.Timecode
 import kotlinx.cinterop.ExperimentalForeignApi
 import kotlinx.cinterop.addressOf
@@ -131,7 +135,7 @@ import org.jetbrains.skia.Image as SkiaImage
 private val Danger = Color(0xFFE5484D)
 private val Warn = Color(0xFFF5A524)
 
-private val TABS = listOf("Potong", "Hook", "Gaya", "Sampul")
+private val TABS = listOf("Potong", "Crop", "Hook", "Gaya", "Sampul")
 
 @Composable
 actual fun ClipEditorScreen(repo: Repository, renders: Renders, clipId: Long, onBack: () -> Unit) {
@@ -314,7 +318,7 @@ private fun EditorContent(state: EditorState, renders: Renders, onBack: () -> Un
                 val ratio = composition.canvas.width.toFloat() / composition.canvas.height
                 val height = min(maxWidth.value / ratio, 330f)
                 Box(Modifier.height(height.dp).aspectRatio(ratio).clip(RoundedCornerShape(12.dp))) {
-                    Preview(state, composition, preview, hookMode = tab == 1)
+                    Preview(state, composition, preview, mode = when (tab) { 1 -> PreviewMode.Crop; 2 -> PreviewMode.Hook; else -> PreviewMode.None })
                 }
             }
             val length = spec.outputDuration().coerceAtLeast(0.1)
@@ -351,8 +355,9 @@ private fun EditorContent(state: EditorState, renders: Renders, onBack: () -> Un
         Box(Modifier.weight(1f).fillMaxWidth()) {
             when (tab) {
                 0 -> TrimTab(state, position, preview.playing, seek, notify)
-                1 -> HookTab(state, pending)
-                2 -> StyleTab(state)
+                1 -> CropTab(state, position, seek)
+                2 -> HookTab(state, pending)
+                3 -> StyleTab(state)
                 else -> CoverTab(state, position, pending, notify)
             }
         }
@@ -1001,45 +1006,113 @@ private fun CoverTitleSection(state: EditorState, pending: PendingText) {
 // Pratinjau
 // ---------------------------------------------------------------------------------------------------------------
 
+private enum class PreviewMode { None, Crop, Hook }
+
 /**
- * Pratinjau sebesar layar hasil: latar, video sesuai [Composition], lalu subtitle dan hook dari libass. Di tab Hook,
- * hook selalu terlihat (saat video berhenti) dan bisa diseret ke posisi baru (titik tengahnya, persen layar).
+ * Pratinjau sebesar layar hasil: latar, video sesuai [Composition], lalu subtitle dan hook dari libass. Di tab Crop,
+ * geser dan cubit mengatur posisi dan zoom video; di tab Hook, hook selalu terlihat (saat video berhenti) dan bisa
+ * diseret ke posisi baru (titik tengahnya, persen layar).
  */
 @Composable
-private fun Preview(state: EditorState, composition: Composition, preview: PreviewPlayer, hookMode: Boolean) {
-    val layout = if (hookMode) state.hookLayout() else null
-    val lead = if (hookMode) state.spec().leadSeconds() else 0.0
+private fun Preview(state: EditorState, composition: Composition, preview: PreviewPlayer, mode: PreviewMode) {
+    val layout = if (mode == PreviewMode.Hook) state.hookLayout() else null
+    val lead = if (mode == PreviewMode.Hook) state.spec().leadSeconds() else 0.0
     val hookTime = if (layout != null && !preview.playing) layout.start + lead + minOf(0.6, (layout.end - layout.start) / 2) else null
-    BoxWithConstraints(
-        Modifier.fillMaxSize().then(
-            if (hookMode) Modifier.pointerInput(Unit) {
-                fun move(at: Offset) {
-                    val x = (at.x / size.width * 100).roundToInt().coerceIn(0, 100)
-                    val y = (at.y / size.height * 100).roundToInt().coerceIn(0, 100)
-                    state.drag { it.copy(hookLayout = HookLayout.merge(it.hookLayout, JsonObject(mapOf("x" to JsonPrimitive(x), "y" to JsonPrimitive(y))))) }
-                }
-                awaitEachGesture {
-                    val down = awaitFirstDown(requireUnconsumed = false)
-                    move(down.position)
-                    do {
-                        val event = awaitPointerEvent()
-                        val change = event.changes.firstOrNull { it.pressed }
-                        if (change != null) {
-                            move(change.position)
-                            change.consume()
-                        }
-                    } while (event.changes.any { it.pressed })
-                    state.endDrag()
-                }
-            } else Modifier,
-        ),
-    ) {
+    val gesture = when (mode) {
+        PreviewMode.Hook -> Modifier.pointerInput(mode) {
+            fun move(at: Offset) {
+                val x = (at.x / size.width * 100).roundToInt().coerceIn(0, 100)
+                val y = (at.y / size.height * 100).roundToInt().coerceIn(0, 100)
+                state.drag { it.copy(hookLayout = HookLayout.merge(it.hookLayout, JsonObject(mapOf("x" to JsonPrimitive(x), "y" to JsonPrimitive(y))))) }
+            }
+            awaitEachGesture {
+                val down = awaitFirstDown(requireUnconsumed = false)
+                move(down.position)
+                do {
+                    val event = awaitPointerEvent()
+                    val change = event.changes.firstOrNull { it.pressed }
+                    if (change != null) {
+                        move(change.position)
+                        change.consume()
+                    }
+                } while (event.changes.any { it.pressed })
+                state.endDrag()
+            }
+        }
+        PreviewMode.Crop -> Modifier.pointerInput(mode) {
+            awaitEachGesture {
+                awaitFirstDown(requireUnconsumed = false)
+                var pan = Offset.Zero
+                var zoom = 1f
+                do {
+                    val event = awaitPointerEvent()
+                    pan += event.calculatePan()
+                    zoom *= event.calculateZoom()
+                    if (event.changes.any { it.pressed }) {
+                        crop(state, pan.x / size.width, pan.y / size.height, zoom, overflow(state.composition, state.sourceSize), preview.seconds())
+                    }
+                    event.changes.forEach { if (it.positionChanged()) it.consume() }
+                } while (event.changes.any { it.pressed })
+                state.endDrag()
+            }
+        }
+        PreviewMode.None -> Modifier
+    }
+    BoxWithConstraints(Modifier.fillMaxSize().then(gesture)) {
         val density = LocalDensity.current
         val widthPx = with(density) { maxWidth.toPx() }
         val scale = widthPx / composition.canvas.width
         Background(state, composition)
-        VideoLayer(composition, state.sourceSize, scale, preview)
+        VideoLayer(composition, state.sourceSize, scale, preview, state.snapshot.clip.startTime)
         AssOverlay(state, composition, preview, hookTime)
+    }
+}
+
+/** Bagian video yang tidak muat di areanya, sebagai pecahan lebar/tinggi layar hasil (dasar geser crop). */
+private fun overflow(composition: Composition, sourceSize: Pair<Int, Int>?): Offset {
+    val (sw, sh) = sourceSize ?: return Offset.Zero
+    val rect = composition.video.rect ?: return Offset.Zero
+    val video = composition.video
+    val areaW = rect.width.toFloat()
+    val areaH = rect.height.toFloat()
+    val fit = if (video.fill == "cover") max(areaW / sw, areaH / sh) else min(areaW / sw, areaH / sh)
+    val shown = fit * video.zoom.toFloat()
+    return Offset(
+        max(0f, sw * shown - areaW) / composition.canvas.width,
+        max(0f, sh * shown - areaH) / composition.canvas.height,
+    )
+}
+
+/**
+ * Geser dan cubit di tab Crop (sama dengan Android): posisi 0–100 dan zoom 100–250%. Saat mengikuti pembicara, geser
+ * kiri–kanan mengatur posisi manual adegan yang sedang tampil (adegan lain tetap otomatis).
+ */
+private fun crop(state: EditorState, dx: Float, dy: Float, zoom: Float, overflow: Offset, position: Double) {
+    state.drag { _ ->
+        // Dihitung dari keadaan awal gerakan, jadi geser pelan pun terhitung (tidak hilang oleh pembulatan).
+        val base = state.gestureBase
+        val spec = state.spec(base)
+        val baseZoom = base.cropZoom ?: (spec.frame.zoomFactor() * 100).roundToInt()
+        fun move(start: Int, delta: Float, rest: Float) = (start - delta / rest * 100).roundToInt().coerceIn(0, 100)
+        val track = if (state.followsSpeaker(base)) state.speakerTrack(base) else null
+        val time = position - base.clip.startTime
+        val shot = track?.shotAt(time)
+        var manual = base.speakerManual
+        if (track != null && shot != null && dx != 0f && overflow.x > 0f) {
+            val composition = state.composition
+            val area = (composition.video.rect?.width ?: composition.canvas.width).toFloat() / composition.canvas.width
+            val videoWidth = overflow.x + area
+            val half = area / 2 / videoWidth
+            val start = shot.manual ?: track.keyframes.takeIf { it.isNotEmpty() }?.let { SpeakerTrack.positionAt(it, time) } ?: (spec.effectiveCropPosition() / 100.0)
+            val visible = start.coerceIn(half.toDouble(), 1.0 - half)
+            manual = track.withManual(shot, (visible - dx / videoWidth).coerceIn(half.toDouble(), 1.0 - half)).manual
+        }
+        base.copy(
+            cropPosition = if (shot == null && dx != 0f && overflow.x > 0f) move(spec.effectiveCropPosition(), dx, overflow.x) else base.cropPosition,
+            cropY = if (dy != 0f && overflow.y > 0f) move(spec.effectiveCropY(), dy, overflow.y) else base.cropY,
+            cropZoom = if (zoom != 1f) (baseZoom * zoom).roundToInt().coerceIn(ClipSpec.ZOOM_RANGE.first, ClipSpec.ZOOM_RANGE.last) else base.cropZoom,
+            speakerManual = manual,
+        )
     }
 }
 
@@ -1072,7 +1145,7 @@ private fun Background(state: EditorState, composition: Composition) {
  */
 @OptIn(ExperimentalForeignApi::class)
 @Composable
-private fun VideoLayer(composition: Composition, sourceSize: Pair<Int, Int>?, scale: Float, preview: PreviewPlayer) {
+private fun VideoLayer(composition: Composition, sourceSize: Pair<Int, Int>?, scale: Float, preview: PreviewPlayer, clipStart: Double) {
     val (sw, sh) = sourceSize ?: return
     val video = composition.video
     val rect = video.rect ?: return
@@ -1086,11 +1159,30 @@ private fun VideoLayer(composition: Composition, sourceSize: Pair<Int, Int>?, sc
     val dh = sh * shown
     val overflowX = max(0f, dw - areaW)
     val overflowY = max(0f, dh - areaH)
-    val left = if (dw > areaW) -overflowX * video.cropX / 100f else (areaW - dw) / 2
+    val fixedLeft = if (dw > areaW) -overflowX * video.cropX / 100f else (areaW - dw) / 2
     val top = if (dh > areaH) -overflowY * video.cropY / 100f else (areaH - dh) / 2
+    // Ikuti pembicara: tengah crop mengikuti jalur pada waktu video saat ini (seperti ekspresi x filter crop render).
+    val keyframes = video.keyframes
+    fun left(): Float =
+        if (keyframes != null && dw > areaW) -(dw * SpeakerTrack.positionAt(keyframes, preview.seconds() - clipStart).toFloat() - areaW / 2).coerceIn(0f, overflowX)
+        else fixedLeft
     // Satuan UIKit = dp Compose (titik layar).
     val toPoints = { px: Float -> (px * scale / density.density).toDouble() }
     val layer = remember(preview) { AVPlayerLayer.playerLayerWithPlayer(preview.player).apply { videoGravity = AVLayerVideoGravityResize } }
+    fun place() {
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        layer.frame = CGRectMake(toPoints(left()), toPoints(top), toPoints(dw), toPoints(dh))
+        CATransaction.commit()
+    }
+    if (keyframes != null) {
+        LaunchedEffect(keyframes, clipStart, dw, dh, top) {
+            while (true) {
+                withFrameNanos { }
+                place()
+            }
+        }
+    }
 
     Box(
         Modifier
@@ -1109,11 +1201,8 @@ private fun VideoLayer(composition: Composition, sourceSize: Pair<Int, Int>?, sc
             },
             modifier = Modifier.requiredSize(with(density) { (areaW * scale).toDp() }, with(density) { (areaH * scale).toDp() }),
             update = { view ->
-                CATransaction.begin()
-                CATransaction.setDisableActions(true)
                 view.layer.cornerRadius = toPoints(video.radius.toFloat())
-                layer.frame = CGRectMake(toPoints(left), toPoints(top), toPoints(dw), toPoints(dh))
-                CATransaction.commit()
+                place()
             },
             properties = UIKitInteropProperties(isInteractive = false, isNativeAccessibilityEnabled = false),
         )
@@ -1173,4 +1262,144 @@ private fun AssOverlay(state: EditorState, composition: Composition, preview: Pr
             image?.let { drawImage(it, dstSize = IntSize(size.width.roundToInt(), size.height.roundToInt())) }
         }
     }
+}
+
+// ---------------------------------------------------------------------------------------------------------------
+// Tab Crop
+// ---------------------------------------------------------------------------------------------------------------
+
+/**
+ * Crop dan zoom (padanan CropPanel Android): ikuti pembicara (Apple Vision) atau posisi tetap, posisi atas–bawah, dan
+ * zoom. Geser dan cubit video di pratinjau juga mengaturnya.
+ */
+@Composable
+private fun CropTab(state: EditorState, position: Double, seek: (Double) -> Unit) {
+    val c = MaterialTheme.colorScheme
+    val spec = state.spec()
+    val frame = spec.frame
+    val zoom = state.snapshot.cropZoom ?: (frame.zoomFactor() * 100).roundToInt()
+    val follow = state.followsSpeaker()
+    val needs = state.needsSpeakerDetection()
+
+    // Ikuti pembicara tanpa hasil deteksi untuk rentang ini: dideteksi otomatis begitu tab Crop dibuka.
+    LaunchedEffect(follow, needs) {
+        if (follow && needs && state.speakerProgress == null && state.speakerError == null) state.detectSpeaker()
+    }
+
+    LazyColumn(
+        Modifier.fillMaxSize(),
+        contentPadding = PaddingValues(horizontal = 20.dp, vertical = 8.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
+        item {
+            Section("Crop & zoom", frame.name) {
+                Text("Geser atau cubit video di pratinjau.", fontSize = 12.sp, color = c.onSurface.copy(alpha = 0.55f))
+                if (!frame.usesCropPosition() && zoom <= 100) {
+                    Text("Video utuh: posisi crop berlaku saat di-zoom.", fontSize = 12.sp, color = c.onSurface.copy(alpha = 0.55f))
+                }
+                if (frame.usesCropPosition()) {
+                    ToggleRow("Ikuti pembicara", "Crop mengikuti wajah yang sedang berbicara.", follow) { on ->
+                        if (on) state.apply { it.copy(cropPosition = null) }
+                        else state.apply { it.copy(cropPosition = fixedPosition(state, position)) }
+                    }
+                }
+                if (follow) {
+                    SpeakerSection(state, position, seek)
+                } else {
+                    LabeledSlider("Posisi kiri–kanan", "${spec.effectiveCropPosition()}", spec.effectiveCropPosition().toFloat(), 0f..100f, onChange = { v ->
+                        state.drag { it.copy(cropPosition = v.roundToInt()) }
+                    }, onDone = { state.endDrag() })
+                }
+                LabeledSlider("Posisi atas–bawah", "${spec.effectiveCropY()}", spec.effectiveCropY().toFloat(), 0f..100f, onChange = { v ->
+                    state.drag { it.copy(cropY = v.roundToInt()) }
+                }, onDone = { state.endDrag() })
+                LabeledSlider("Zoom", "$zoom%", zoom.toFloat(), ClipSpec.ZOOM_RANGE.first.toFloat()..ClipSpec.ZOOM_RANGE.last.toFloat(), onChange = { v ->
+                    state.drag { it.copy(cropZoom = v.roundToInt()) }
+                }, onDone = { state.endDrag() })
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Action("Tengahkan", modifier = Modifier.weight(1f)) { state.apply { it.copy(cropPosition = 50, cropY = 50) } }
+                    Action("Kembali ke bawaan", modifier = Modifier.weight(1f)) {
+                        state.apply { it.copy(cropPosition = null, cropY = null, cropZoom = null, speakerManual = emptyList()) }
+                    }
+                }
+            }
+        }
+        item { Box(Modifier.height(8.dp)) }
+    }
+}
+
+/** Status deteksi pembicara, daftar adegan, dan posisi manual adegan yang sedang tampil. */
+@Composable
+private fun SpeakerSection(state: EditorState, position: Double, seek: (Double) -> Unit) {
+    val c = MaterialTheme.colorScheme
+    val progress = state.speakerProgress
+    val error = state.speakerError
+    val track = state.speakerTrack()
+    val clip = state.snapshot.clip
+    when {
+        progress != null -> Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            Text("Mendeteksi pembicara… ${(progress * 100).roundToInt()}%", fontSize = 13.sp, color = c.onSurface.copy(alpha = 0.7f))
+            LinearProgressIndicator(progress = { progress }, modifier = Modifier.fillMaxWidth().height(4.dp), color = c.primary)
+        }
+        error != null -> Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text("Deteksi pembicara gagal: $error", fontSize = 13.sp, color = Danger)
+            Action("Coba lagi") { state.detectSpeaker() }
+        }
+        track == null -> Action("Deteksi pembicara") { state.detectSpeaker() }
+    }
+    if (track == null || progress != null) return
+
+    val shots = track.shots()
+    val current = track.shotAt(position - clip.startTime)
+    val detected = track.analysis?.samples?.any { it != null } == true
+    if (!detected && track.manual.isEmpty()) {
+        Text("Pembicara tidak terdeteksi; crop memakai posisi project.", fontSize = 12.sp, color = c.onSurface.copy(alpha = 0.55f))
+    }
+    if (shots.size > 1) {
+        val cuts = state.spec().cutRanges()
+        Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            for (shot in shots) {
+                val active = shot.index == current?.index
+                Row(
+                    Modifier
+                        .clip(RoundedCornerShape(12.dp))
+                        .background(if (active) c.primary.copy(alpha = 0.16f) else c.onSurface.copy(alpha = 0.06f))
+                        .border(1.dp, if (active) c.primary else Color.Transparent, RoundedCornerShape(12.dp))
+                        .clickable { seek(clip.startTime + shot.from + minOf(0.05, (shot.to - shot.from) / 2)) }
+                        .padding(horizontal = 12.dp, vertical = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                ) {
+                    Text("${shot.index + 1}", fontWeight = FontWeight.ExtraBold, color = if (active) c.primary else c.onSurface)
+                    Text(Timecode.format(ClipCuts.map(cuts, clip.startTime, clip.startTime + shot.from)), fontSize = 12.sp, color = c.onSurface.copy(alpha = 0.55f))
+                    // Posisi diatur manual: titik kecil.
+                    if (shot.manual != null) Box(Modifier.size(6.dp).clip(RoundedCornerShape(3.dp)).background(Warn))
+                }
+            }
+        }
+        Text("Geser video di pratinjau untuk mengatur posisi adegan yang sedang tampil.", fontSize = 12.sp, color = c.onSurface.copy(alpha = 0.55f))
+    }
+    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        Action("Otomatis lagi", enabled = current?.manual != null, modifier = Modifier.weight(1f)) {
+            current?.let { shot -> state.apply { it.copy(speakerManual = track.withManual(shot, null).manual) } }
+        }
+        Action("Deteksi ulang", modifier = Modifier.weight(1f)) { state.detectSpeaker() }
+    }
+}
+
+/**
+ * Posisi crop tetap (0–100) yang menampilkan bagian video yang sama dengan jalur pembicara saat ini, supaya mematikan
+ * "Ikuti pembicara" tidak membuat crop meloncat.
+ */
+private fun fixedPosition(state: EditorState, position: Double): Int {
+    val spec = state.spec()
+    val keyframes = spec.speakerKeyframes ?: return spec.effectiveCropPosition()
+    val center = SpeakerTrack.positionAt(keyframes, position - state.snapshot.clip.startTime)
+    val (sw, sh) = state.sourceSize ?: return (center * 100).roundToInt().coerceIn(0, 100)
+    val composition = state.composition
+    val rect = composition.video.rect ?: return (center * 100).roundToInt().coerceIn(0, 100)
+    val shown = maxOf(rect.width.toDouble() / sw, rect.height.toDouble() / sh) * composition.video.zoom
+    val dw = sw * shown
+    if (dw <= rect.width) return 50
+    return ((center * dw - rect.width / 2.0) / (dw - rect.width) * 100).roundToInt().coerceIn(0, 100)
 }

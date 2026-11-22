@@ -8,6 +8,8 @@ import platform.Foundation.NSData
 import platform.Foundation.NSDate
 import platform.Foundation.NSFileManager
 import platform.Foundation.NSFileSize
+import platform.Foundation.NSFileType
+import platform.Foundation.NSFileTypeRegular
 import platform.Foundation.NSNumber
 import platform.Foundation.NSString
 import platform.Foundation.NSUTF8StringEncoding
@@ -56,6 +58,13 @@ actual fun copyItem(from: String, to: String) {
     NSFileManager.defaultManager.removeItemAtPath(to, null)
     NSFileManager.defaultManager.copyItemAtPath(from, to, null)
 }
+
+/** Semua file biasa di bawah [path] (rekursif), sebagai path relatif dengan garis miring. */
+@OptIn(ExperimentalForeignApi::class)
+fun allFiles(path: String): List<String> =
+    NSFileManager.defaultManager.subpathsOfDirectoryAtPath(path, null)?.mapNotNull { it as? String }.orEmpty().filter { relative ->
+        NSFileManager.defaultManager.attributesOfItemAtPath("$path/$relative", null)?.get(NSFileType) == NSFileTypeRegular
+    }
 
 @OptIn(ExperimentalForeignApi::class)
 actual fun listDirectory(path: String): List<String> =

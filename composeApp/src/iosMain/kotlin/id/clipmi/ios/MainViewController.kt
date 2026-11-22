@@ -13,6 +13,8 @@ fun MainViewController(engine: MediaEngine, documents: String): UIViewController
     setUnhandledExceptionHook { error ->
         writeText("$documents/crash.txt", "ClipMI iOS crash ${nowMillis()}\n${error.stackTraceToString()}")
     }
+    // Pemulihan cadangan yang sudah disiapkan diterapkan sebelum database dibuka.
+    runCatching { IosBackup.applyPending(documents) }
     // Database Room yang sama dengan Android (modul shared), di Documents/clipmi.db.
     val repository = Repository(openDatabase(documents), documents)
     return ComposeUIViewController { App(repository, engine) }

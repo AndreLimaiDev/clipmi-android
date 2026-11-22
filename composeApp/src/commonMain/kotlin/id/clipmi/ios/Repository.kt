@@ -49,7 +49,7 @@ data class ReplyOutcome(val created: Int, val skipped: Int, val errors: List<Str
  * disalin ke chat AI, balasan JSON ditempel), seperti `Analysis` Android. Path file relatif terhadap Documents,
  * karena path Documents berubah setiap aplikasi dipasang ulang.
  */
-class Repository(val db: AppDatabase, private val documents: String) {
+class Repository(val db: AppDatabase, val documents: String) {
     private val json = Json { ignoreUnknownKeys = true }
     private val wordsSerializer = ListSerializer(Word.serializer())
     private val strings = ListSerializer(String.serializer())

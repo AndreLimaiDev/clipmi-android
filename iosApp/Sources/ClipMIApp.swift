@@ -4,6 +4,8 @@ import PhotosUI
 import ComposeApp
 import SwiftUI
 import UIKit
+import UniformTypeIdentifiers
+import Vision
 
 @main
 struct ClipMIApp: App {
@@ -196,6 +198,75 @@ final class IOSMediaEngine: NSObject, MediaEngine {
         top.present(controller, animated: true)
     }
 
+    // MARK: Pembicara (Vision)
+
+    func detectFaces(imagePath: String) -> String {
+        guard let image = UIImage(contentsOfFile: imagePath)?.cgImage else { return "[]" }
+        let request = VNDetectFaceLandmarksRequest()
+        let handler = VNImageRequestHandler(cgImage: image, options: [:])
+        do { try handler.perform([request]) } catch { return "[]" }
+        let size = CGSize(width: image.width, height: image.height)
+        var faces: [[String: Any]] = []
+        for face in request.results ?? [] {
+            let box = face.boundingBox
+            var item: [String: Any] = ["cx": Double(box.midX), "w": Double(box.width)]
+            if let inner = face.landmarks?.innerLips?.pointsInImage(imageSize: size),
+               let outer = face.landmarks?.outerLips?.pointsInImage(imageSize: size),
+               let left = outer.map({ $0.x }).min(), let right = outer.map({ $0.x }).max(),
+               let low = inner.map({ $0.y }).min(), let high = inner.map({ $0.y }).max(),
+               right - left > 1 {
+                item["open"] = Double((high - low) / (right - left))
+            }
+            faces.append(item)
+        }
+        guard let data = try? JSONSerialization.data(withJSONObject: faces),
+              let text = String(data: data, encoding: .utf8) else { return "[]" }
+        return text
+    }
+
+    func grayPixels(imagePath: String, output: String) -> String? {
+        guard let image = UIImage(contentsOfFile: imagePath)?.cgImage else { return nil }
+        let width = image.width
+        let height = image.height
+        var bytes = [UInt8](repeating: 0, count: width * height)
+        let drawn: Bool = bytes.withUnsafeMutableBytes { buffer in
+            guard let context = CGContext(
+                data: buffer.baseAddress, width: width, height: height, bitsPerComponent: 8, bytesPerRow: width,
+                space: CGColorSpaceCreateDeviceGray(), bitmapInfo: CGImageAlphaInfo.none.rawValue
+            ) else { return false }
+            context.draw(image, in: CGRect(x: 0, y: 0, width: width, height: height))
+            return true
+        }
+        guard drawn, (try? Data(bytes).write(to: URL(fileURLWithPath: output))) != nil else { return nil }
+        return "\(width)x\(height)"
+    }
+
+    // MARK: File
+
+    func shareFile(path: String) {
+        guard let top = Self.topController() else { return }
+        let controller = UIActivityViewController(activityItems: [URL(fileURLWithPath: path)], applicationActivities: nil)
+        controller.popoverPresentationController?.sourceView = top.view
+        top.present(controller, animated: true)
+    }
+
+    private var documentPicker: FilePicker?
+
+    func pickFile(output: String, listener: PickListener) {
+        guard let top = Self.topController() else {
+            listener.finished(path: nil)
+            return
+        }
+        let controller = UIDocumentPickerViewController(forOpeningContentTypes: [.zip], asCopy: true)
+        let delegate = FilePicker(output: output) { [weak self] path in
+            self?.documentPicker = nil
+            listener.finished(path: path)
+        }
+        documentPicker = delegate
+        controller.delegate = delegate
+        top.present(controller, animated: true)
+    }
+
     static func topController() -> UIViewController? {
         let scenes = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }
         let windows = scenes.flatMap { $0.windows }
@@ -280,6 +351,33 @@ final class IOSMediaEngine: NSObject, MediaEngine {
         guard let data = try? JSONSerialization.data(withJSONObject: object),
               let text = String(data: data, encoding: .utf8) else { return "{\"ok\": false, \"error\": \"JSON\"}" }
         return text
+    }
+}
+
+/// Satu file dari aplikasi Files (salinan sementara dari sistem), dipindah ke tujuan.
+final class FilePicker: NSObject, UIDocumentPickerDelegate {
+    private let output: String
+    private let done: (String?) -> Void
+
+    init(output: String, done: @escaping (String?) -> Void) {
+        self.output = output
+        self.done = done
+    }
+
+    func documentPicker(_ controller: UIDocumentPickerViewController, didPickDocumentsAt urls: [URL]) {
+        guard let url = urls.first else {
+            done(nil)
+            return
+        }
+        let target = URL(fileURLWithPath: output)
+        try? FileManager.default.removeItem(at: target)
+        let ok = (try? FileManager.default.moveItem(at: url, to: target)) != nil
+            || (try? FileManager.default.copyItem(at: url, to: target)) != nil
+        done(ok ? output : nil)
+    }
+
+    func documentPickerWasCancelled(_ controller: UIDocumentPickerViewController) {
+        done(nil)
     }
 }
 
