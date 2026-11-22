@@ -168,7 +168,7 @@ class IosTeamPacks(
     /** Memilih dan membaca paket; null bila batal. @throws TeamPackException */
     suspend fun pickAndRead(): ParsedPack? {
         createDirectory(repo.absolute("tmp"))
-        val path = suspendCancellableCoroutine { cont ->
+        val path = suspendCancellableCoroutine<String?> { cont ->
             engine.pickTeamPack(repo.absolute("tmp/team-pack.json"), object : PickListener {
                 override fun finished(path: String?) {
                     if (cont.isActive) cont.resume(path)

@@ -40,6 +40,7 @@ import id.clipmi.core.render.Fonts
 import id.clipmi.core.render.FrameStyle
 import kotlinx.cinterop.ExperimentalForeignApi
 import kotlinx.cinterop.addressOf
+import kotlinx.cinterop.toLong
 import kotlinx.cinterop.usePinned
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
@@ -50,7 +51,6 @@ import org.jetbrains.skia.EncodedImageFormat
 import org.jetbrains.skia.ImageInfo
 import org.jetbrains.skia.Paint
 import org.jetbrains.skia.Rect
-import org.jetbrains.skia.Shader
 import org.jetbrains.skia.Surface
 import platform.Foundation.NSData
 import platform.Foundation.create
@@ -93,7 +93,9 @@ private fun drawSample(path: String): String? {
     return runCatching {
         val surface = Surface.makeRasterN32Premul(1280, 720)
         val canvas = surface.canvas
-        canvas.drawRect(Rect.makeWH(1280f, 720f), Paint().apply { shader = Shader.makeLinearGradient(0f, 0f, 1280f, 720f, intArrayOf(0xFF1F3B57.toInt(), 0xFF0E7C66.toInt())) })
+        // Dua warna bertumpuk (pengganti gradasi): cukup untuk melihat crop dan blur.
+        canvas.drawRect(Rect.makeWH(1280f, 720f), Paint().apply { color = 0xFF1F3B57.toInt() })
+        canvas.drawRect(Rect.makeXYWH(0f, 360f, 1280f, 360f), Paint().apply { color = 0xFF0E7C66.toInt() })
         canvas.drawCircle(640f, 300f, 110f, Paint().apply { color = 0xFFE7D8C9.toInt(); isAntiAlias = true })
         canvas.drawRRect(org.jetbrains.skia.RRect.makeLTRB(470f, 430f, 810f, 900f, 120f), Paint().apply { color = 0xFF2B2B2B.toInt(); isAntiAlias = true })
         val bytes = surface.makeImageSnapshot().encodeToData(EncodedImageFormat.JPEG, 90)?.bytes ?: return null

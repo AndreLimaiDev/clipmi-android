@@ -56,7 +56,7 @@ class IosUserFonts(private val repo: Repository, private val engine: MediaEngine
     /** Memilih font dari Files, membaca nama keluarganya, dan mendaftarkannya; null bila batal. */
     suspend fun pickAndAdd(): Entry? {
         createDirectory(repo.absolute("tmp"))
-        val picked = suspendCancellableCoroutine { cont ->
+        val picked = suspendCancellableCoroutine<String?> { cont ->
             engine.pickFont(repo.absolute("tmp/font-pick.bin"), object : PickListener {
                 override fun finished(path: String?) {
                     if (cont.isActive) cont.resume(path)

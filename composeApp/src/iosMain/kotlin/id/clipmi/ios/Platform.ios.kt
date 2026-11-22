@@ -33,12 +33,12 @@ actual fun readBytes(path: String): ByteArray? {
 }
 
 @OptIn(ExperimentalForeignApi::class, BetaInteropApi::class)
-@OptIn(ExperimentalForeignApi::class, BetaInteropApi::class)
 actual fun writeBytes(path: String, bytes: ByteArray) {
     val data = if (bytes.isEmpty()) NSData() else bytes.usePinned { NSData.create(bytes = it.addressOf(0), length = bytes.size.toULong()) }
     data.writeToFile(path, atomically = true)
 }
 
+@OptIn(ExperimentalForeignApi::class, BetaInteropApi::class)
 actual fun writeText(path: String, text: String) {
     NSString.create(string = text).writeToFile(path, atomically = true, encoding = NSUTF8StringEncoding, error = null)
 }
