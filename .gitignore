@@ -24,6 +24,6 @@ signing.properties
 native/out/
 
 # Fixture dari subtitle video asli (konten pihak lain): hanya lokal, tes melewatinya bila tidak ada
-core/src/test/resources/fixtures/transcript/input/real/
-core/src/test/resources/fixtures/transcript/expected/real/
+core/fixtures/transcript/input/real/
+core/fixtures/transcript/expected/real/
 dist/

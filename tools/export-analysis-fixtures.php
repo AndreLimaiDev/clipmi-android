@@ -9,7 +9,7 @@
  */
 
 $desktop = $argv[1] ?? 'D:/laragon/www/clip-mi';
-$out = __DIR__.'/../core/src/test/resources/fixtures/analysis';
+$out = __DIR__.'/../core/fixtures/analysis';
 
 require $desktop.'/vendor/autoload.php';
 $app = require $desktop.'/bootstrap/app.php';

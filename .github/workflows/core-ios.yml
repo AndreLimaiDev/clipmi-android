@@ -1,0 +1,52 @@
+# Tes core (padanan desktop) di JVM dan simulator iOS. Runner macOS memakan kuota menit 10x untuk repo privat,
+# jadi hanya jalan saat core berubah di branch ios-port, atau dipicu manual.
+name: core iOS
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ios-port]
+    paths:
+      - "core/**"
+      - "gradle/**"
+      - "settings.gradle.kts"
+      - "build.gradle.kts"
+      - ".github/workflows/core-ios.yml"
+
+jobs:
+  test:
+    runs-on: macos-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+
+      - uses: gradle/actions/setup-gradle@v4
+
+      - name: Cache Kotlin/Native
+        uses: actions/cache@v4
+        with:
+          path: ~/.konan
+          key: konan-${{ runner.os }}-${{ hashFiles('gradle/libs.versions.toml') }}
+
+      - name: Tes JVM dan simulator iOS
+        run: ./gradlew -Pclipmi.coreOnly :core:jvmTest :core:iosSimulatorArm64Test --stacktrace
+
+      - name: Ringkasan hasil
+        if: always()
+        run: |
+          for f in core/build/test-results/*/*.xml; do
+            grep -o 'testsuite name="[^"]*" tests="[0-9]*" skipped="[0-9]*" failures="[0-9]*" errors="[0-9]*"' "$f" || true
+          done
+
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: core-test-reports
+          path: |
+            core/build/reports/tests
+            core/build/test-results

@@ -7,14 +7,14 @@
  *
  *   "C:/Users/<user>/AppData/Local/Programs/clipmi/resources/build/php/php.exe" tools/export-transcript-fixtures.php
  *
- * Input: core/src/test/resources/fixtures/transcript/input (dan input/real, tidak di-commit).
+ * Input: core/fixtures/transcript/input (dan input/real, tidak di-commit).
  * Output: .../expected/<nama>.json berisi cues, segments, dan hasil kamus (corrections.json).
  * Juga round.json: 200.000 angka acak dan round(x, 3) dari PHP desktop.
  * Repo desktop hanya dibaca.
  */
 
 $desktop = $argv[1] ?? 'D:/laragon/www/clip-mi';
-$root = __DIR__.'/../core/src/test/resources/fixtures/transcript';
+$root = __DIR__.'/../core/fixtures/transcript';
 
 require $desktop.'/vendor/autoload.php';
 

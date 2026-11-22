@@ -10,7 +10,7 @@
  */
 
 $desktop = $argv[1] ?? 'D:/laragon/www/clip-mi';
-$out = __DIR__.'/../core/src/test/resources/fixtures/schedule';
+$out = __DIR__.'/../core/fixtures/schedule';
 $workspace = sys_get_temp_dir().DIRECTORY_SEPARATOR.'clipmi-schedule-fixtures';
 
 require $desktop.'/vendor/autoload.php';

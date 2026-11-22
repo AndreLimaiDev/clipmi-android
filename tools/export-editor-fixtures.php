@@ -9,7 +9,7 @@
  */
 
 $desktop = $argv[1] ?? 'D:/laragon/www/clip-mi';
-$out = __DIR__.'/../core/src/test/resources/fixtures/render';
+$out = __DIR__.'/../core/fixtures/render';
 $workspace = sys_get_temp_dir().DIRECTORY_SEPARATOR.'clipmi-editor-fixtures';
 
 require $desktop.'/vendor/autoload.php';
