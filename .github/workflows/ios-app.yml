@@ -63,8 +63,8 @@ jobs:
         working-directory: iosApp
         env:
           GH_TOKEN: ${{ github.token }}
-          NATIVE_TAG: v1
-          NATIVE_SHA256: 471c2452c836eec1bc9bcf6fce664a91791b6181ceb7b939a967d56f3d811f7b
+          NATIVE_TAG: v2
+          NATIVE_SHA256: 80b53b817970e35c8d4779c01a2434920b9f8cdc8d383fc204877bade136e18a
         run: |
           set -euo pipefail
           gh release download "$NATIVE_TAG" -R AndreLimaiDev/clipmi-ios-native -p 'ClipMIFFmpeg.xcframework.zip*' -D /tmp/native
