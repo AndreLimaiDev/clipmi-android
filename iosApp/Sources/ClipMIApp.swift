@@ -184,6 +184,7 @@ final class IOSMediaEngine: NSObject, MediaEngine {
     }
 
     private var picker: ImagePicker?
+    private var videoPicker: VideoPicker?
 
     func pickImage(output: String, listener: PickListener) {
         guard let top = Self.topController() else {
@@ -199,6 +200,26 @@ final class IOSMediaEngine: NSObject, MediaEngine {
             listener.finished(path: path)
         }
         picker = delegate
+        controller.delegate = delegate
+        top.present(controller, animated: true)
+    }
+
+    func pickVideo(output: String, listener: PickListener) {
+        guard let top = Self.topController() else {
+            listener.finished(path: nil)
+            return
+        }
+        var configuration = PHPickerConfiguration()
+        configuration.filter = .videos
+        configuration.selectionLimit = 1
+        // Photos mengonversi HEVC/HDR ke bentuk yang paling kompatibel (H.264) sebelum diserahkan.
+        configuration.preferredAssetRepresentationMode = .compatible
+        let controller = PHPickerViewController(configuration: configuration)
+        let delegate = VideoPicker(output: output) { [weak self] path in
+            self?.videoPicker = nil
+            listener.finished(path: path)
+        }
+        videoPicker = delegate
         controller.delegate = delegate
         top.present(controller, animated: true)
     }
@@ -300,6 +321,60 @@ final class IOSMediaEngine: NSObject, MediaEngine {
         }.resume()
     }
 
+    func uploadFile(url: String, headersJson: String, fieldsJson: String, filePath: String, fileField: String, mimeType: String, timeoutSeconds: Int32, listener: HttpListener) {
+        guard let target = URL(string: url) else {
+            listener.finished(status: 0, body: "", retryAfter: nil, error: "Alamat API tidak valid.")
+            return
+        }
+        DispatchQueue.global(qos: .userInitiated).async {
+            guard let file = FileManager.default.contents(atPath: filePath) else {
+                DispatchQueue.main.async { listener.finished(status: 0, body: "", retryAfter: nil, error: "File audio tidak bisa dibaca.") }
+                return
+            }
+            let boundary = "clipmi-" + UUID().uuidString
+            var body = Data()
+            func add(_ text: String) { body.append(text.data(using: .utf8)!) }
+            // Urutan bidang tetap: JSON array [[nama, nilai], ...].
+            if let data = fieldsJson.data(using: .utf8),
+               let fields = (try? JSONSerialization.jsonObject(with: data)) as? [[String]] {
+                for field in fields where field.count == 2 {
+                    add("--\(boundary)\r\nContent-Disposition: form-data; name=\"\(field[0])\"\r\n\r\n\(field[1])\r\n")
+                }
+            }
+            let name = (filePath as NSString).lastPathComponent
+            add("--\(boundary)\r\nContent-Disposition: form-data; name=\"\(fileField)\"; filename=\"\(name)\"\r\nContent-Type: \(mimeType)\r\n\r\n")
+            body.append(file)
+            add("\r\n--\(boundary)--\r\n")
+
+            var request = URLRequest(url: target, timeoutInterval: TimeInterval(timeoutSeconds))
+            request.httpMethod = "POST"
+            if let data = headersJson.data(using: .utf8),
+               let headers = (try? JSONSerialization.jsonObject(with: data)) as? [String: String] {
+                for (key, value) in headers { request.setValue(value, forHTTPHeaderField: key) }
+            }
+            request.setValue("multipart/form-data; boundary=\(boundary)", forHTTPHeaderField: "Content-Type")
+            let configuration = URLSessionConfiguration.ephemeral
+            configuration.timeoutIntervalForRequest = TimeInterval(timeoutSeconds)
+            configuration.timeoutIntervalForResource = TimeInterval(timeoutSeconds)
+            let session = URLSession(configuration: configuration)
+            session.uploadTask(with: request, from: body) { data, response, error in
+                let http = response as? HTTPURLResponse
+                let text = data.flatMap { String(data: $0, encoding: .utf8) } ?? ""
+                let retry = http?.value(forHTTPHeaderField: "retry-after")
+                var failure: String?
+                if let error = error as? URLError {
+                    failure = error.code == .timedOut ? "timeout" : error.localizedDescription
+                } else if let error = error {
+                    failure = error.localizedDescription
+                }
+                DispatchQueue.main.async {
+                    listener.finished(status: Int32(http?.statusCode ?? 0), body: text, retryAfter: retry, error: failure)
+                }
+                session.finishTasksAndInvalidate()
+            }.resume()
+        }
+    }
+
     // MARK: Keychain
 
     private static let keychainService = "id.clipmi.ios.secrets"
@@ -381,6 +456,17 @@ final class IOSMediaEngine: NSObject, MediaEngine {
     }
 
     private var documentPicker: FilePicker?
+    /// Pengingat yang diketuk sebelum Kotlin mendaftarkan pendengarnya (aplikasi dibuka dari notifikasi).
+    fileprivate var pendingReminder: String?
+    fileprivate var reminderListener: ResultListener?
+
+    func onReminderTapped(listener: ResultListener) {
+        reminderListener = listener
+        if let id = pendingReminder {
+            pendingReminder = nil
+            listener.finished(resultJson: id)
+        }
+    }
 
     func pickFile(output: String, listener: PickListener) {
         guard let top = Self.topController() else {
@@ -388,6 +474,22 @@ final class IOSMediaEngine: NSObject, MediaEngine {
             return
         }
         let controller = UIDocumentPickerViewController(forOpeningContentTypes: [.zip], asCopy: true)
+        let delegate = FilePicker(output: output) { [weak self] path in
+            self?.documentPicker = nil
+            listener.finished(path: path)
+        }
+        documentPicker = delegate
+        controller.delegate = delegate
+        top.present(controller, animated: true)
+    }
+
+    func pickSubtitle(output: String, listener: PickListener) {
+        guard let top = Self.topController() else {
+            listener.finished(path: nil)
+            return
+        }
+        let types = [UTType(filenameExtension: "srt"), UTType(filenameExtension: "vtt"), UTType.plainText].compactMap { $0 }
+        let controller = UIDocumentPickerViewController(forOpeningContentTypes: types, asCopy: true)
         let delegate = FilePicker(output: output) { [weak self] path in
             self?.documentPicker = nil
             listener.finished(path: path)
@@ -491,6 +593,25 @@ extension IOSMediaEngine: UNUserNotificationCenterDelegate {
     ) {
         completionHandler([.banner, .sound])
     }
+
+    /// Pengingat jadwal diketuk: id jadwalnya diteruskan ke Kotlin (halaman siap posting).
+    func userNotificationCenter(
+        _ center: UNUserNotificationCenter, didReceive response: UNNotificationResponse,
+        withCompletionHandler completionHandler: @escaping () -> Void
+    ) {
+        let identifier = response.notification.request.identifier
+        if identifier.hasPrefix(Self.reminderPrefix) {
+            let id = String(identifier.dropFirst(Self.reminderPrefix.count))
+            DispatchQueue.main.async {
+                if let listener = self.reminderListener {
+                    listener.finished(resultJson: id)
+                } else {
+                    self.pendingReminder = id
+                }
+            }
+        }
+        completionHandler()
+    }
 }
 
 /// Satu file dari aplikasi Files (salinan sementara dari sistem), dipindah ke tujuan.
@@ -517,6 +638,37 @@ final class FilePicker: NSObject, UIDocumentPickerDelegate {
 
     func documentPickerWasCancelled(_ controller: UIDocumentPickerViewController) {
         done(nil)
+    }
+}
+
+/// Satu video dari PHPicker (tanpa izin galeri), disalin ke tujuan sebelum salinan sementara sistem dihapus.
+final class VideoPicker: NSObject, PHPickerViewControllerDelegate {
+    private let output: String
+    private let done: (String?) -> Void
+
+    init(output: String, done: @escaping (String?) -> Void) {
+        self.output = output
+        self.done = done
+    }
+
+    func picker(_ picker: PHPickerViewController, didFinishPicking results: [PHPickerResult]) {
+        picker.dismiss(animated: true)
+        let type = UTType.movie.identifier
+        guard let provider = results.first?.itemProvider, provider.hasItemConformingToTypeIdentifier(type) else {
+            done(nil)
+            return
+        }
+        let output = self.output
+        let done = self.done
+        provider.loadFileRepresentation(forTypeIdentifier: type) { url, _ in
+            var path: String?
+            if let url = url {
+                let target = URL(fileURLWithPath: output)
+                try? FileManager.default.removeItem(at: target)
+                if (try? FileManager.default.copyItem(at: url, to: target)) != nil { path = output }
+            }
+            DispatchQueue.main.async { done(path) }
+        }
     }
 }
 

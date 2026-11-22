@@ -1,6 +1,7 @@
 package id.clipmi.ios
 
 import id.clipmi.android.data.CaptionStyleEntity
+import id.clipmi.android.data.BumperEntity
 import id.clipmi.android.data.ClipEntity
 import id.clipmi.android.data.FrameStyleEntity
 import id.clipmi.android.data.ProjectEntity
@@ -82,7 +83,7 @@ class IosFontMeasurer(private val engine: MediaEngine, private val fontsDir: Str
 /**
  * Render klip di iPhone, padanan `Renderer` Android: komposisi, filtergraph, dan subtitle ASS dari core (identik dengan
  * desktop dan Android), FFmpeg di dalam proses dengan VideoToolbox, lalu disimpan ke Photos. Sampul (frame atau gambar
- * galeri, judul) dan kartu pembuka hook didukung; intro/outro pustaka belum ada di iOS.
+ * galeri, judul), kartu pembuka hook, dan intro/outro dari pustaka didukung.
  *
  * FFmpeg di dalam proses memakai keadaan global, jadi semua pemanggilan (render, sampul, deteksi jeda) antre lewat
  * [ffmpegLock] dan selalu ditunggu sampai benar-benar selesai.
@@ -110,7 +111,9 @@ class IosRenderer(private val repo: Repository, val engine: MediaEngine) {
     fun encodeKeywords(list: List<String>): String? = list.takeIf { it.isNotEmpty() }?.let { json.encodeToString(strings, it) }
 
     /** Data klip untuk core render dengan gaya yang sudah dipilih (dipakai juga pratinjau editor). */
-    fun specFor(clip: ClipEntity, projectCrop: Int, caption: CaptionStyle, frame: FrameStyle): ClipSpec = ClipSpec(
+    fun specFor(
+        clip: ClipEntity, projectCrop: Int, caption: CaptionStyle, frame: FrameStyle, introSeconds: Double? = null, outroSeconds: Double? = null,
+    ): ClipSpec = ClipSpec(
         startTime = clip.startTime,
         endTime = clip.endTime,
         title = clip.title,
@@ -129,10 +132,18 @@ class IosRenderer(private val repo: Repository, val engine: MediaEngine) {
         style = caption,
         frame = frame,
         speakerKeyframes = clip.speakerKeyframes(),
+        introSeconds = introSeconds,
+        outroSeconds = outroSeconds,
     )
 
     suspend fun spec(clip: ClipEntity, projectCrop: Int): ClipSpec =
-        specFor(clip, projectCrop, captionFor(clip.captionStyleId, db.styles().captionStyles()), frameFor(clip.frameStyleId, db.styles().frameStyles()))
+        specFor(
+            clip, projectCrop, captionFor(clip.captionStyleId, db.styles().captionStyles()), frameFor(clip.frameStyleId, db.styles().frameStyles()),
+            bumper(clip.introId)?.duration, bumper(clip.outroId)?.duration,
+        )
+
+    /** Intro/outro yang ikut dirender: dipilih dan filenya ada (sama dengan Android). */
+    suspend fun bumper(id: Long?): BumperEntity? = id?.let { db.bumpers().find(it) }?.takeIf { exists(repo.absolute(it.path)) }
 
     suspend fun segments(projectId: Long): List<SegmentWords> = db.segments().forProject(projectId).map {
         SegmentWords(it.startTime, it.endTime, it.words?.let { w -> runCatching { json.decodeFromString(words, w) }.getOrNull() })
@@ -257,26 +268,41 @@ class IosRenderer(private val repo: Repository, val engine: MediaEngine) {
             copyItem(cover, "$workDir/cover.jpg")
             imageArgs += listOf("-i", "cover.jpg")
         }
+        // Intro/outro dari pustaka, atau kartu pembuka: disambung dengan klip; suaranya ikut dirangkai di filtergraph.
+        val bumpers = listOfNotNull(bumper(clip.introId)?.let { "intro" to it }, bumper(clip.outroId)?.let { "outro" to it })
         var total = length
         var audio: String? = null
         var joined = "joined"
-        if (leadKind == "opener") {
+        if (bumpers.isNotEmpty() || leadKind != null) {
             val fps = Php.numberFormat(minOf(60.0, info?.fps?.takeIf { it > 0 } ?: 30.0), 3)
-            val lead = spec.leadSeconds()
-            val parts = linkedMapOf(
-                "intro" to RenderGraph.BumperPart(
+            val parts = LinkedHashMap<String, RenderGraph.BumperPart>()
+            for ((kind, bumper) in bumpers) {
+                val file = repo.absolute(bumper.path)
+                val bumperInfo = probe(file)
+                val part = RenderGraph.BumperPart(next, bumperInfo?.hasAudio ?: false, bumperInfo?.duration?.takeIf { it > 0 } ?: bumper.duration)
+                parts[kind] = part
+                total += part.duration
+                imageArgs += listOf("-i", file)
+                next++
+                db.bumpers().touchUsed(bumper.id)
+            }
+            // Kartu pembuka: frame pertama klip dari video sumber (input tersendiri, hanya sekejap dibaca).
+            if (leadKind == "opener") {
+                val lead = spec.leadSeconds()
+                parts["intro"] = RenderGraph.BumperPart(
                     next, false, lead,
                     RenderGraph.opener(next, frame, spec.speakerKeyframes?.let { SpeakerTrack.positionAt(it, 0.0) }, spec.effectiveCropPosition(), fps, lead + RenderGraph.OPENER_FADE),
                     RenderGraph.OPENER_FADE,
-                ),
-            )
-            total += lead
-            imageArgs += listOf("-ss", RenderGraph.seconds(spec.startTime), "-t", "0.5", "-i", source)
-            next++
+                )
+                total += lead
+                imageArgs += listOf("-ss", RenderGraph.seconds(spec.startTime), "-t", "0.5", "-i", source)
+                next++
+            }
             filter = RenderGraph.joinBumpers(filter, frame, parts, fps, keep, info?.hasAudio ?: true, length, enhance)
             audio = "[a]"
+            // Hook di waktu video hasil: sejak awal isi klip, digeser sepanjang pembuka yang benar-benar disambung.
             if (hookAfterJoin) {
-                writeText("$workDir/hook.ass", core.hookTrack(spec, composition, hook!!, total, lead))
+                writeText("$workDir/hook.ass", core.hookTrack(spec, composition, hook!!, total, parts["intro"]?.duration ?: 0.0))
                 filter += ";[joined]ass=hook.ass:fontsdir=fonts[hooked]"
                 joined = "hooked"
             }

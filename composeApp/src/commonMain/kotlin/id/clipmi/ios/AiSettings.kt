@@ -218,3 +218,76 @@ fun ReadyMark(ready: Boolean) {
     if (ready) Icon(ClipMiIcons.CircleCheck, contentDescription = "Siap", tint = ClipMi.colors.accent, modifier = Modifier.size(24.dp))
     else Text("Belum", style = MaterialTheme.typography.labelMedium, color = ClipMi.colors.textMuted)
 }
+
+/** Transkripsi API untuk video tanpa subtitle Indonesia (padanan TranscriptionSettingsScreen Android). */
+@Composable
+fun TranscriptionSettingsScreen(settings: IosSettings, onBack: () -> Unit) {
+    val scope = rememberCoroutineScope()
+    val notifier = LocalNotifier.current
+    var provider by remember { mutableStateOf(TranscriptionProvider.Groq) }
+    var baseUrl by remember { mutableStateOf("") }
+    var model by remember { mutableStateOf("") }
+    var apiKey by remember { mutableStateOf("") }
+    var hasKey by remember { mutableStateOf(false) }
+    var auto by remember { mutableStateOf(false) }
+
+    LaunchedEffect(Unit) {
+        val (p, url, m) = settings.rawTranscription()
+        provider = p ?: TranscriptionProvider.Groq
+        baseUrl = url.orEmpty()
+        model = m.orEmpty()
+        hasKey = settings.hasTranscriptionKey(provider)
+        auto = settings.autoTranscribe()
+    }
+
+    Column(Modifier.fillMaxSize()) {
+        SubScreenHeader("Transkripsi API", onBack)
+        Column(
+            Modifier.weight(1f).verticalScroll(rememberScrollState()).imePadding().padding(start = ScreenGutter, end = ScreenGutter, top = 8.dp, bottom = 24.dp),
+            verticalArrangement = Arrangement.spacedBy(18.dp),
+        ) {
+            Text("Untuk video tanpa subtitle Indonesia · Groq paling murah", style = MaterialTheme.typography.bodyMedium, color = ClipMi.colors.textMuted)
+            OptionList("Penyedia", TranscriptionProvider.entries, provider, label = { it.label }, onSelect = {
+                provider = it
+                hasKey = settings.hasTranscriptionKey(it)
+            })
+            Field(baseUrl, { baseUrl = it }, label = "Alamat API", placeholder = provider.baseUrl ?: "https://…/v1", singleLine = true, supporting = "Kosong = alamat bawaan")
+            Field(model, { model = it }, label = "Model", placeholder = provider.defaultModel ?: "nama model Whisper", singleLine = true)
+            Field(
+                apiKey, { apiKey = it },
+                label = "API key",
+                placeholder = if (hasKey) "Tersimpan (isi untuk mengganti)" else provider.keyPlaceholder,
+                supporting = "Tersimpan di Keychain iPhone · tidak ikut cadangan",
+                singleLine = true,
+                visualTransformation = PasswordVisualTransformation(),
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
+            )
+            ClipMiCard(padding = PaddingValues(0.dp), spacing = 0.dp) {
+                SwitchRow("Transkripsi otomatis", "Setelah video tanpa subtitle selesai diunduh", auto, onCheckedChange = { auto = it })
+            }
+            Text(
+                "Transkripsi berjalan selama aplikasi terbuka. Bila terhenti, potongan 20 menit yang sudah selesai tidak dikirim ulang.",
+                style = MaterialTheme.typography.bodySmall, color = ClipMi.colors.textMuted,
+            )
+            if (hasKey) {
+                GhostButton("Hapus API key ${provider.label}", danger = true, modifier = Modifier.fillMaxWidth(), onClick = {
+                    settings.removeTranscriptionKey(provider)
+                    hasKey = false
+                    notifier.show("API key ${provider.label} dihapus dari iPhone ini.")
+                })
+            }
+        }
+        // Simpan tetap di bawah layar.
+        Box(Modifier.fillMaxWidth().navigationBarsPadding().padding(horizontal = ScreenGutter, vertical = 12.dp)) {
+            PrimaryButton("Simpan", modifier = Modifier.fillMaxWidth(), onClick = {
+                scope.launch {
+                    settings.saveTranscription(provider, baseUrl, model, apiKey)
+                    settings.setAutoTranscribe(auto)
+                    apiKey = ""
+                    hasKey = settings.hasTranscriptionKey(provider)
+                    notifier.show(if (settings.transcription() != null) "Tersimpan. Transkripsi API siap dipakai." else "Tersimpan, tetapi belum lengkap (alamat, model, atau API key).")
+                }
+            })
+        }
+    }
+}

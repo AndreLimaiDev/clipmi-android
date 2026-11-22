@@ -22,6 +22,7 @@ import org.junit.Assert.fail
 import org.junit.Test
 import java.io.File
 import java.time.LocalDateTime
+import kotlinx.datetime.toKotlinLocalDateTime
 import java.time.format.DateTimeFormatter
 
 /** Analisis Performa dikunci dengan keluaran kode desktop (tools/export-performance-fixtures.php). */
@@ -37,7 +38,7 @@ class PerformanceParityTest {
         accountId = o.getValue("account_id").jsonPrimitive.long,
         account = o.getValue("account").jsonPrimitive.content,
         platform = o.getValue("platform").jsonPrimitive.content,
-        publishedAt = LocalDateTime.parse(o.getValue("published_at").jsonPrimitive.content, seconds),
+        publishedAt = LocalDateTime.parse(o.getValue("published_at").jsonPrimitive.content, seconds).toKotlinLocalDateTime(),
         stats = o.getValue("stats").jsonArray.map { it.jsonObject }.map {
             StatPoint(LocalDateTime.parse(it.getValue("at").jsonPrimitive.content, seconds), StatNumbers(it["views"].lng(), it["likes"].lng(), it["comments"].lng(), it["shares"].lng()))
         },

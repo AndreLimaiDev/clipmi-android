@@ -96,3 +96,20 @@ actual fun dayMonth(millis: Long): String = NSDateFormatter().apply {
     locale = NSLocale(localeIdentifier = "id_ID")
     dateFormat = "d MMM"
 }.stringFromDate(NSDate.dateWithTimeIntervalSince1970(millis / 1000.0))
+
+@Composable
+actual fun FileThumbnail(path: String?, modifier: Modifier) {
+    val image by produceState<ImageBitmap?>(null, path) {
+        value = withContext(Dispatchers.Default) {
+            path?.let(::readBytes)?.let { bytes -> runCatching { SkiaImage.makeFromEncoded(bytes).toComposeImageBitmap() }.getOrNull() }
+        }
+    }
+    Box(modifier.background(ClipMi.colors.panel), contentAlignment = Alignment.Center) {
+        val bitmap = image
+        if (bitmap != null) {
+            Image(bitmap, contentDescription = null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
+        } else {
+            Icon(ClipMiIcons.Film, contentDescription = null, tint = ClipMi.colors.textMuted, modifier = Modifier.size(20.dp))
+        }
+    }
+}

@@ -21,9 +21,9 @@ import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.longOrNull
 import kotlinx.serialization.json.put
-import java.time.Duration
-import java.time.LocalDateTime
-import java.time.format.DateTimeFormatter
+import kotlinx.datetime.LocalDateTime
+import kotlinx.datetime.isoDayNumber
+import kotlinx.datetime.number
 import kotlin.math.floor
 
 /**
@@ -78,7 +78,9 @@ object PerformanceDigest {
         "project" to "Project / pembicara",
     )
 
-    private val MINUTE = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm")
+    /** 'Y-m-d H:i' (pengganti DateTimeFormatter yang hanya ada di JVM). */
+    private fun minuteText(at: LocalDateTime): String =
+        "${at.year.toString().padStart(4, '0')}-${pad2(at.month.number)}-${pad2(at.day)} ${pad2(at.hour)}:${pad2(at.minute)}"
 
     /**
      * @param rows postingan terbit (punya waktu terbit). Yang punya catatan tayangan dipilih seperti query desktop:
@@ -142,7 +144,7 @@ object PerformanceDigest {
         }
 
         return buildJsonObject {
-            put("generated_at", now.format(MINUTE))
+            put("generated_at", minuteText(now))
             put("posts", JsonArray(posts.map { it.json() }))
             put("accounts", accounts)
             put("factors", factors)
@@ -224,7 +226,7 @@ object PerformanceDigest {
         val latest = stats.last()
         val atCompare = PostStats.statAt(row.publishedAt, stats, COMPARE_DAY)
         // Carbon 3 diffInHours: jam pecahan, lalu floor(/24).
-        val age = floor(Duration.between(row.publishedAt, now).toMillis() / 3_600_000.0 / 24).toLong()
+        val age = floor((now.wallMillis() - row.publishedAt.wallMillis()) / 3_600_000.0 / 24).toLong()
         val duration = Php.roundInt(row.finalDuration)
         val caption = row.caption
         val captionLength = Php.mbStrlen(caption)
@@ -237,7 +239,7 @@ object PerformanceDigest {
             accountId = row.accountId,
             account = row.account,
             platform = row.platform,
-            publishedAt = row.publishedAt.format(MINUTE),
+            publishedAt = minuteText(row.publishedAt),
             ageDays = age,
             views = latest.numbers.views,
             viewsDay = PostStats.AGES.map { it to PostStats.statAt(row.publishedAt, stats, it)?.numbers?.views },
@@ -269,7 +271,7 @@ object PerformanceDigest {
                     in 18..21 -> "Malam (18–22)"
                     else -> "Larut (22–04)"
                 },
-                "day" to Platforms.DAYS.getValue(row.publishedAt.dayOfWeek.value),
+                "day" to Platforms.DAYS.getValue(row.publishedAt.dayOfWeek.isoDayNumber),
                 "platform" to row.platform,
                 "hook_model" to hookModelLabel(row.hook, row.hookModel),
                 "opener" to when (row.lead) {
@@ -340,10 +342,9 @@ object PerformancePrompt {
 
         lines += "## Akun"
         for (a in digest.getValue("accounts").jsonArray.map { it.jsonObject }) {
-            lines += "- %s (%s): %d postingan terukur, median tayangan %s, median ER %s%s".format(
-                a.str("name"), a.str("platform"), a.getValue("posts").jsonPrimitive.int, number(a.num("median")), percent(a.num("er")),
-                if (a["enough"]?.jsonPrimitive?.booleanOrNull == true) "" else " (data masih sedikit)",
-            )
+            lines += "- ${a.str("name")} (${a.str("platform")}): ${a.getValue("posts").jsonPrimitive.int} postingan terukur, " +
+                "median tayangan ${number(a.num("median"))}, median ER ${percent(a.num("er"))}" +
+                if (a["enough"]?.jsonPrimitive?.booleanOrNull == true) "" else " (data masih sedikit)"
         }
         lines += ""
 
@@ -353,7 +354,7 @@ object PerformancePrompt {
             val groups = factors[factor]?.jsonArray?.map { it.jsonObject }.orEmpty()
             if (groups.size < 2) continue
             lines += label + ": " + groups.joinToString("; ") { g ->
-                "%s n=%d rasio %s ER %s".format(g.str("label"), g.getValue("count").jsonPrimitive.int, decimal(g.num("ratio")), percent(g.num("er")))
+                "${g.str("label")} n=${g.getValue("count").jsonPrimitive.int} rasio ${decimal(g.num("ratio"))} ER ${percent(g.num("er"))}"
             }
         }
         lines += ""
@@ -471,7 +472,7 @@ object PerformancePrompt {
         value is JsonNull -> ""
         value is JsonPrimitive && value.booleanOrNull != null -> if (value.booleanOrNull == true) "1" else ""
         value is JsonPrimitive -> value.longOrNull?.toString()
-            ?: value.doubleOrNull?.let { d -> if (d == Math.floor(d) && !d.isInfinite() && kotlin.math.abs(d) < 1e15) d.toLong().toString() else d.toString() }
+            ?: value.doubleOrNull?.let { d -> if (d == floor(d) && !d.isInfinite() && kotlin.math.abs(d) < 1e15) d.toLong().toString() else d.toString() }
             ?: value.content
         else -> "Array"
     }

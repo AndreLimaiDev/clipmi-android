@@ -108,6 +108,17 @@ class Repository(val db: AppDatabase, val documents: String) {
                     )
                 }
             }
+            // Transkripsi API yang terputus (pengambilan subtitle YouTube tidak memakai transcriptionMessage).
+            if (project.transcript == TranscriptStatus.Fetching && project.transcriptionMessage != null && project.video == VideoStatus.Ready) {
+                val restore = if (db.segments().count(project.id) > 0) TranscriptStatus.Ready else TranscriptStatus.NeedsTranscript
+                db.projects().modify(project.id) {
+                    it.copy(
+                        transcriptStatus = restore.value, transcriptionResumeAt = null,
+                        transcriptionMessage = "Transkripsi terhenti karena aplikasi ditutup. Jalankan lagi; potongan yang sudah selesai tidak dikirim ulang.",
+                    )
+                }
+                continue
+            }
             if (project.video != VideoStatus.Downloading && project.transcript != TranscriptStatus.Fetching) continue
             db.projects().modify(project.id) {
                 it.copy(

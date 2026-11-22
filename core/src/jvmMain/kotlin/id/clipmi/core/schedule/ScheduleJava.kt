@@ -80,3 +80,5 @@ fun PostStats.refreshFrom(now: LocalDateTime): LocalDateTime = refreshFrom(now.t
 
 /** Catatan statistik dengan waktu java.time (aplikasi Android dan tes). */
 fun StatPoint(recordedAt: LocalDateTime, numbers: StatNumbers): StatPoint = StatPoint(recordedAt.toKotlinLocalDateTime(), numbers)
+
+fun PerformanceDigest.build(rows: List<DigestPost>, now: LocalDateTime): kotlinx.serialization.json.JsonObject = build(rows, now.toKotlinLocalDateTime())

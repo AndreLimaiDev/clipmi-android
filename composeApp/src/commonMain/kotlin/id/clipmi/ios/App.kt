@@ -82,6 +82,7 @@ import id.clipmi.android.ui.components.Field
 import id.clipmi.android.ui.components.FilterPill
 import id.clipmi.android.ui.components.FloatingNavSpace
 import id.clipmi.android.ui.components.GhostButton
+import id.clipmi.android.ui.components.GroupDivider
 import id.clipmi.android.ui.components.IconBadge
 import id.clipmi.android.ui.components.IconCircle
 import id.clipmi.android.ui.components.LocalNotifier
@@ -105,6 +106,7 @@ import id.clipmi.android.ui.theme.ClipMiTheme
 import id.clipmi.core.analysis.AnalysisResultException
 import id.clipmi.core.analysis.ClipText
 import id.clipmi.core.transcript.Timecode
+import id.clipmi.core.youtube.TranscriptSource
 import kotlinx.coroutines.launch
 import kotlinx.datetime.LocalDate
 
@@ -125,6 +127,9 @@ private sealed interface Route {
     data class Ready(val id: Long) : Route
     data object Accounts : Route
     data object AiSettings : Route
+    data object TranscriptionSettings : Route
+    data object Performance : Route
+    data object Bumpers : Route
 }
 
 @Composable
@@ -133,19 +138,35 @@ fun App(repo: Repository, engine: MediaEngine) = ClipMiTheme {
     val settings = remember { IosSettings(repo, engine) }
     val ai = remember { IosAiClient(engine) }
     val analysis = remember { IosAnalysis(repo, settings, ai, scope) }
-    // Analisis otomatis (bila diaktifkan) begitu unduhan selesai dan transkrip siap.
-    val downloads = remember { Downloads(repo, engine, scope).also { it.onFinished = { id -> analysis.startAutomatically(id) } } }
     val renders = remember { Renders(IosRenderer(repo, engine), scope) }
+    val transcriber = remember { IosTranscriber(repo, engine, renders.renderer, settings, analysis, scope) }
+    // Begitu unduhan selesai (bila diaktifkan): transkripsi API untuk video tanpa subtitle, atau analisis bila transkrip siap.
+    val downloads = remember {
+        Downloads(repo, engine, scope).also { it.onFinished = { id -> if (!transcriber.startAutomatically(id)) analysis.startAutomatically(id) } }
+    }
     val scheduler = remember { IosScheduler(repo, engine) { settings.youtubeKey() } }
+    val performance = remember { IosPerformance(repo, renders.renderer, scheduler, settings, ai, scope) }
+    val bumpers = remember { IosBumpers(repo, renders.renderer) }
     val notifier = remember { Notifier(SnackbarHostState(), scope) }
     var tab by remember { mutableStateOf(MainTab.Projects) }
     // Tumpukan layar di atas tab (kembali = ambil yang teratas).
     var stack by remember { mutableStateOf(listOf<Route>()) }
     val push: (Route) -> Unit = { stack = stack + it }
     val pop: () -> Unit = { stack = stack.dropLast(1) }
+    // Ketuk pengingat jadwal: langsung ke halaman siap posting jadwal itu, di atas tab Jadwal.
+    LaunchedEffect(Unit) {
+        engine.onReminderTapped(object : ResultListener {
+            override fun finished(resultJson: String) {
+                val id = resultJson.toLongOrNull() ?: return
+                tab = MainTab.Schedule
+                stack = listOf(Route.Ready(id))
+            }
+        })
+    }
     LaunchedEffect(Unit) {
         finishRestore(repo)?.let { notifier.show(it) }
         repo.recoverInterrupted()
+        performance.recoverInterrupted()
     }
 
     CompositionLocalProvider(LocalNotifier provides notifier) {
@@ -158,7 +179,7 @@ fun App(repo: Repository, engine: MediaEngine) = ClipMiTheme {
                     }
                 }
                 is Route.Project -> ProjectScreen(
-                    repo, engine, downloads, renders, analysis, top.id, onBack = pop, onEdit = { push(Route.Editor(it)) }, onSchedule = { push(Route.ScheduleEdit(clipId = it)) },
+                    repo, engine, downloads, renders, analysis, transcriber, top.id, onBack = pop, onEdit = { push(Route.Editor(it)) }, onSchedule = { push(Route.ScheduleEdit(clipId = it)) },
                 )
                 Route.Backup -> Box(Modifier.statusBarsPadding()) { BackupScreen(repo, engine, onBack = pop) }
                 is Route.ScheduleEdit -> Box(Modifier.fillMaxSize()) {
@@ -175,6 +196,9 @@ fun App(repo: Repository, engine: MediaEngine) = ClipMiTheme {
                 }
                 Route.Accounts -> Box(Modifier.fillMaxSize()) { AccountsScreen(repo, scheduler, onBack = pop) }
                 Route.AiSettings -> Box(Modifier.fillMaxSize()) { AnalysisSettingsScreen(settings, ai, onBack = pop) }
+                Route.TranscriptionSettings -> Box(Modifier.fillMaxSize()) { TranscriptionSettingsScreen(settings, onBack = pop) }
+                Route.Bumpers -> Box(Modifier.fillMaxSize()) { BumpersScreen(repo, bumpers, onBack = pop) }
+                Route.Performance -> Box(Modifier.fillMaxSize()) { PerformanceScreen(repo, performance, settings, onBack = pop, onOpenSchedule = { push(Route.Ready(it)) }) }
                 null -> when (tab) {
                     MainTab.Projects -> ProjectListScreen(repo, engine, downloads, onOpen = { push(Route.Project(it)) })
                     MainTab.Schedule -> ScheduleScreen(
@@ -183,8 +207,8 @@ fun App(repo: Repository, engine: MediaEngine) = ClipMiTheme {
                         onOpenSchedule = { push(Route.Ready(it)) },
                         onNewSchedule = { clip, date -> push(Route.ScheduleEdit(clipId = clip, date = date)) },
                     )
-                    MainTab.Stats -> StatsScreen(repo, engine, scheduler, downloads, onOpenSchedule = { push(Route.Ready(it)) })
-                    MainTab.Settings -> SettingsScreen(settings, onAnalysis = { push(Route.AiSettings) }, onBackup = { push(Route.Backup) })
+                    MainTab.Stats -> StatsScreen(repo, engine, scheduler, downloads, onOpenSchedule = { push(Route.Ready(it)) }, onOpenPerformance = { push(Route.Performance) })
+                    MainTab.Settings -> SettingsScreen(repo, settings, onAnalysis = { push(Route.AiSettings) }, onTranscription = { push(Route.TranscriptionSettings) }, onBumpers = { push(Route.Bumpers) }, onBackup = { push(Route.Backup) })
                 }
             }
             val topLevel = stack.isEmpty()
@@ -240,7 +264,12 @@ private fun FloatingNavBar(selected: MainTab, onSelect: (MainTab) -> Unit) {
 }
 
 @Composable
-private fun SettingsScreen(settings: IosSettings, onAnalysis: () -> Unit, onBackup: () -> Unit) {
+private fun SettingsScreen(repo: Repository, settings: IosSettings, onAnalysis: () -> Unit, onTranscription: () -> Unit, onBumpers: () -> Unit, onBackup: () -> Unit) {
+    val bumperList by remember { repo.db.bumpers().observeAll() }.collectAsState(emptyList())
+    val transcription by produceState<Pair<String, Boolean>?>(null) {
+        val cfg = settings.transcription()
+        value = if (cfg != null) "${cfg.provider.label.substringBefore(" (")} · ${cfg.model}" to true else "Belum diatur" to false
+    }
     val analysis by produceState<Pair<String, Boolean>?>(null) {
         val cfg = settings.analysis()
         value = if (cfg != null) "${cfg.provider.label.substringBefore(" (")} · ${cfg.model}" to true else "Belum diatur" to false
@@ -255,8 +284,19 @@ private fun SettingsScreen(settings: IosSettings, onAnalysis: () -> Unit, onBack
     ) {
         item { ScreenHeader("Pengaturan", Modifier.statusBarsPadding().padding(top = 12.dp)) }
         item {
-            SettingsGroup("AI") {
+            SettingsGroup("AI & transkrip") {
+                SettingsRow("Transkripsi API", transcription?.first, onClick = onTranscription, trailing = { transcription?.let { ReadyMark(it.second) } })
+                GroupDivider()
                 SettingsRow("Analisis AI", analysis?.first, onClick = onAnalysis, trailing = { analysis?.let { ReadyMark(it.second) } })
+            }
+        }
+        item {
+            SettingsGroup("Render") {
+                SettingsRow(
+                    "Intro & outro",
+                    if (bumperList.isEmpty()) "Belum ada" else "${bumperList.count { it.kind == "intro" }} intro · ${bumperList.count { it.kind == "outro" }} outro",
+                    onClick = onBumpers,
+                )
             }
         }
         item {
@@ -517,7 +557,7 @@ private fun NewProjectSheet(repo: Repository, downloads: Downloads, onDismiss: (
 
 @Composable
 private fun ProjectScreen(
-    repo: Repository, engine: MediaEngine, downloads: Downloads, renders: Renders, analysis: IosAnalysis, id: Long, onBack: () -> Unit, onEdit: (Long) -> Unit, onSchedule: (Long) -> Unit,
+    repo: Repository, engine: MediaEngine, downloads: Downloads, renders: Renders, analysis: IosAnalysis, transcriber: IosTranscriber, id: Long, onBack: () -> Unit, onEdit: (Long) -> Unit, onSchedule: (Long) -> Unit,
 ) {
     val project by remember(id) { repo.db.projects().observe(id) }.collectAsState(null)
     val clips by remember(id) { repo.db.clips().observe(id) }.collectAsState(emptyList())
@@ -526,6 +566,49 @@ private fun ProjectScreen(
     val p = project ?: return
     val c = ClipMi.colors
     val source = p.videoPath?.takeIf { p.video == VideoStatus.Ready }?.let { repo.absolute(it) }
+    val scope = rememberCoroutineScope()
+    val notifier = LocalNotifier.current
+    val transcriptionReady by produceState(false, p.transcriptStatus) { value = transcriber.config() != null }
+    var confirm by remember { mutableStateOf<Pair<String, () -> Unit>?>(null) }
+    confirm?.let { (body, action) ->
+        ConfirmDialog("Ganti transkrip?", body, "Lanjutkan", onConfirm = { confirm = null; action() }, onDismiss = { confirm = null })
+    }
+    // Transkripsi API sedang berjalan/menunggu (pengambilan subtitle YouTube tidak memakai pesan ini).
+    val transcribing = p.transcript == TranscriptStatus.Fetching && p.transcriptionMessage != null && p.video == VideoStatus.Ready
+    val canTranscribe = p.video == VideoStatus.Ready && transcriptionReady && transcriber.active == null
+    val importSubtitle = {
+        val open = {
+            createDirectory(repo.absolute("tmp"))
+            val output = repo.absolute("tmp/subtitle-import")
+            engine.pickSubtitle(output, object : PickListener {
+                override fun finished(path: String?) {
+                    if (path == null) return
+                    scope.launch {
+                        val bytes = readBytes(path)
+                        removeItem(path)
+                        val isVtt = bytes != null && bytes.decodeToString().trimStart('\uFEFF', ' ', '\n', '\r').startsWith("WEBVTT")
+                        val source = if (isVtt) TranscriptSource.ImportVtt else TranscriptSource.ImportSrt
+                        notifier.show(
+                            if (bytes == null) "File subtitle tidak bisa dibaca."
+                            else try {
+                                val count = repo.importTranscript(p.id, bytes, source.value)
+                                repo.db.projects().modify(p.id) { it.copy(transcriptionMessage = null) }
+                                "Transkrip diganti: $count segmen dari ${source.label}."
+                            } catch (e: Exception) {
+                                "File subtitle tidak bisa dibaca: ${e.message ?: "format tidak dikenal"}"
+                            },
+                        )
+                    }
+                }
+            })
+        }
+        if (segments.isEmpty()) open() else confirm = "Transkrip sekarang (${segments.size} segmen) diganti isi file subtitle." to open
+    }
+    val transcribeApi = {
+        val start = { scope.launch { transcriber.start(p.id) }; Unit }
+        if (segments.isEmpty()) start()
+        else confirm = "Transkrip sekarang diganti hasil transkripsi API. Biaya API ditagih penyedia sesuai panjang audio." to start
+    }
 
     Column(Modifier.fillMaxSize()) {
         // Video tetap di atas; hanya isi di bawahnya yang bergulir.
@@ -547,15 +630,28 @@ private fun ProjectScreen(
                             style = MaterialTheme.typography.bodySmall, color = c.textMuted,
                         )
                     }
-                    StatusCard(p, downloads)
+                    StatusCard(p, downloads, transcriptionReady)
                     SegmentedTabs(listOf("Klip ${clips.count { it.review != ReviewStatus.Rejected }}", "Transkrip ${segments.size}"), tab, { tab = it })
                 }
             }
             if (tab == 0) {
                 item { ClipsSection(repo, engine, renders, analysis, p, clips, onEdit, onSchedule) }
             } else {
+                item {
+                    ChipRow(Modifier.padding(top = 12.dp)) {
+                        if (transcribing) {
+                            ActionChip("Batalkan transkripsi", { scope.launch { transcriber.cancel(p.id) } }, height = 32.dp)
+                        } else {
+                            ActionChip("Impor SRT/VTT", { importSubtitle() }, height = 32.dp)
+                            ActionChip(if (segments.isEmpty()) "Transkripsi API" else "Transkripsi ulang lewat API", { transcribeApi() }, height = 32.dp, enabled = canTranscribe)
+                        }
+                    }
+                }
                 if (segments.isEmpty()) item {
-                    Text("Transkrip belum ada.", style = MaterialTheme.typography.bodyMedium, color = c.textMuted, modifier = Modifier.padding(ScreenGutter))
+                    Text(
+                        if (transcribing) "Transkrip sedang dibuat." else if (transcriptionReady) "Transkrip belum ada." else "Transkrip belum ada. Atur Transkripsi API di Pengaturan, atau impor file SRT/VTT.",
+                        style = MaterialTheme.typography.bodyMedium, color = c.textMuted, modifier = Modifier.padding(ScreenGutter),
+                    )
                 }
                 items(segments, key = { it.id }) { SegmentRow(it) }
             }
@@ -565,10 +661,15 @@ private fun ProjectScreen(
 
 /** Status video dan transkrip selama belum siap (unduhan, gagal, tanpa subtitle). */
 @Composable
-private fun StatusCard(p: ProjectEntity, downloads: Downloads) {
+private fun StatusCard(p: ProjectEntity, downloads: Downloads, transcriptionReady: Boolean) {
     val c = ClipMi.colors
     val downloading = downloads.active == p.id
     val failed = p.video == VideoStatus.Failed || p.transcript == TranscriptStatus.Failed
+    val message = p.transcriptionMessage
+    if (!downloading && p.video == VideoStatus.Ready && (p.transcript == TranscriptStatus.NeedsTranscript || message != null) && !failed) {
+        TranscriptionCard(p, transcriptionReady)
+        return
+    }
     if (!downloading && !failed && p.video == VideoStatus.Ready && p.transcript == TranscriptStatus.Ready) return
     ClipMiCard {
         Row(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -593,6 +694,44 @@ private fun StatusCard(p: ProjectEntity, downloads: Downloads) {
         if (downloading) ProgressBar(downloads.fraction.toFloat())
         if (failed && p.isYouTube && downloads.active == null) {
             SecondaryButton("Unduh ulang", onClick = { downloads.start(p.id) }, height = 44.dp, modifier = Modifier.fillMaxWidth())
+        }
+    }
+}
+
+/** Status transkripsi (Transkripsi API, tanpa subtitle, hasil terakhir), sama dengan kartu status Android. */
+@Composable
+private fun TranscriptionCard(p: ProjectEntity, transcriptionReady: Boolean) {
+    val c = ClipMi.colors
+    val message = p.transcriptionMessage
+    val fetching = p.transcript == TranscriptStatus.Fetching
+    val needsTranscript = p.transcript == TranscriptStatus.NeedsTranscript
+    val (icon, tone, title) = when {
+        fetching -> Triple(ClipMiIcons.Mic, Tone.Busy, "Transkripsi API")
+        needsTranscript -> Triple(ClipMiIcons.Alert, Tone.Warn, "Butuh transkrip")
+        message?.startsWith(IosTranscriber.DONE_PREFIX) == true -> Triple(ClipMiIcons.Check, Tone.Good, "Transkripsi selesai")
+        else -> Triple(ClipMiIcons.Mic, Tone.Idle, "Transkripsi")
+    }
+    ClipMiCard {
+        Row(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically) {
+            IconBadge(icon, tone)
+            Text(title, style = MaterialTheme.typography.titleSmall, color = c.text, modifier = Modifier.weight(1f))
+        }
+        if (fetching) ProgressBar(null, color = c.busy)
+        if (needsTranscript) {
+            Text(
+                "Video ini tidak punya subtitle Indonesia. Impor SRT/VTT atau jalankan Transkripsi API di tab Transkrip" +
+                    (if (!transcriptionReady) " (atur dulu di Pengaturan)." else "."),
+                style = MaterialTheme.typography.bodySmall, color = c.textBody,
+            )
+        }
+        message?.let {
+            val color = when {
+                it.startsWith(IosTranscriber.DONE_PREFIX) -> c.accent
+                it.startsWith(IosTranscriber.CANCELLED_PREFIX) -> c.textMuted
+                fetching -> c.textBody
+                else -> c.bad
+            }
+            Text(it, color = color, style = MaterialTheme.typography.bodySmall)
         }
     }
 }

@@ -83,7 +83,7 @@ private data class Post(val schedule: ScheduleView, val target: TargetView, val 
  * postingan (ketuk untuk angka, tayangan hari 1/7/30, dan aksi). Statistik yang sudah waktunya diambil saat tab dibuka.
  */
 @Composable
-fun StatsScreen(repo: Repository, engine: MediaEngine, scheduler: IosScheduler, downloads: Downloads, onOpenSchedule: (Long) -> Unit) {
+fun StatsScreen(repo: Repository, engine: MediaEngine, scheduler: IosScheduler, downloads: Downloads, onOpenSchedule: (Long) -> Unit, onOpenPerformance: () -> Unit) {
     val data by rememberScheduleData(repo)
     val scope = rememberCoroutineScope()
     var account by remember { mutableStateOf<Long?>(null) }
@@ -185,6 +185,23 @@ fun StatsScreen(repo: Repository, engine: MediaEngine, scheduler: IosScheduler, 
                         Text("Per akun", style = MaterialTheme.typography.titleSmall, color = c.text)
                         d.accounts.forEach { a -> AccountRow(a.name, a.color, summaries[a.id], totals.getValue(a.id).toFloat() / max) { account = a.id } }
                     }
+                }
+            }
+            item(key = "performance") {
+                // Kartu gelap: aksi utama halaman ini (sama dengan Android).
+                Row(
+                    Modifier.fillMaxWidth().clip(RoundedCornerShape(24.dp)).background(Color(0xFF0E1512)).clickable(onClick = onOpenPerformance).padding(16.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(14.dp),
+                ) {
+                    Box(Modifier.size(44.dp).clip(RoundedCornerShape(14.dp)).background(Color(0xFF1F7A5A)), contentAlignment = Alignment.Center) {
+                        Icon(ClipMiIcons.Sparkle, null, tint = Color.White, modifier = Modifier.size(20.dp))
+                    }
+                    Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                        Text("Analisis performa", style = MaterialTheme.typography.titleSmall, color = Color.White)
+                        Text("Saran AI dari postingan yang sudah terbit", style = MaterialTheme.typography.bodySmall, color = Color(0xFFB9C4BF))
+                    }
+                    Icon(ClipMiIcons.Chevron, null, tint = Color.White, modifier = Modifier.size(18.dp))
                 }
             }
             item(key = "sort") {

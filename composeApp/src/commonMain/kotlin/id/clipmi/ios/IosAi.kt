@@ -253,7 +253,7 @@ class IosSettings(private val repo: Repository, private val engine: MediaEngine)
         val model = dao.get(KEY_AI_MODEL)?.takeIf { it.isNotBlank() } ?: provider.defaultModel ?: return null
         val baseUrl = dao.get(KEY_AI_BASE_URL)?.takeIf { it.isNotBlank() }
         if (provider == AiProvider.Custom && baseUrl == null) return null
-        val key = engine.secretGet(analysisSecret(provider))?.takeIf { it.isNotBlank() }
+        val key = analysisKey(provider)
         if (provider.requiresKey && key == null) return null
         return AiConfig(provider, model, baseUrl, key, dao.get(KEY_AI_PRICE_INPUT)?.toDoubleOrNull(), dao.get(KEY_AI_PRICE_OUTPUT)?.toDoubleOrNull())
     }
@@ -271,7 +271,52 @@ class IosSettings(private val repo: Repository, private val engine: MediaEngine)
         if (!apiKey.isNullOrBlank()) engine.secretPut(analysisSecret(provider), apiKey.trim())
     }
 
-    fun hasAnalysisKey(provider: AiProvider) = engine.secretGet(analysisSecret(provider)) != null
+    fun hasAnalysisKey(provider: AiProvider) = analysisKey(provider) != null
+
+    /**
+     * Key analisis; untuk Groq/OpenAI yang belum punya key analisis sendiri, key Transkripsi API penyedia yang sama
+     * dipakai (sama dengan Android), supaya key yang sama tidak perlu diisi dua kali.
+     */
+    private fun analysisKey(provider: AiProvider): String? =
+        engine.secretGet(analysisSecret(provider))?.takeIf { it.isNotBlank() }
+            ?: transcriptionSecretFor(provider)?.let { engine.secretGet(it) }?.takeIf { it.isNotBlank() }
+
+    private fun transcriptionSecretFor(provider: AiProvider): String? = when (provider) {
+        AiProvider.Groq -> transcriptionSecret(TranscriptionProvider.Groq)
+        AiProvider.OpenAI -> transcriptionSecret(TranscriptionProvider.OpenAI)
+        else -> null
+    }
+
+    // --- Transkripsi API ----------------------------------------------------------------------------------------
+
+    suspend fun transcription(): TranscriptionConfig? {
+        val provider = TranscriptionProvider.from(dao.get(KEY_TR_PROVIDER)) ?: return null
+        val baseUrl = dao.get(KEY_TR_BASE_URL)?.takeIf { it.isNotBlank() } ?: provider.baseUrl ?: return null
+        val model = dao.get(KEY_TR_MODEL)?.takeIf { it.isNotBlank() } ?: provider.defaultModel ?: return null
+        val key = engine.secretGet(transcriptionSecret(provider))?.takeIf { it.isNotBlank() }
+        if (provider.requiresKey && key == null) return null
+        return TranscriptionConfig(provider, baseUrl, model, key)
+    }
+
+    suspend fun rawTranscription(): Triple<TranscriptionProvider?, String?, String?> =
+        Triple(TranscriptionProvider.from(dao.get(KEY_TR_PROVIDER)), dao.get(KEY_TR_BASE_URL), dao.get(KEY_TR_MODEL))
+
+    suspend fun saveTranscription(provider: TranscriptionProvider, baseUrl: String?, model: String?, apiKey: String?) {
+        dao.put(KEY_TR_PROVIDER, provider.value)
+        dao.put(KEY_TR_BASE_URL, baseUrl?.trim()?.takeIf { it.isNotEmpty() })
+        dao.put(KEY_TR_MODEL, model?.trim()?.takeIf { it.isNotEmpty() })
+        if (!apiKey.isNullOrBlank()) engine.secretPut(transcriptionSecret(provider), apiKey.trim())
+    }
+
+    fun hasTranscriptionKey(provider: TranscriptionProvider) = engine.secretGet(transcriptionSecret(provider)) != null
+
+    fun removeTranscriptionKey(provider: TranscriptionProvider) = engine.secretRemove(transcriptionSecret(provider))
+
+    suspend fun autoTranscribe(): Boolean = dao.get(KEY_TR_AUTO) == "1"
+
+    suspend fun setAutoTranscribe(enabled: Boolean) = dao.put(KEY_TR_AUTO, if (enabled) "1" else "0")
+
+    private fun transcriptionSecret(provider: TranscriptionProvider) = "ai.transcription.${provider.value}.api_key"
 
     fun removeAnalysisKey(provider: AiProvider) = engine.secretRemove(analysisSecret(provider))
 
@@ -316,6 +361,10 @@ class IosSettings(private val repo: Repository, private val engine: MediaEngine)
         const val KEY_PROMPT_TEMPLATE = "prompt_template"
         const val KEY_PROMPT_STYLES = "prompt_styles"
         const val KEY_PROMPT_MAX_TOKENS = "prompt_max_tokens"
+        const val KEY_TR_PROVIDER = "ai.transcription.provider"
+        const val KEY_TR_BASE_URL = "ai.transcription.base_url"
+        const val KEY_TR_MODEL = "ai.transcription.model"
+        const val KEY_TR_AUTO = "ai.transcription.auto"
     }
 }
 

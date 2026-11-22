@@ -478,6 +478,7 @@ private fun TrimPanel(state: EditorState, position: Double, playing: Boolean, se
     val clipWords = remember(snapshot) { editor.words(clip) }
     val pauses = remember(snapshot, state.silences) { state.silences?.let { editor.pauses(clip, it) }.orEmpty() }
     var chosen by remember { mutableStateOf<EditorWord?>(null) }
+    var bumper by remember { mutableStateOf<String?>(null) }
     LaunchedEffect(clip.startTime, clip.endTime) { state.detectSilences() }
     val tooShort = "Sisa klip terlalu pendek (minimal ${seconds(ClipSpec.MIN_DURATION)} detik)."
 
@@ -552,7 +553,7 @@ private fun TrimPanel(state: EditorState, position: Double, playing: Boolean, se
         val listState = rememberLazyListState()
         val active = lines.indexOfLast { it.start <= position + 0.05 }.coerceAtLeast(0)
         LaunchedEffect(active, playing) {
-            if (playing && !listState.isScrollInProgress && lines.isNotEmpty()) listState.animateScrollToItem(active, scrollOffset = -8)
+            if (playing && !listState.isScrollInProgress && lines.isNotEmpty()) listState.animateScrollToItem(active + 1, scrollOffset = -8)
         }
         var offset = 0
         val ranges = lines.map { line -> (offset until offset + line.words.orEmpty().size).also { offset += line.words.orEmpty().size } }
@@ -562,6 +563,7 @@ private fun TrimPanel(state: EditorState, position: Double, playing: Boolean, se
             contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 4.dp, bottom = 16.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
+            item(key = "intro") { BumperCard("Intro", state.bumpers.firstOrNull { it.id == snapshot.introId }?.name) { bumper = "intro" } }
             itemsIndexed(lines) { index, line ->
                 val range = ranges[index]
                 val marked = Keywords.mark(line.words.orEmpty().map { it.text }, snapshot.keywords)
@@ -599,10 +601,64 @@ private fun TrimPanel(state: EditorState, position: Double, playing: Boolean, se
                     }
                 }
             }
+            item(key = "outro") { BumperCard("Outro", state.bumpers.firstOrNull { it.id == snapshot.outroId }?.name) { bumper = "outro" } }
         }
     }
 
     chosen?.let { word -> WordSheet(state, editor, word, seek) { chosen = null } }
+    bumper?.let { kind -> BumperSheet(state, kind, onDone = { bumper = null }) }
+}
+
+/** Kartu intro/outro di awal/akhir teks klip; ketuk untuk memilih video dari pustaka (sama dengan Android). */
+@Composable
+private fun BumperCard(label: String, name: String?, onClick: () -> Unit) {
+    val c = ClipMi.colors
+    Row(
+        Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)).border(1.dp, c.line, RoundedCornerShape(14.dp)).clickable(onClick = onClick).padding(horizontal = 12.dp, vertical = 10.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        Icon(if (name == null) ClipMiIcons.Plus else ClipMiIcons.Film, null, tint = if (name == null) c.textMuted else c.accent, modifier = Modifier.size(16.dp))
+        Text(name?.let { "$label · $it" } ?: label, style = MaterialTheme.typography.labelLarge, color = if (name == null) c.textMuted else c.text, modifier = Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis)
+    }
+}
+
+/** Pilih intro atau outro klip ini dari pustaka; bisa dijadikan bawaan project. */
+@Composable
+private fun BumperSheet(state: EditorState, kind: String, onDone: () -> Unit) {
+    val c = ClipMi.colors
+    val scope = rememberCoroutineScope()
+    val notifier = LocalNotifier.current
+    val s = state.snapshot
+    val label = if (kind == "intro") "Intro" else "Outro"
+    val selected = if (kind == "intro") s.introId else s.outroId
+    val options = state.bumpers.filter { it.kind == kind }
+    fun choose(id: Long?) {
+        state.apply { if (kind == "intro") it.copy(introId = id) else it.copy(outroId = id) }
+    }
+    ClipMiSheet(onDone, title = label) {
+        if (options.isEmpty()) {
+            Text("Belum ada video di pustaka. Tambahkan di Pengaturan › Intro & outro.", style = MaterialTheme.typography.bodySmall, color = c.textMuted)
+        }
+        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            FilterPill("Tanpa ${label.lowercase()}", selected = selected == null, height = 40.dp, onClick = { choose(null); onDone() })
+            options.forEach { b ->
+                FilterPill("${b.name} · ${kotlin.math.round(b.duration).toInt()} dtk", selected = selected == b.id, height = 40.dp, onClick = { choose(b.id); onDone() })
+            }
+        }
+        if (kind == "intro" && s.introId != null && state.hookLayout().opener) {
+            Text("Dengan intro, kartu pembuka hook tidak dipakai.", style = MaterialTheme.typography.bodySmall, color = c.textMuted)
+        }
+        if (options.isNotEmpty()) {
+            val isProjectDefault = state.projectBumpers == (s.introId to s.outroId)
+            GhostButton(if (isProjectDefault) "Sudah jadi bawaan project" else "Jadikan bawaan project", enabled = !isProjectDefault, onClick = {
+                scope.launch {
+                    state.saveProjectBumpers()
+                    notifier.show("Klip baru di project ini memakai intro/outro yang sama.")
+                }
+            })
+        }
+    }
 }
 
 /** Dua tombol kecil bertumpuk (▶ atas = maju, ◀ bawah = mundur) untuk satu ujung klip. */

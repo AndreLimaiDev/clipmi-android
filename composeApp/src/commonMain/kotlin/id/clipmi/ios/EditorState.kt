@@ -4,6 +4,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import id.clipmi.android.data.CaptionStyleEntity
+import id.clipmi.android.data.BumperEntity
 import id.clipmi.android.data.ClipEntity
 import id.clipmi.android.data.FrameStyleEntity
 import id.clipmi.android.data.ProjectEntity
@@ -53,6 +54,9 @@ data class EditorSnapshot(
     val cropY: Int? = null,
     /** Posisi crop manual per adegan saat mengikuti pembicara (waktu project). */
     val speakerManual: List<SpeakerTrackData.ManualPosition> = emptyList(),
+    /** Intro/outro dari pustaka. */
+    val introId: Long? = null,
+    val outroId: Long? = null,
 ) {
     val hasCover: Boolean get() = coverTime != null || coverPath != null
 }
@@ -105,6 +109,12 @@ class EditorState(
 
     var snapshot by mutableStateOf(initial)
         private set
+
+    /** Pustaka intro/outro yang filenya ada (diisi saat editor dibuka). */
+    var bumpers by mutableStateOf<List<BumperEntity>>(emptyList())
+
+    /** Intro/outro bawaan project (dipasang ke klip baru di project ini). */
+    var projectBumpers by mutableStateOf(project.introId to project.outroId)
     var canUndo by mutableStateOf(false)
         private set
     var canRedo by mutableStateOf(false)
@@ -204,6 +214,8 @@ class EditorState(
         style = captionStyle(s),
         frame = frameStyle(s),
         speakerKeyframes = speakerKeyframes(s),
+        introSeconds = s.introId?.let { id -> bumpers.firstOrNull { it.id == id } }?.duration,
+        outroSeconds = s.outroId?.let { id -> bumpers.firstOrNull { it.id == id } }?.duration,
     )
 
     /** Klip dengan isian editor saat ini (untuk sampul: kuncinya ikut berubah begitu tampilan berubah). */
@@ -212,7 +224,7 @@ class EditorState(
         subtitleLines = s.clip.subtitleLines?.let { json.encodeToString(SubtitleEdits.serializer(), it) }, subtitleEdited = s.clip.subtitleEdited,
         hook = s.hook, showHookOverlay = s.showHookOverlay, hookLayout = s.hookLayout?.toString(), keywords = renderer.encodeKeywords(s.keywords),
         captionStyleId = s.captionStyleId, frameStyleId = s.frameStyleId, coverTime = s.coverTime, coverPath = s.coverPath,
-        coverTitle = s.coverTitle, coverInVideo = s.coverInVideo, coverLayout = s.coverLayout,
+        coverTitle = s.coverTitle, coverInVideo = s.coverInVideo, coverLayout = s.coverLayout, introId = s.introId, outroId = s.outroId,
         cropPosition = s.cropPosition, cropZoom = s.cropZoom, cropY = s.cropY, speakerTrack = storedTrack(s)?.let(::encodeSpeakerTrack),
     )
 
@@ -309,7 +321,7 @@ class EditorState(
                     s.clip.subtitleLines?.let { json.encodeToString(SubtitleEdits.serializer(), it) },
                     s.clip.subtitleEdited, s.captionStyleId, s.frameStyleId, s.cropPosition, s.cropZoom, s.cropY,
                     s.hook, s.showHookOverlay, s.hookLayout?.toString(), keywords,
-                    s.coverTime, s.coverPath, s.coverTitle, s.coverInVideo, s.coverLayout, fresh.introId, fresh.outroId,
+                    s.coverTime, s.coverPath, s.coverTitle, s.coverInVideo, s.coverLayout, s.introId, s.outroId,
                 )
                 if (speakerBase != null) renderer.speakers.save(entity.id, storedTrack(s))
             }
@@ -350,6 +362,13 @@ class EditorState(
 
     fun absolute(relative: String) = repo.absolute(relative)
 
+    /** Intro/outro klip ini dijadikan bawaan project (klip baru di project ini memakainya). */
+    suspend fun saveProjectBumpers() {
+        val s = snapshot
+        repo.db.projects().setBumpers(project.id, s.introId, s.outroId)
+        projectBumpers = s.introId to s.outroId
+    }
+
     companion object {
         const val HISTORY = 50
 
@@ -383,14 +402,20 @@ class EditorState(
                 cropZoom = clip.cropZoom,
                 cropY = clip.cropY,
                 speakerManual = decodeSpeakerTrack(clip.speakerTrack)?.manual.orEmpty(),
+                introId = clip.introId,
+                outroId = clip.outroId,
             )
+            val bumpers = repo.db.bumpers().all().filter { fileSize(repo.absolute(it.path)) > 0 }
             return EditorState(
                 repo, renderer, scope, clip, project, captionStyles, frameStyles, renderer.segments(project.id), source,
                 info?.duration ?: project.durationSeconds,
                 info?.let { i -> i.width?.let { w -> i.height?.let { h -> w to h } } },
                 thumbnail.takeIf { hasThumbnail },
                 snapshot,
-            ).also { it.refreshTracks() }
+            ).also {
+                it.bumpers = bumpers
+                it.refreshTracks()
+            }
         }
     }
 }

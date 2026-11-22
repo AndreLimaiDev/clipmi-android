@@ -14,6 +14,8 @@ import id.clipmi.core.schedule.Schedules
 import id.clipmi.core.schedule.StatNumbers
 import id.clipmi.core.schedule.StatPoint
 import id.clipmi.core.schedule.TargetStatus
+import id.clipmi.core.schedule.build
+import kotlinx.datetime.toKotlinLocalDateTime
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
@@ -53,7 +55,7 @@ class PerformanceReports(
                 accountId = account.id,
                 account = account.name,
                 platform = Platforms.label(account.platform),
-                publishedAt = Wall.of(row.publishedAt!!),
+                publishedAt = Wall.of(row.publishedAt!!).toKotlinLocalDateTime(),
                 stats = stats[row.id].orEmpty().sortedBy { it.recordedAt }.map {
                     StatPoint(Wall.of(it.recordedAt), StatNumbers(it.views, it.likes, it.comments, it.shares))
                 },

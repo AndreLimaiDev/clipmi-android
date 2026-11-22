@@ -19,3 +19,7 @@ expect fun SourceVideo(path: String, modifier: Modifier)
 
 /** Tanggal pendek bahasa Indonesia, misalnya "22 Nov". */
 expect fun dayMonth(millis: Long): String
+
+/** Gambar dari file JPEG/PNG [path] (absolut), diisi penuh; ikon film bila tidak ada. */
+@Composable
+expect fun FileThumbnail(path: String?, modifier: Modifier)

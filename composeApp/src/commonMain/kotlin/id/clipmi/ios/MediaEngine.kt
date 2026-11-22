@@ -48,6 +48,12 @@ interface MediaEngine {
     fun pickImage(output: String, listener: PickListener)
 
     /**
+     * Memilih satu video dari Photos (PHPicker, tanpa izin galeri; bentuk kompatibel H.264) lalu menyalinnya ke [output].
+     * [listener] dipanggil di main thread: path = [output], atau null bila batal/gagal.
+     */
+    fun pickVideo(output: String, listener: PickListener)
+
+    /**
      * Wajah di gambar [imagePath] (Apple Vision, padanan FaceModels Android): JSON array `[{"cx", "w", "open"}]`,
      * `cx`/`w` = tengah dan lebar kotak wajah sebagai pecahan lebar gambar, `open` = jarak bibir dalam atas–bawah dibagi
      * lebar mulut (bisa tidak ada). Sinkron.
@@ -88,6 +94,15 @@ interface MediaEngine {
      */
     fun httpRequest(method: String, url: String, headersJson: String, body: String?, timeoutSeconds: Int, listener: HttpListener)
 
+    /**
+     * Unggah multipart/form-data (Transkripsi API): [fieldsJson] array `[["nama", "nilai"], ...]` (urutan tetap), lalu
+     * file [filePath] sebagai bidang [fileField]. Jawaban seperti [httpRequest].
+     */
+    fun uploadFile(url: String, headersJson: String, fieldsJson: String, filePath: String, fileField: String, mimeType: String, timeoutSeconds: Int, listener: HttpListener)
+
+    /** Memilih file subtitle SRT/VTT dari aplikasi Files (disalin) ke [output]. */
+    fun pickSubtitle(output: String, listener: PickListener)
+
     // Rahasia (API key) di Keychain iOS, padanan Keystore Android; tidak ikut cadangan.
 
     fun secretGet(name: String): String?
@@ -95,6 +110,12 @@ interface MediaEngine {
     fun secretPut(name: String, value: String)
 
     fun secretRemove(name: String)
+
+    /**
+     * [listener] dipanggil di main thread dengan id jadwal (teks angka) setiap kali notifikasi pengingat diketuk,
+     * termasuk ketukan yang membuka aplikasi sebelum pendengar didaftarkan.
+     */
+    fun onReminderTapped(listener: ResultListener)
 
     /** Pengingat diizinkan pengguna (null = belum pernah ditanya). [listener] dipanggil di main thread. */
     fun remindersAllowed(listener: AllowedListener)
