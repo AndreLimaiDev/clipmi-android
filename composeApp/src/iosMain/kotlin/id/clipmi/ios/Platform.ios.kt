@@ -7,6 +7,8 @@ import kotlinx.cinterop.usePinned
 import platform.Foundation.NSData
 import platform.Foundation.NSDate
 import platform.Foundation.NSFileManager
+import platform.Foundation.NSFileSize
+import platform.Foundation.NSNumber
 import platform.Foundation.NSString
 import platform.Foundation.NSUTF8StringEncoding
 import platform.Foundation.create
@@ -39,3 +41,24 @@ actual fun createDirectory(path: String) {
 }
 
 actual fun nowMillis(): Long = (NSDate().timeIntervalSince1970 * 1000).toLong()
+
+@OptIn(ExperimentalForeignApi::class)
+actual fun fileSize(path: String): Long =
+    (NSFileManager.defaultManager.attributesOfItemAtPath(path, null)?.get(NSFileSize) as? NSNumber)?.longLongValue ?: 0L
+
+@OptIn(ExperimentalForeignApi::class)
+actual fun removeItem(path: String) {
+    NSFileManager.defaultManager.removeItemAtPath(path, null)
+}
+
+@OptIn(ExperimentalForeignApi::class)
+actual fun copyItem(from: String, to: String) {
+    NSFileManager.defaultManager.removeItemAtPath(to, null)
+    NSFileManager.defaultManager.copyItemAtPath(from, to, null)
+}
+
+@OptIn(ExperimentalForeignApi::class)
+actual fun moveItem(from: String, to: String) {
+    NSFileManager.defaultManager.removeItemAtPath(to, null)
+    NSFileManager.defaultManager.moveItemAtPath(from, to, null)
+}

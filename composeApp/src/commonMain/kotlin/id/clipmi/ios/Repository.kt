@@ -6,6 +6,7 @@ import id.clipmi.android.data.AppDatabase
 import id.clipmi.android.data.ClipEntity
 import id.clipmi.android.data.ClipSource
 import id.clipmi.android.data.ProjectEntity
+import id.clipmi.android.data.RenderStatus
 import id.clipmi.android.data.ReviewStatus
 import id.clipmi.android.data.SourceType
 import id.clipmi.android.data.TranscriptSegmentEntity
@@ -91,6 +92,12 @@ class Repository(val db: AppDatabase, private val documents: String) {
     /** Unduhan yang terputus karena aplikasi ditutup (iOS tidak melanjutkannya di latar) ditandai gagal. */
     suspend fun recoverInterrupted() {
         for (project in db.projects().all()) {
+            for (clip in db.clips().forProject(project.id)) {
+                if (!RenderStatus.from(clip.renderStatus).isBusy) continue
+                db.clips().update(
+                    clip.copy(renderStatus = RenderStatus.Failed.value, renderProgress = null, renderError = "Render terhenti karena aplikasi ditutup. Render ulang."),
+                )
+            }
             if (project.video != VideoStatus.Downloading && project.transcript != TranscriptStatus.Fetching) continue
             db.projects().modify(project.id) {
                 it.copy(

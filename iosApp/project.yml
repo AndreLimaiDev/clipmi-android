@@ -11,10 +11,17 @@ targets:
     platform: iOS
     sources:
       - path: Sources
+      # Lebar teks FreeType untuk kotak hook: file C yang sama dengan Android.
+      - path: ../app/src/main/cpp/text_measure_core.c
+      - path: ../app/src/main/cpp/text_measure_core.h
       - path: app
         type: folder
         buildPhase: resources
       - path: app_packages
+        type: folder
+        buildPhase: resources
+      # Font bawaan (sama dengan assets/fonts Android), di bundle sebagai folder fonts/.
+      - path: ../app/src/main/assets/fonts
         type: folder
         buildPhase: resources
     dependencies:
@@ -22,8 +29,21 @@ targets:
         embed: true
       - framework: Python.xcframework
         embed: true
+      # FFmpeg + libass statis (repo publik clipmi-ios-native, diunduh CI).
+      - framework: ClipMIFFmpeg.xcframework
+        embed: false
       - sdk: WebKit.framework
       - sdk: AVFoundation.framework
+      - sdk: Photos.framework
+      - sdk: VideoToolbox.framework
+      - sdk: CoreMedia.framework
+      - sdk: CoreVideo.framework
+      - sdk: CoreFoundation.framework
+      - sdk: AudioToolbox.framework
+      - sdk: libz.tbd
+      - sdk: libc++.tbd
+      - sdk: libiconv.tbd
+      - sdk: libbz2.tbd
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: id.clipmi.ios
@@ -37,7 +57,10 @@ targets:
         FRAMEWORK_SEARCH_PATHS:
           - $(PROJECT_DIR)
           - $(PROJECT_DIR)/../composeApp/build/bin/iosArm64/releaseFramework
-        HEADER_SEARCH_PATHS: "\"$(BUILT_PRODUCTS_DIR)/Python.framework/Headers\""
+        HEADER_SEARCH_PATHS:
+          - "\"$(BUILT_PRODUCTS_DIR)/Python.framework/Headers\""
+          - "\"$(PROJECT_DIR)/ClipMIFFmpeg.xcframework/ios-arm64/Headers\""
+          - "\"$(PROJECT_DIR)/../app/src/main/cpp\""
         CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER: NO
         GENERATE_INFOPLIST_FILE: YES
         INFOPLIST_FILE: Info.plist

@@ -1,4 +1,5 @@
 import AVFoundation
+import Photos
 import ComposeApp
 import SwiftUI
 import UIKit
@@ -69,6 +70,85 @@ final class IOSMediaEngine: NSObject, MediaEngine {
         thread.stackSize = 16 * 1024 * 1024
         thread.start()
     }
+
+    // MARK: Render
+
+    func fontsDirectory() -> String {
+        (Bundle.main.resourcePath ?? "") + "/fonts"
+    }
+
+    /// FreeType lewat text_measure_core.c (file yang sama dengan Android).
+    func textWidth(fontPath: String, points: Double, text: String) -> Double {
+        let bytes = Array(text.utf8)
+        return bytes.withUnsafeBufferPointer { clipmi_text_width(fontPath, points, $0.baseAddress, $0.count) }
+    }
+
+    func probeVideo(path: String) -> String? {
+        let asset = AVURLAsset(url: URL(fileURLWithPath: path))
+        guard let track = asset.tracks(withMediaType: .video).first else { return nil }
+        let size = track.naturalSize.applying(track.preferredTransform)
+        return Self.json([
+            "width": Int(abs(size.width).rounded()),
+            "height": Int(abs(size.height).rounded()),
+            "fps": Double(track.nominalFrameRate),
+            "has_audio": !asset.tracks(withMediaType: .audio).isEmpty,
+            "duration": CMTimeGetSeconds(asset.duration),
+        ])
+    }
+
+    /// FFmpeg di dalam proses (ClipMIFFmpeg.xcframework). Progres dari `-progress progress.txt` (out_time_us).
+    func runFfmpeg(args: [String], directory: String, durationSeconds: Double, listener: RenderListener) {
+        UIApplication.shared.isIdleTimerDisabled = true
+        let progressPath = directory + "/progress.txt"
+        let logPath = directory + "/ffmpeg.log"
+        try? FileManager.default.removeItem(atPath: progressPath)
+        let timer = Timer.scheduledTimer(withTimeInterval: 0.5, repeats: true) { _ in
+            guard durationSeconds > 0,
+                  let text = try? String(contentsOfFile: progressPath, encoding: .utf8),
+                  let line = text.split(separator: "\n").last(where: { $0.hasPrefix("out_time_us=") }),
+                  let micros = Double(line.dropFirst("out_time_us=".count)) else { return }
+            listener.progress(fraction: min(1, max(0, micros / 1_000_000 / durationSeconds)))
+        }
+        let full = ["-hide_banner", "-nostdin", "-nostats", "-progress", "progress.txt"] + args
+        let thread = Thread {
+            var cArgs: [UnsafePointer<CChar>?] = full.map { UnsafePointer(strdup($0)) }
+            let code = cArgs.withUnsafeMutableBufferPointer { buffer in
+                clipmi_ffmpeg_run(Int32(full.count), buffer.baseAddress, directory, logPath)
+            }
+            cArgs.forEach { free(UnsafeMutableRawPointer(mutating: $0)) }
+            let log = (try? String(contentsOfFile: logPath, encoding: .utf8)) ?? ""
+            let tail = log.split(separator: "\n").suffix(12).joined(separator: "\n")
+            DispatchQueue.main.async {
+                timer.invalidate()
+                UIApplication.shared.isIdleTimerDisabled = false
+                listener.finished(code: code, logTail: tail)
+            }
+        }
+        thread.stackSize = 16 * 1024 * 1024
+        thread.start()
+    }
+
+    func cancelFfmpeg() {
+        clipmi_ffmpeg_cancel()
+    }
+
+    func saveVideoToPhotos(path: String, listener: SaveListener) {
+        PHPhotoLibrary.requestAuthorization(for: .addOnly) { status in
+            guard status == .authorized || status == .limited else {
+                DispatchQueue.main.async {
+                    listener.finished(error: "Izin menyimpan ke Photos ditolak. Izinkan di Pengaturan › ClipMI › Foto.")
+                }
+                return
+            }
+            PHPhotoLibrary.shared().performChanges({
+                _ = PHAssetChangeRequest.creationRequestForAssetFromVideo(atFileURL: URL(fileURLWithPath: path))
+            }) { ok, error in
+                DispatchQueue.main.async { listener.finished(error: ok ? nil : (error?.localizedDescription ?? "gagal")) }
+            }
+        }
+    }
+
+    // MARK: Gabung video
 
     /// Video H.264 dan audio AAC menjadi satu MP4 tanpa encode ulang (padanan MediaMuxer di Android). nil = berhasil.
     static func merge(video: String, audio: String, output: String) -> String? {

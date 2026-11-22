@@ -9,5 +9,8 @@
 	<!-- Folder Documents (project, log, crash.txt) terlihat di aplikasi Files; INFOPLIST_KEY_ untuk kunci ini tidak dibuat Xcode. -->
 	<key>UIFileSharingEnabled</key>
 	<true/>
+	<!-- Hasil render disimpan ke Photos (izin tambah saja). -->
+	<key>NSPhotoLibraryAddUsageDescription</key>
+	<string>ClipMI menyimpan video klip hasil render ke Foto.</string>
 </dict>
 </plist>

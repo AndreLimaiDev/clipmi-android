@@ -12,6 +12,8 @@ on:
       - "composeApp/**"
       - "iosApp/**"
       - "shared/**"
+      - "app/src/main/cpp/text_measure_core.*"
+      - "app/src/main/assets/fonts/**"
       - ".github/workflows/ios-app.yml"
 
 jobs:
@@ -56,6 +58,23 @@ jobs:
           set -euo pipefail
           python3 -m pip install --target app_packages --no-deps yt-dlp yt-dlp-ejs yt-dlp-apple-webkit-jsi certifi
           ls app_packages
+
+      - name: ClipMIFFmpeg.xcframework (FFmpeg + libass, repo publik clipmi-ios-native)
+        working-directory: iosApp
+        env:
+          GH_TOKEN: ${{ github.token }}
+          NATIVE_TAG: v1
+          NATIVE_SHA256: 471c2452c836eec1bc9bcf6fce664a91791b6181ceb7b939a967d56f3d811f7b
+        run: |
+          set -euo pipefail
+          gh release download "$NATIVE_TAG" -R AndreLimaiDev/clipmi-ios-native -p 'ClipMIFFmpeg.xcframework.zip*' -D /tmp/native
+          expected=$(cut -d' ' -f1 /tmp/native/ClipMIFFmpeg.xcframework.zip.sha256)
+          actual=$(shasum -a 256 /tmp/native/ClipMIFFmpeg.xcframework.zip | cut -d' ' -f1)
+          echo "sha256 $actual"
+          [ "$expected" = "$actual" ]
+          [ "$NATIVE_SHA256" = "$actual" ]
+          ditto -x -k /tmp/native/ClipMIFFmpeg.xcframework.zip .
+          ls ClipMIFFmpeg.xcframework ClipMIFFmpeg.xcframework/ios-arm64/Headers | head -20
 
       - name: Proyek Xcode (XcodeGen)
         working-directory: iosApp

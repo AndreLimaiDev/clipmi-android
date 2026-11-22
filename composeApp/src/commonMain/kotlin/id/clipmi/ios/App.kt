@@ -47,6 +47,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import id.clipmi.android.data.ClipEntity
 import id.clipmi.android.data.ProjectEntity
+import id.clipmi.android.data.RenderStatus
 import id.clipmi.android.data.TranscriptSegmentEntity
 import id.clipmi.android.data.TranscriptStatus
 import id.clipmi.android.data.VideoStatus
@@ -69,6 +70,7 @@ fun App(repo: Repository, engine: MediaEngine) {
     }
     val scope = rememberCoroutineScope()
     val downloads = remember { Downloads(repo, engine, scope) }
+    val renders = remember { Renders(IosRenderer(repo, engine), scope) }
     var opened by remember { mutableStateOf<Long?>(null) }
     LaunchedEffect(Unit) { repo.recoverInterrupted() }
 
@@ -76,7 +78,7 @@ fun App(repo: Repository, engine: MediaEngine) {
         Box(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background).safeDrawingPadding()) {
             when (val id = opened) {
                 null -> ProjectListScreen(repo, downloads, onOpen = { opened = it })
-                else -> ProjectScreen(repo, downloads, id, onBack = { opened = null })
+                else -> ProjectScreen(repo, downloads, renders, id, onBack = { opened = null })
             }
         }
     }
@@ -186,7 +188,7 @@ private fun ProjectStatus(project: ProjectEntity, downloads: Downloads) {
 private enum class ProjectTab(val label: String) { Clips("Klip"), Transcript("Transkrip") }
 
 @Composable
-private fun ProjectScreen(repo: Repository, downloads: Downloads, id: Long, onBack: () -> Unit) {
+private fun ProjectScreen(repo: Repository, downloads: Downloads, renders: Renders, id: Long, onBack: () -> Unit) {
     val project by remember(id) { repo.db.projects().observe(id) }.collectAsState(null)
     val clips by remember(id) { repo.db.clips().observe(id) }.collectAsState(emptyList())
     val segments by remember(id) { repo.db.segments().observe(id) }.collectAsState(emptyList())
@@ -244,7 +246,7 @@ private fun ProjectScreen(repo: Repository, downloads: Downloads, id: Long, onBa
                 if (clips.isEmpty()) {
                     item { Text("Belum ada klip.", color = c.muted, modifier = Modifier.padding(top = 8.dp)) }
                 }
-                items(clips, key = { it.id }) { ClipCard(repo, it) }
+                items(clips, key = { it.id }) { ClipCard(repo, renders, it) }
             }
             ProjectTab.Transcript -> {
                 if (segments.isEmpty()) {
@@ -312,7 +314,7 @@ private fun AnalysisCard(repo: Repository, project: ProjectEntity) {
 }
 
 @Composable
-private fun ClipCard(repo: Repository, clip: ClipEntity) {
+private fun ClipCard(repo: Repository, renders: Renders, clip: ClipEntity) {
     val c = MaterialTheme.colorScheme
     Card {
         Row(verticalAlignment = Alignment.Top, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -329,6 +331,7 @@ private fun ClipCard(repo: Repository, clip: ClipEntity) {
         clip.hook?.takeIf { it.isNotBlank() }?.let { Text(it, fontSize = 14.sp, color = c.onSurface) }
         val tags = repo.hashtags(clip)
         if (tags.isNotEmpty()) Text(tags.joinToString(" ") { "#" + it.removePrefix("#") }, fontSize = 12.sp, color = c.muted)
+        RenderRow(renders, clip)
     }
 }
 
@@ -363,3 +366,27 @@ private fun SecondaryButton(label: String, modifier: Modifier = Modifier, onClic
 }
 
 private val ColorScheme.muted: Color get() = onSurface.copy(alpha = 0.6f)
+
+/** Tombol render, progres, dan status hasil (tersimpan di Photos / gagal). */
+@Composable
+private fun RenderRow(renders: Renders, clip: ClipEntity) {
+    val c = MaterialTheme.colorScheme
+    if (renders.active == clip.id) {
+        LinearProgressIndicator(progress = { renders.fraction.toFloat() }, modifier = Modifier.fillMaxWidth().height(6.dp), color = c.primary)
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text(
+                "Merender ${(renders.fraction * 100).toInt()}% · biarkan aplikasi tetap terbuka",
+                fontSize = 13.sp, color = c.muted, modifier = Modifier.weight(1f),
+            )
+            SecondaryButton("Batal") { renders.cancel() }
+        }
+        return
+    }
+    when (RenderStatus.from(clip.renderStatus)) {
+        RenderStatus.Done -> Text("Sudah dirender · tersimpan di Photos", fontSize = 13.sp, color = c.primary, fontWeight = FontWeight.SemiBold)
+        RenderStatus.Failed -> Text(clip.renderError ?: "Render gagal.", fontSize = 12.sp, color = Danger, maxLines = 4, overflow = TextOverflow.Ellipsis)
+        else -> {}
+    }
+    val label = if (RenderStatus.from(clip.renderStatus) == RenderStatus.Done) "Render ulang" else "Render"
+    PrimaryButton(label, Modifier.fillMaxWidth(), enabled = renders.active == null) { renders.start(clip.id) }
+}
