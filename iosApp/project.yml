@@ -40,6 +40,7 @@ targets:
         HEADER_SEARCH_PATHS: "\"$(BUILT_PRODUCTS_DIR)/Python.framework/Headers\""
         CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER: NO
         GENERATE_INFOPLIST_FILE: YES
+        INFOPLIST_FILE: Info.plist
         INFOPLIST_KEY_CFBundleDisplayName: ClipMI
         INFOPLIST_KEY_UILaunchScreen_Generation: YES
         INFOPLIST_KEY_UISupportedInterfaceOrientations: UIInterfaceOrientationPortrait
