@@ -1096,7 +1096,7 @@ private fun VideoLayer(composition: Composition, sourceSize: Pair<Int, Int>?, sc
                 layer.frame = CGRectMake(toPoints(left), toPoints(top), toPoints(dw), toPoints(dh))
                 CATransaction.commit()
             },
-            properties = UIKitInteropProperties(isInteractive = false),
+            properties = UIKitInteropProperties(isInteractive = false, isNativeAccessibilityEnabled = false),
         )
     }
 }
