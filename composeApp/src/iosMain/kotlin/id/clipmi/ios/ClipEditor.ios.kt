@@ -1,5 +1,6 @@
 package id.clipmi.ios
 
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.Image
@@ -9,9 +10,10 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
-import androidx.compose.foundation.gestures.calculatePan
-import androidx.compose.foundation.gestures.calculateZoom
-import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.gestures.detectDragGestures
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
+import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.gestures.waitForUpOrCancellation
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -24,27 +26,19 @@ import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.offset
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.requiredSize
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.layout.wrapContentSize
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.LinearProgressIndicator
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.RangeSlider
-import androidx.compose.material3.Slider
-import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
@@ -60,215 +54,130 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.BlurredEdgeTreatment
-import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.rotate
+import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
-import androidx.compose.ui.graphics.toComposeImageBitmap
+import androidx.compose.ui.graphics.Shadow
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.pointer.pointerInput
-import androidx.compose.ui.input.pointer.positionChanged
 import androidx.compose.ui.layout.ContentScale
-import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.role
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.platform.Font
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.text.style.TextOverflow
-import androidx.compose.ui.unit.IntOffset
-import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.compose.ui.viewinterop.UIKitInteropProperties
-import androidx.compose.ui.viewinterop.UIKitView
-import androidx.compose.ui.window.Dialog
+import id.clipmi.android.data.CaptionStyleEntity
+import id.clipmi.android.data.FrameStyleEntity
 import id.clipmi.android.data.RenderStatus
+import id.clipmi.android.ui.components.ActionChip
+import id.clipmi.android.ui.components.ChipRow
+import id.clipmi.android.ui.components.ClipMiRangeSlider
+import id.clipmi.android.ui.components.ClipMiSheet
+import id.clipmi.android.ui.components.ClipMiSlider
+import id.clipmi.android.ui.components.ClipMiSwitch
+import id.clipmi.android.ui.components.EmptyState
+import id.clipmi.android.ui.components.Field
+import id.clipmi.android.ui.components.FilterPill
+import id.clipmi.android.ui.components.GhostButton
+import id.clipmi.android.ui.components.IconCircle
+import id.clipmi.android.ui.components.LocalNotifier
+import id.clipmi.android.ui.components.PrimaryButton
+import id.clipmi.android.ui.components.ProgressBar
+import id.clipmi.android.ui.components.SecondaryButton
+import id.clipmi.android.ui.theme.ClipMi
+import id.clipmi.android.ui.theme.ClipMiIcons
 import id.clipmi.core.analysis.ClipText
 import id.clipmi.core.analysis.Keywords
 import id.clipmi.core.render.ClipCuts
 import id.clipmi.core.render.ClipEditor
 import id.clipmi.core.render.ClipSpec
-import id.clipmi.core.render.Composition
 import id.clipmi.core.render.CoverTitle
 import id.clipmi.core.render.CoverTitleLayout
 import id.clipmi.core.render.EditorWord
+import id.clipmi.core.render.Fonts
 import id.clipmi.core.render.HookLayout
 import id.clipmi.core.render.Pause
-import id.clipmi.core.render.Range
-import id.clipmi.core.render.SpeakerTrack
 import id.clipmi.core.transcript.Timecode
-import kotlinx.cinterop.ExperimentalForeignApi
-import kotlinx.cinterop.addressOf
-import kotlinx.cinterop.toLong
-import kotlinx.cinterop.usePinned
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
-import org.jetbrains.skia.ColorAlphaType
-import org.jetbrains.skia.ColorType
-import org.jetbrains.skia.ImageInfo
-import platform.AVFoundation.AVLayerVideoGravityResize
-import platform.AVFoundation.AVPlayer
-import platform.AVFoundation.AVPlayerLayer
-import platform.AVFoundation.currentTime
-import platform.AVFoundation.pause
-import platform.AVFoundation.play
-import platform.AVFoundation.rate
-import platform.AVFoundation.seekToTime
-import platform.CoreGraphics.CGRectMake
-import platform.CoreMedia.CMTimeGetSeconds
-import platform.CoreMedia.CMTimeMake
-import platform.CoreMedia.CMTimeMakeWithSeconds
-import platform.Foundation.NSURL
-import platform.QuartzCore.CATransaction
-import platform.UIKit.UIView
 import kotlin.math.abs
+import kotlin.math.ceil
+import kotlin.math.floor
 import kotlin.math.max
 import kotlin.math.min
 import kotlin.math.roundToInt
-import org.jetbrains.skia.Image as SkiaImage
 
-private val Danger = Color(0xFFE5484D)
-private val Warn = Color(0xFFF5A524)
+// Warna editor (selalu gelap), sama dengan EditorScreen Android.
+private val EDITOR_BG = Color(0xFF050706)
+private val EDITOR_PANEL = Color(0xFF111614)
+private val EDITOR_CARD = Color(0xFF1A221F)
 
-private val TABS = listOf("Potong", "Crop", "Hook", "Gaya", "Sampul")
+private data class EditorTab(val label: String, val icon: ImageVector)
 
+// 0 Potong, 1 Crop, 2 Gaya, 3 Hook, 4 Sampul (urutan Android).
+private val TABS = listOf(
+    EditorTab("Potong", ClipMiIcons.Scissors),
+    EditorTab("Crop", ClipMiIcons.Image),
+    EditorTab("Gaya", ClipMiIcons.Sliders),
+    EditorTab("Hook", ClipMiIcons.Sparkle),
+    EditorTab("Sampul", ClipMiIcons.Cover),
+)
+
+/**
+ * Editor klip iOS dengan susunan Android: bilah atas (tutup, judul, urungkan/ulangi, Render), pratinjau dengan
+ * subtitle libass, baris putar, lalu panel tab di bawah. Setiap perubahan langsung tersimpan dan bisa diurungkan.
+ */
 @Composable
 actual fun ClipEditorScreen(repo: Repository, renders: Renders, clipId: Long, onBack: () -> Unit) {
     // Scope aplikasi (bukan layar): penyimpanan terakhir tetap selesai walau editor sudah ditutup.
     val scope = renders.scope
     // null = sedang dimuat; Result.failure = tidak bisa dibuka.
     val loaded by produceState<Result<EditorState>?>(null, clipId) {
-        value = runCatching { EditorState.load(repo, renders.renderer, scope, clipId) ?: error("Video sumber belum ada. Unduh ulang video project ini.") }
+        value = runCatching { EditorState.load(repo, renders.renderer, scope, clipId) ?: error("Editor butuh video sumber project ini. Tunggu unduhan selesai atau unduh ulang videonya.") }
     }
-    val c = MaterialTheme.colorScheme
-    val result = loaded
-    val state = result?.getOrNull()
-    if (state == null) {
-        Column(Modifier.fillMaxSize().padding(20.dp)) {
-            BackLink(onBack)
-            Text(
-                result?.exceptionOrNull()?.message ?: "Memuat klip…",
-                color = if (result == null) c.onBackground.copy(alpha = 0.6f) else Danger,
-                modifier = Modifier.padding(top = 16.dp),
-            )
+    Box(Modifier.fillMaxSize().background(EDITOR_BG)) {
+        val result = loaded ?: return@Box
+        val state = result.getOrNull()
+        if (state == null) {
+            Column {
+                IconCircle(ClipMiIcons.Close, "Tutup editor", onBack, modifier = Modifier.padding(12.dp), background = Color.Transparent, border = false)
+                EmptyState("Video belum siap", result.exceptionOrNull()?.message ?: "", icon = ClipMiIcons.Film)
+            }
+        } else {
+            Editor(state, renders, onBack)
         }
-        return
     }
-    EditorContent(state, renders, onBack)
 }
 
 @Composable
-private fun BackLink(onBack: () -> Unit) {
-    Text(
-        "‹ Klip", color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.SemiBold, fontSize = 15.sp,
-        modifier = Modifier.clip(RoundedCornerShape(12.dp)).clickable(onClick = onBack).padding(vertical = 6.dp, horizontal = 2.dp),
-    )
-}
-
-/** Pemutar AVPlayer untuk pratinjau: posisi video (detik sumber) dibaca setiap frame. */
-@OptIn(ExperimentalForeignApi::class)
-private class PreviewPlayer(path: String) {
-    val player = AVPlayer(uRL = NSURL.fileURLWithPath(path))
-    var playing by mutableStateOf(false)
-        private set
-
-    /** Tujuan lompatan yang belum sampai (AVPlayer mencari frame secara asinkron) dan kapan diminta. */
-    private var target: Double? = null
-    private var targetAt = 0L
-
-    fun seconds(): Double = CMTimeGetSeconds(player.currentTime()).takeIf { !it.isNaN() } ?: 0.0
-
-    fun seek(seconds: Double) {
-        target = seconds
-        targetAt = nowMillis()
-        player.seekToTime(CMTimeMakeWithSeconds(seconds, 600), CMTimeMake(0, 1), CMTimeMake(0, 1))
-    }
-
-    /**
-     * True selama lompatan terakhir belum sampai (paling lama 1,5 detik). Selama itu posisi lama jangan dipakai untuk
-     * melompat lagi: lompatan yang diulang setiap frame saling membatalkan dan video macet.
-     */
-    fun settling(now: Double): Boolean {
-        val to = target ?: return false
-        if (abs(now - to) < 0.15 || nowMillis() - targetAt > 1500) {
-            target = null
-            return false
-        }
-        return true
-    }
-
-    fun play() {
-        player.play()
-        playing = true
-    }
-
-    fun pause() {
-        player.pause()
-        playing = false
-    }
-
-    fun release() {
-        player.pause()
-    }
-
-    val isPlaying: Boolean get() = player.rate > 0f
-}
-
-/**
- * Isian teks yang belum tersimpan (judul, hook, teks sampul): tersimpan sendiri 0,8 detik setelah berhenti mengetik,
- * atau langsung saat Render ditekan.
- */
-private class PendingText {
-    private val commits = LinkedHashMap<String, () -> Unit>()
-
-    fun set(key: String, commit: (() -> Unit)?) {
-        if (commit == null) commits.remove(key) else commits[key] = commit
-    }
-
-    fun commit(key: String) {
-        commits.remove(key)?.invoke()
-    }
-
-    fun commitAll() {
-        val all = commits.values.toList()
-        commits.clear()
-        all.forEach { it() }
-    }
-}
-
-/** Waktu di video sumber untuk detik ke-[output] di video hasil (bagian yang dibuang dilewati). */
-private fun sourceTime(cuts: List<Range>, start: Double, end: Double, output: Double): Double {
-    var left = output
-    for ((from, to) in ClipCuts.kept(cuts, start, end)) {
-        val length = to - from
-        if (left <= length) return from + left
-        left -= length
-    }
-    return end
-}
-
-@OptIn(ExperimentalForeignApi::class)
-@Composable
-private fun EditorContent(state: EditorState, renders: Renders, onBack: () -> Unit) {
-    val c = MaterialTheme.colorScheme
+private fun Editor(state: EditorState, renders: Renders, onClose: () -> Unit) {
+    val c = ClipMi.colors
     val scope = rememberCoroutineScope()
+    val notifier = LocalNotifier.current
     val preview = remember(state.source) { PreviewPlayer(state.source) }
     val pending = remember { PendingText() }
     var position by remember { mutableStateOf(state.snapshot.clip.startTime) }
     var tab by remember { mutableStateOf(0) }
-    var notice by remember { mutableStateOf<Pair<String, Boolean>?>(null) }
-    val notify: (String, Boolean) -> Unit = { text, ok -> notice = text to ok }
-    LaunchedEffect(notice) {
-        if (notice != null) {
-            delay(4000)
-            notice = null
-        }
-    }
+    var compact by remember { mutableStateOf(false) }
 
     val snapshot = state.snapshot
     val spec = remember(snapshot) { state.spec() }
@@ -289,8 +198,7 @@ private fun EditorContent(state: EditorState, renders: Renders, onBack: () -> Un
             position = now
             if (!preview.playing || preview.settling(now)) continue
             // Lompat sedikit melewati akhir potongan: AVPlayer membulatkan waktu ke 1/600 detik, jadi lompatan tepat ke
-            // akhir potongan bisa mendarat sedikit sebelumnya, terhitung masih di dalam potongan, lalu melompat terus
-            // (video macet). Sisa 0,04 detik terakhir potongan juga tidak memicu lompatan lagi.
+            // akhir potongan bisa mendarat sedikit sebelumnya dan terus melompat (video macet).
             val cut = currentCuts.firstOrNull { now >= it.first && now < it.second - 0.04 }
             when {
                 now >= clip.endTime - 0.03 -> {
@@ -302,188 +210,210 @@ private fun EditorContent(state: EditorState, renders: Renders, onBack: () -> Un
             }
         }
     }
-    val seek: (Double) -> Unit = { preview.seek(it) }
+    val seek: (Double) -> Unit = { preview.seek(it); position = it }
 
-    Column(Modifier.fillMaxSize()) {
-        // Pratinjau tetap di atas; isian tab di bawahnya yang bergulir.
-        Column(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                BackLink(onBack)
-                Text(
-                    snapshot.title, fontWeight = FontWeight.Bold, color = c.onBackground, maxLines = 1, overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.weight(1f).padding(start = 4.dp),
-                )
-                SmallButton("Urungkan", enabled = state.canUndo) { state.undo() }
-                SmallButton("Ulangi", enabled = state.canRedo) { state.redo() }
+    // Render selesai/gagal: kabar lewat snackbar (hasil ada di Photos).
+    val rendering = renders.active == state.entity.id
+    val live by remember(state.entity.id) { state.liveClip() }.collectAsState(state.entity)
+    var wasRendering by remember { mutableStateOf(false) }
+    LaunchedEffect(rendering, live?.renderStatus) {
+        if (rendering) wasRendering = true
+        else if (wasRendering) {
+            val latest = live ?: return@LaunchedEffect
+            if (RenderStatus.from(latest.renderStatus).isBusy) return@LaunchedEffect
+            wasRendering = false
+            when (RenderStatus.from(latest.renderStatus)) {
+                RenderStatus.Done -> notifier.show("Render selesai · tersimpan di Photos.")
+                RenderStatus.Failed -> notifier.show(latest.renderError ?: "Render gagal.")
+                else -> Unit
             }
-            BoxWithConstraints(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
+        }
+    }
+
+    Column(Modifier.fillMaxSize().imePadding()) {
+        // Bilah atas: tutup, judul, urungkan/ulangi, render.
+        Row(Modifier.padding(start = 8.dp, end = 12.dp, top = 4.dp, bottom = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+            IconCircle(ClipMiIcons.Close, "Tutup editor", { pending.commitAll(); onClose() }, background = Color.Transparent, border = false)
+            Text(
+                ClipText.displayTitle(snapshot.title, state.entity.partNumber), style = MaterialTheme.typography.titleMedium, color = c.text,
+                maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f).padding(horizontal = 4.dp),
+            )
+            IconCircle(ClipMiIcons.Undo, "Urungkan", { state.undo() }, size = 40.dp, background = Color.Transparent, border = false, enabled = state.canUndo)
+            IconCircle(ClipMiIcons.Redo, "Ulangi", { state.redo() }, size = 40.dp, background = Color.Transparent, border = false, enabled = state.canRedo)
+            PrimaryButton("Render", height = 40.dp, enabled = renders.active == null, onClick = {
+                pending.commitAll()
+                scope.launch {
+                    state.flush()
+                    preview.pause()
+                    renders.start(state.entity.id)
+                }
+            })
+        }
+        if (rendering) {
+            Column(Modifier.padding(horizontal = 16.dp, vertical = 2.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text("Merender ${(renders.fraction * 100).toInt()}% · biarkan aplikasi tetap terbuka", style = MaterialTheme.typography.bodySmall, color = c.textBody, modifier = Modifier.weight(1f))
+                    GhostButton("Batalkan", onClick = { renders.cancel() })
+                }
+                ProgressBar(renders.fraction.toFloat(), color = c.busy)
+            }
+        }
+
+        // Pratinjau (bisa diperkecil supaya panel mendapat ruang lebih).
+        val previewWeight by animateFloatAsState(if (compact) 0.5f else 1f, label = "pratinjau")
+        Box(Modifier.fillMaxWidth().weight(previewWeight).padding(horizontal = 16.dp, vertical = 4.dp)) {
+            BoxWithConstraints(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                 val composition = state.composition
                 val ratio = composition.canvas.width.toFloat() / composition.canvas.height
-                val height = min(maxWidth.value / ratio, 330f)
-                Box(Modifier.height(height.dp).aspectRatio(ratio).clip(RoundedCornerShape(12.dp))) {
-                    Preview(state, composition, preview, mode = when (tab) { 1 -> PreviewMode.Crop; 2 -> PreviewMode.Hook; else -> PreviewMode.None })
+                val boxWidth = min(maxWidth.value, maxHeight.value * ratio)
+                Box(Modifier.width(boxWidth.dp).aspectRatio(ratio).clip(RoundedCornerShape(14.dp)).background(Color.Black)) {
+                    Preview(state, composition, preview, mode = when (tab) { 1 -> PreviewMode.Crop; 3 -> PreviewMode.Hook; else -> PreviewMode.None })
                 }
             }
-            val length = spec.outputDuration().coerceAtLeast(0.1)
-            val output = ClipCuts.map(cuts, spec.startTime, position.coerceIn(spec.startTime, spec.endTime))
-            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                SmallButton(if (preview.playing) "Jeda" else "Putar") {
+            ToolButton(if (compact) ClipMiIcons.Expand else ClipMiIcons.Collapse, if (compact) "Perbesar pratinjau" else "Perkecil pratinjau", Modifier.align(Alignment.BottomEnd)) {
+                compact = !compact
+            }
+        }
+
+        // Putar/jeda, bilah geser tipis di waktu video hasil, dan waktu.
+        Row(Modifier.fillMaxWidth().padding(start = 8.dp, end = 16.dp, top = 2.dp, bottom = 2.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Box(
+                Modifier.size(44.dp).clip(RoundedCornerShape(12.dp)).clickable(role = Role.Button) {
                     if (preview.playing) preview.pause() else {
-                        if (position < spec.startTime || position >= spec.endTime - 0.05) preview.seek(spec.startTime)
+                        if (position < spec.startTime || position >= spec.endTime - 0.05) seek(spec.startTime)
                         preview.play()
                     }
-                }
-                Slider(
-                    value = (output / length).toFloat().coerceIn(0f, 1f),
-                    onValueChange = { preview.seek(sourceTime(cuts, spec.startTime, spec.endTime, it * length)) },
-                    modifier = Modifier.weight(1f),
-                )
-                Text("${Timecode.format(output.coerceAtLeast(0.0))} / ${Timecode.format(length)}", fontSize = 12.sp, color = c.onBackground.copy(alpha = 0.6f))
-            }
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                TABS.forEachIndexed { index, label ->
-                    val active = index == tab
-                    Text(
-                        label, fontSize = 14.sp, fontWeight = if (active) FontWeight.Bold else FontWeight.Normal,
-                        color = if (active) c.primary else c.onBackground.copy(alpha = 0.7f),
-                        maxLines = 1,
-                        modifier = Modifier.weight(1f).clip(RoundedCornerShape(12.dp))
-                            .background(if (active) c.primary.copy(alpha = 0.16f) else c.onBackground.copy(alpha = 0.05f))
-                            .clickable { tab = index }.padding(vertical = 9.dp).wrapContentSize(Alignment.Center),
-                    )
-                }
-            }
+                },
+                contentAlignment = Alignment.Center,
+            ) { Icon(if (preview.playing) ClipMiIcons.Pause else ClipMiIcons.Play, null, tint = Color.White, modifier = Modifier.size(24.dp)) }
+            val total = spec.outputDuration()
+            val t = ClipCuts.map(cuts, spec.startTime, position.coerceIn(spec.startTime, spec.endTime))
+            SeekBar(if (total > 0) (t / total).toFloat() else 0f, Modifier.weight(1f)) { f -> seek(sourceTime(cuts, spec.startTime, spec.endTime, f * total)) }
+            Text("${Timecode.format(t)} / ${Timecode.format(total)}", style = MaterialTheme.typography.labelMedium, color = c.textMuted)
         }
 
-        Box(Modifier.weight(1f).fillMaxWidth()) {
-            when (tab) {
-                0 -> TrimTab(state, position, preview.playing, seek, notify)
-                1 -> CropTab(state, position, seek)
-                2 -> HookTab(state, pending)
-                3 -> StyleTab(state)
-                else -> CoverTab(state, position, pending, notify)
-            }
-        }
-
-        // Aksi bawah: render (menyimpan isian yang belum tersimpan dulu) dan progres render.
-        Column(Modifier.fillMaxWidth().background(c.surfaceContainer).padding(horizontal = 20.dp, vertical = 12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            notice?.let { (text, ok) -> Text(text, fontSize = 13.sp, color = if (ok) c.primary else Danger, maxLines = 3, overflow = TextOverflow.Ellipsis) }
-            val rendering = renders.active == state.entity.id
-            if (rendering) {
-                LinearProgressIndicator(progress = { renders.fraction.toFloat() }, modifier = Modifier.fillMaxWidth().height(6.dp), color = c.primary)
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text("Merender ${(renders.fraction * 100).toInt()}% · biarkan aplikasi tetap terbuka", fontSize = 13.sp, color = c.onSurface.copy(alpha = 0.6f), modifier = Modifier.weight(1f))
-                    SmallButton("Batal") { renders.cancel() }
+        // Panel tab dan deretan tab.
+        Column(Modifier.fillMaxWidth().weight(1.05f).clip(RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp)).background(EDITOR_PANEL)) {
+            Box(Modifier.weight(1f).fillMaxWidth()) {
+                when (tab) {
+                    0 -> TrimPanel(state, position, preview.playing, seek)
+                    1 -> CropPanel(state, position, seek)
+                    2 -> StylePanel(state)
+                    3 -> HookPanel(state, pending)
+                    else -> CoverPanel(state, position, pending)
                 }
-            } else {
-                val clip by remember(state.entity.id) { state.liveClip() }.collectAsState(state.entity)
-                Button(
-                    onClick = {
-                        pending.commitAll()
-                        scope.launch {
-                            state.flush()
-                            preview.pause()
-                            notice = null
-                            renders.start(state.entity.id)
-                        }
-                    },
-                    enabled = renders.active == null, modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(12.dp),
-                    colors = ButtonDefaults.buttonColors(containerColor = c.primary),
-                ) { Text(if (renders.active != null) "Menunggu render lain…" else "Render") }
-                val latest = clip ?: state.entity
-                when (RenderStatus.from(latest.renderStatus)) {
-                    RenderStatus.Done -> Text(
-                        if (latest.changedAfterRender) "Diubah setelah render terakhir · render ulang untuk memperbarui" else "Sudah dirender · tersimpan di Photos",
-                        fontSize = 12.sp, color = if (latest.changedAfterRender) Warn else c.primary,
-                    )
-                    RenderStatus.Failed -> latest.renderError?.let { Text(it, fontSize = 12.sp, color = Danger, maxLines = 3, overflow = TextOverflow.Ellipsis) }
-                    else -> Text("Perubahan tersimpan otomatis.", fontSize = 12.sp, color = c.onSurface.copy(alpha = 0.5f))
+            }
+            Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 6.dp)) {
+                TABS.forEachIndexed { i, item ->
+                    val active = tab == i
+                    Column(
+                        Modifier.weight(1f).clip(RoundedCornerShape(16.dp)).clickable(role = Role.Tab) { pending.commitAll(); tab = i }.padding(vertical = 4.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.spacedBy(4.dp),
+                    ) {
+                        Box(
+                            Modifier.size(width = 48.dp, height = 32.dp).clip(RoundedCornerShape(16.dp)).background(if (active) c.accentSoft else Color.Transparent),
+                            contentAlignment = Alignment.Center,
+                        ) { Icon(item.icon, null, tint = if (active) c.accent else c.textMuted, modifier = Modifier.size(20.dp)) }
+                        Text(
+                            item.label,
+                            style = MaterialTheme.typography.labelSmall.copy(fontSize = 11.sp, fontWeight = if (active) FontWeight.Bold else FontWeight.SemiBold),
+                            color = if (active) c.accent else c.textMuted,
+                        )
+                    }
                 }
             }
         }
     }
 }
 
-// ---------------------------------------------------------------------------------------------------------------
-// Komponen kecil
-// ---------------------------------------------------------------------------------------------------------------
-
 @Composable
-private fun Section(title: String, hint: String? = null, content: @Composable () -> Unit) {
-    val c = MaterialTheme.colorScheme
-    Column(
-        Modifier.fillMaxWidth().clip(RoundedCornerShape(20.dp)).background(c.surfaceContainer).padding(16.dp),
-        verticalArrangement = Arrangement.spacedBy(10.dp),
+private fun ToolButton(icon: ImageVector, label: String, modifier: Modifier = Modifier, onClick: () -> Unit) {
+    val c = ClipMi.colors
+    val shape = RoundedCornerShape(12.dp)
+    Box(
+        modifier.padding(8.dp).size(40.dp).clip(shape).background(EDITOR_CARD).border(1.dp, c.line, shape)
+            .clickable(role = Role.Button, onClickLabel = label, onClick = onClick),
+        contentAlignment = Alignment.Center,
+    ) { Icon(icon, label, tint = Color.White, modifier = Modifier.size(20.dp)) }
+}
+
+/** Bilah geser tipis (2 dp) dengan bulatan putih; ketuk atau seret untuk pindah. [fraction] 0–1. */
+@Composable
+private fun SeekBar(fraction: Float, modifier: Modifier, onSeek: (Float) -> Unit) {
+    val c = ClipMi.colors
+    val update by rememberUpdatedState(onSeek)
+    Canvas(
+        modifier
+            .height(28.dp)
+            .pointerInput(Unit) { detectTapGestures { update((it.x / size.width).coerceIn(0f, 1f)) } }
+            .pointerInput(Unit) { detectHorizontalDragGestures { change, _ -> update((change.position.x / size.width).coerceIn(0f, 1f)) } },
     ) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Text(title, fontWeight = FontWeight.Bold, color = c.onSurface, modifier = Modifier.weight(1f))
-            hint?.let { Text(it, fontSize = 12.sp, color = c.onSurface.copy(alpha = 0.55f)) }
-        }
-        content()
+        val y = size.height / 2
+        val track = 2.dp.toPx()
+        val x = size.width * fraction.coerceIn(0f, 1f)
+        drawRoundRect(c.line, topLeft = Offset(0f, y - track / 2), size = Size(size.width, track), cornerRadius = CornerRadius(track))
+        drawRoundRect(Color.White.copy(alpha = 0.8f), topLeft = Offset(0f, y - track / 2), size = Size(x, track), cornerRadius = CornerRadius(track))
+        drawCircle(Color.White, radius = 6.dp.toPx(), center = Offset(x, y))
+    }
+}
+
+// ---------------------------------------------------------------------------------------------------------------
+// Komponen panel
+// ---------------------------------------------------------------------------------------------------------------
+
+@Composable
+private fun PanelTitle(title: String, hint: String? = null) {
+    val c = ClipMi.colors
+    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+        Text(title, style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.ExtraBold), color = c.text, modifier = Modifier.weight(1f))
+        hint?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = c.textMuted) }
     }
 }
 
 @Composable
-private fun SmallButton(label: String, enabled: Boolean = true, onClick: () -> Unit) {
-    OutlinedButton(
-        onClick = onClick, enabled = enabled, shape = RoundedCornerShape(12.dp),
-        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
-    ) { Text(label, fontSize = 13.sp, maxLines = 1) }
-}
-
-/** Tombol aksi kotak membulat 12dp (bukan pil). */
-@Composable
-private fun Action(label: String, enabled: Boolean = true, danger: Boolean = false, modifier: Modifier = Modifier, onClick: () -> Unit) {
-    val c = MaterialTheme.colorScheme
-    val color = if (danger) Danger else c.primary
-    Text(
-        label, fontSize = 14.sp, fontWeight = FontWeight.SemiBold, maxLines = 1,
-        color = if (enabled) color else c.onSurface.copy(alpha = 0.35f),
-        modifier = modifier.clip(RoundedCornerShape(12.dp))
-            .background(if (enabled) color.copy(alpha = 0.12f) else c.onSurface.copy(alpha = 0.05f))
-            .clickable(enabled = enabled, onClick = onClick).padding(horizontal = 14.dp, vertical = 10.dp),
-    )
+private fun SectionTitle(title: String, modifier: Modifier = Modifier) {
+    Text(title, style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.ExtraBold), color = ClipMi.colors.text, modifier = modifier.padding(horizontal = 16.dp))
 }
 
 @Composable
-private fun ChoiceRow(options: List<Pair<String, String>>, selected: String?, onSelect: (String) -> Unit) {
-    val c = MaterialTheme.colorScheme
-    Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        for ((key, name) in options) {
-            val active = key == selected
-            Text(
-                name, fontSize = 14.sp, fontWeight = if (active) FontWeight.SemiBold else FontWeight.Normal,
-                color = if (active) c.primary else c.onSurface,
-                modifier = Modifier.clip(RoundedCornerShape(12.dp))
-                    .background(if (active) c.primary.copy(alpha = 0.16f) else c.onSurface.copy(alpha = 0.06f))
-                    .clickable { onSelect(key) }.padding(horizontal = 14.dp, vertical = 10.dp),
-            )
-        }
-    }
-}
-
-@Composable
-private fun ToggleRow(title: String, subtitle: String? = null, checked: Boolean, onChange: (Boolean) -> Unit) {
-    val c = MaterialTheme.colorScheme
+private fun Toggle(title: String, subtitle: String?, checked: Boolean, onChange: (Boolean) -> Unit) {
+    val c = ClipMi.colors
     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
         Column(Modifier.weight(1f)) {
-            Text(title, color = c.onSurface)
-            subtitle?.let { Text(it, fontSize = 12.sp, color = c.onSurface.copy(alpha = 0.55f)) }
+            Text(title, style = MaterialTheme.typography.titleSmall, color = c.text)
+            subtitle?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = c.textMuted) }
         }
-        Switch(checked, onChange)
+        ClipMiSwitch(checked, onChange)
+    }
+}
+
+@Composable
+private fun LabeledSlider(label: String, value: String, current: Float, range: ClosedFloatingPointRange<Float>, onChange: (Float) -> Unit, onDone: () -> Unit) {
+    val c = ClipMi.colors
+    Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+        Row {
+            Text(label, style = MaterialTheme.typography.labelMedium, color = c.textBody, modifier = Modifier.weight(1f))
+            Text(value, style = MaterialTheme.typography.labelMedium, color = c.text)
+        }
+        ClipMiSlider(value = current, onValueChange = onChange, valueRange = range, onValueChangeFinished = onDone)
     }
 }
 
 /**
- * Kolom teks yang tersimpan sendiri 0,8 detik setelah berhenti mengetik ([onSave] menerima teks apa adanya). Nilai
- * dari luar (urungkan) menggantikan isi kolom.
+ * Kolom teks yang tersimpan sendiri 0,8 detik setelah berhenti mengetik (centang hijau sebentar sebagai tanda), atau
+ * saat pindah tab/keluar. Nilai dari luar (urungkan) menggantikan isi kolom.
  */
 @Composable
-private fun AutoSaveField(key: String, value: String, label: String, pending: PendingText, maxLines: Int = 3, onSave: (String) -> Unit) {
+private fun AutoSaveField(
+    key: String, value: String, pending: PendingText, label: String? = null, placeholder: String? = null, supporting: String? = null,
+    minLines: Int = 1, maxLines: Int = 3, onSave: (String) -> Unit,
+) {
+    val c = ClipMi.colors
     var text by remember(key) { mutableStateOf(value) }
+    var saved by remember { mutableStateOf(false) }
     val save by rememberUpdatedState(onSave)
     LaunchedEffect(value) { if (value != text.trim()) text = value }
-    // Keluar dari tab/editor sebelum jeda selesai: teks tetap tersimpan.
     DisposableEffect(key) { onDispose { pending.commit(key) } }
     LaunchedEffect(text) {
         if (text.trim() == value) {
@@ -495,40 +425,53 @@ private fun AutoSaveField(key: String, value: String, label: String, pending: Pe
         delay(800)
         pending.set(key, null)
         save(current)
+        saved = true
+        delay(2000)
+        saved = false
     }
-    OutlinedTextField(text, { text = it }, Modifier.fillMaxWidth(), label = { Text(label) }, maxLines = maxLines)
+    Field(
+        text, { text = it }, label = label, placeholder = placeholder, supporting = supporting, minLines = minLines, maxLines = maxLines,
+        trailing = if (saved) ({ Icon(ClipMiIcons.Check, contentDescription = "Tersimpan", tint = c.accent, modifier = Modifier.padding(end = 12.dp).size(20.dp)) }) else null,
+    )
 }
 
+/** Waktu dengan persepuluhan detik, misalnya "26:27,4". */
+private fun precise(seconds: Double): String = Timecode.format(seconds) + "," + (((seconds * 10).roundToInt() % 10) + 10) % 10
+
 /** Angka satu desimal dengan koma, misalnya 2,5. */
-private fun oneDecimal(value: Double): String {
+private fun seconds(value: Double): String {
     val tenths = (abs(value) * 10).roundToInt()
     return (if (value < 0 && tenths > 0) "−" else "") + "${tenths / 10},${tenths % 10}"
 }
 
-/** Waktu dengan satu desimal, misalnya 01:23,4. */
-private fun fineTime(seconds: Double): String = "${Timecode.format(seconds)},${((seconds * 10).roundToInt() % 10 + 10) % 10}"
-
-private fun parse(hex: String?): Color? =
-    hex?.trimStart('#')?.takeIf { it.length == 6 }?.toLongOrNull(16)?.let { Color(0xFF000000 or it) }
-
-private fun decodeImage(path: String?): ImageBitmap? =
-    path?.let { readBytes(it) }?.let { bytes -> runCatching { SkiaImage.makeFromEncoded(bytes).toComposeImageBitmap() }.getOrNull() }
-
 // ---------------------------------------------------------------------------------------------------------------
-// Tab Potong
+// Potong: timeline, ujung mulai/selesai, dan teks yang berjalan mengikuti video
 // ---------------------------------------------------------------------------------------------------------------
 
 /**
- * Rentang klip dan isinya (padanan TrimPanel Android): geser mulai/selesai, aksi cepat, lalu kata per baris subtitle.
- * Ketuk kata = buang/kembalikan; tekan lama = ubah teks, sembunyikan, kata kunci. Jeda dari suara bisa dibuang.
+ * Panel Potong (sama dengan Android): timeline (ketuk untuk lompat, seret untuk menelusuri) dengan tombol ◀ ▶ mulai di
+ * kiri dan selesai di kanan (ketuk = 0,1 dtk, tahan = terus bergeser makin cepat), aksi cepat, lalu teks klip yang
+ * mengikuti video. Ketuk kata untuk buang/kembalikan, tahan untuk opsi.
  */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-private fun TrimTab(state: EditorState, position: Double, playing: Boolean, seek: (Double) -> Unit, notify: (String, Boolean) -> Unit) {
-    val c = MaterialTheme.colorScheme
+private fun TrimPanel(state: EditorState, position: Double, playing: Boolean, seek: (Double) -> Unit) {
+    val c = ClipMi.colors
+    val notifier = LocalNotifier.current
     val snapshot = state.snapshot
     val clip = snapshot.clip
     val editor = remember(snapshot.captionStyleId) { state.editor() }
+    val limit = state.sourceDuration ?: state.segments.maxOfOrNull { it.end } ?: clip.endTime
+    // Rentang timeline: klip ±10 detik (dibulatkan ke 10 detik), tetap selama ujung sedang digeser.
+    var holding by remember { mutableStateOf(false) }
+    var window by remember { mutableStateOf(0.0 to 0.0) }
+    LaunchedEffect(clip.startTime, clip.endTime, holding) {
+        if (!holding) window = maxOf(0.0, floor((clip.startTime - 10) / 10) * 10) to minOf(limit, ceil((clip.endTime + 10) / 10) * 10)
+    }
+    val (from, to) = window
+    val words = remember(window, state.segments) {
+        state.segments.filter { it.end >= from && it.start <= to }.flatMap { it.words.orEmpty() }.filter { it.end >= from && it.start <= to }
+    }
     val spec = remember(snapshot) { state.spec() }
     val cuts = remember(spec) { spec.cutRanges() }
     val lines = remember(snapshot) { editor.lines(clip) }
@@ -536,136 +479,196 @@ private fun TrimTab(state: EditorState, position: Double, playing: Boolean, seek
     val pauses = remember(snapshot, state.silences) { state.silences?.let { editor.pauses(clip, it) }.orEmpty() }
     var chosen by remember { mutableStateOf<EditorWord?>(null) }
     LaunchedEffect(clip.startTime, clip.endTime) { state.detectSilences() }
-    val tooShort = "Sisa klip terlalu pendek (minimal ${oneDecimal(ClipSpec.MIN_DURATION)} detik)."
+    val tooShort = "Sisa klip terlalu pendek (minimal ${seconds(ClipSpec.MIN_DURATION)} detik)."
 
-    var offset = 0
-    val ranges = lines.map { line -> (offset until offset + line.words.orEmpty().size).also { offset += line.words.orEmpty().size } }
-    val active = lines.indexOfLast { it.start <= position + 0.05 }.coerceAtLeast(0)
-    val listState = rememberLazyListState()
-    // Kalimat yang sedang terdengar digulir ke atas daftar saat video berjalan.
-    LaunchedEffect(active, playing) {
-        if (playing && !listState.isScrollInProgress && lines.isNotEmpty()) listState.animateScrollToItem(active + HEADER_ITEMS)
+    fun nudge(edge: String, delta: Double) {
+        state.drag { s -> s.copy(clip = editor.nudge(s.clip, edge, delta)) }
+        val now = state.snapshot.clip
+        seek(if (edge == "start") now.startTime else maxOf(now.startTime, now.endTime - 1.5))
     }
 
-    LazyColumn(
-        Modifier.fillMaxSize(),
-        state = listState,
-        contentPadding = PaddingValues(horizontal = 20.dp, vertical = 8.dp),
-        verticalArrangement = Arrangement.spacedBy(10.dp),
-    ) {
-        item {
-            Section("Rentang klip", "hasil ${Timecode.format(spec.outputDuration())}" + if (cuts.isNotEmpty()) " · ${cuts.size} dibuang" else "") {
-                TimeNudge("Mulai", clip.startTime) { delta ->
-                    state.applyClip { editor.nudge(it, "start", delta) }
-                    seek(state.snapshot.clip.startTime)
-                }
-                TimeNudge("Selesai", clip.endTime) { delta ->
-                    state.applyClip { editor.nudge(it, "end", delta) }
-                    seek(max(state.snapshot.clip.startTime, state.snapshot.clip.endTime - 1.5))
-                }
-            }
-        }
-        item {
-            Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Action("Mulai di sini", enabled = position < clip.endTime - ClipSpec.MIN_DURATION) { state.applyClip { editor.setRange(it, position, it.endTime) } }
-                Action("Selesai di sini", enabled = position > clip.startTime + ClipSpec.MIN_DURATION) { state.applyClip { editor.setRange(it, it.startTime, position) } }
-                val longPauses = pauses.filter { !it.removed && it.length >= 0.6 }
-                if (longPauses.isNotEmpty()) {
-                    Action("Buang ${longPauses.size} jeda") {
-                        if (!state.applyClip { editor.cleanPauses(it, state.silences.orEmpty(), 0.6) }) notify(tooShort, false)
-                    }
-                }
-                Action("Tempel ke batas kata") { state.applyClip { editor.snapToWords(it) } }
-                Action("+ Kalimat sebelum", enabled = editor.neighbour(clip, "before") != null) { state.applyClip { editor.extend(it, "before") } }
-                Action("+ Kalimat sesudah", enabled = editor.neighbour(clip, "after") != null) { state.applyClip { editor.extend(it, "after") } }
-            }
-        }
-        item {
-            val hint = when {
-                state.silenceError != null -> "Jeda tidak terbaca: ${state.silenceError}"
-                state.silences == null -> "Mencari jeda di suara klip…"
-                else -> "Ketuk kata untuk membuang · tekan lama untuk ubah teks atau sembunyikan."
-            }
-            Text(hint, fontSize = 12.sp, color = if (state.silenceError != null) Danger else c.onBackground.copy(alpha = 0.55f))
-        }
-        itemsIndexed(lines) { index, line ->
-            val range = ranges[index]
-            val marked = Keywords.mark(line.words.orEmpty().map { it.text }, snapshot.keywords)
-            val current = index == active && position >= clip.startTime && position <= clip.endTime
-            Column(
+    Column(Modifier.fillMaxSize().padding(top = 12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        // Timeline dengan tombol ujung: kiri = mulai, kanan = selesai.
+        Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp).height(52.dp), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            NudgeColumn("mulai", onStart = { holding = true }, onEnd = { holding = false; state.endDrag() }) { delta -> nudge("start", delta) }
+            val span = (to - from).takeIf { it > 0 } ?: 1.0
+            Canvas(
                 Modifier
-                    .fillMaxWidth()
-                    .clip(RoundedCornerShape(14.dp))
-                    .background(c.surfaceContainer)
-                    .border(1.dp, if (current) c.primary.copy(alpha = 0.6f) else Color.Transparent, RoundedCornerShape(14.dp))
-                    .padding(horizontal = 12.dp, vertical = 10.dp),
-                verticalArrangement = Arrangement.spacedBy(8.dp),
+                    .weight(1f)
+                    .fillMaxSize()
+                    .pointerInput(window) { detectTapGestures { offset -> seek(from + span * (offset.x / size.width).coerceIn(0f, 1f)) } }
+                    .pointerInput(window, "scrub") { detectDragGestures { change, _ -> seek(from + span * (change.position.x / size.width).coerceIn(0f, 1f)) } },
             ) {
-                Text(
-                    Timecode.format(ClipCuts.map(cuts, spec.startTime, line.start)),
-                    fontSize = 12.sp,
-                    color = if (current) c.primary else c.onSurface.copy(alpha = 0.55f),
-                    modifier = Modifier.clip(RoundedCornerShape(6.dp)).clickable { seek(line.start) }.padding(end = 6.dp),
-                )
-                FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                    val togglePause: (Pause) -> Unit = { pause -> if (!state.applyClip { editor.togglePause(it, pause) }) notify(tooShort, false) }
-                    if (index == 0) pauses.filter { it.after < range.first }.forEach { pause -> PauseChip(pause) { togglePause(pause) } }
-                    for ((k, i) in range.withIndex()) {
-                        val word = clipWords.getOrNull(i) ?: continue
-                        WordChip(
-                            word, keyword = k in marked, speaking = current && position >= word.start && position < word.end,
-                            onClick = {
-                                val ok = state.applyClip { if (word.cut) editor.restore(it, word.start, word.end) else editor.cut(it, word.start, word.end) }
-                                if (!ok && !word.cut) notify(tooShort, false)
-                            },
-                            onLongClick = { chosen = word },
-                        )
-                        pauses.filter { it.after == i }.forEach { pause -> PauseChip(pause) { togglePause(pause) } }
+                val w = size.width
+                val h = size.height
+                fun x(t: Double) = ((t - from) / span * w).toFloat()
+                drawRoundRect(EDITOR_CARD, cornerRadius = CornerRadius(10.dp.toPx()))
+                for (word in words) {
+                    val inside = word.end > clip.startTime && word.start < clip.endTime
+                    drawRoundRect(
+                        if (inside) Color(0xFF3B5A50) else Color(0xFF26302D),
+                        topLeft = Offset(x(word.start) + 1, h * 0.3f),
+                        size = Size(maxOf(2f, x(word.end) - x(word.start) - 2), h * 0.4f),
+                        cornerRadius = CornerRadius(2.dp.toPx()),
+                    )
+                }
+                for ((a, b) in cuts) drawRect(c.bad.copy(alpha = 0.45f), topLeft = Offset(x(a), h * 0.18f), size = Size(x(b) - x(a), h * 0.64f))
+                val left = x(clip.startTime)
+                val right = x(clip.endTime)
+                drawRect(c.accent.copy(alpha = 0.14f), topLeft = Offset(left, 0f), size = Size(right - left, h))
+                val edge = 3.dp.toPx()
+                drawRect(c.accent, topLeft = Offset(left, 0f), size = Size(edge, h))
+                drawRect(c.accent, topLeft = Offset(right - edge, 0f), size = Size(edge, h))
+                val px = x(position)
+                if (px in 0f..w) drawRect(Color.White, topLeft = Offset(px - 1.dp.toPx(), 0f), size = Size(2.dp.toPx(), h))
+            }
+            NudgeColumn("selesai", onStart = { holding = true }, onEnd = { holding = false; state.endDrag() }) { delta -> nudge("end", delta) }
+        }
+        Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp), verticalAlignment = Alignment.CenterVertically) {
+            Text(precise(clip.startTime), style = MaterialTheme.typography.labelMedium, color = c.text)
+            Text(
+                "hasil ${Timecode.format(spec.outputDuration())}" + if (cuts.isNotEmpty()) " · ${cuts.size} dibuang" else "",
+                style = MaterialTheme.typography.labelSmall, color = c.textMuted, textAlign = TextAlign.Center, modifier = Modifier.weight(1f),
+            )
+            Text(precise(clip.endTime), style = MaterialTheme.typography.labelMedium, color = c.text)
+        }
+
+        ChipRow(gutter = 16.dp) {
+            ActionChip("Mulai di sini", { state.applyClip { editor.setRange(it, position, it.endTime) } }, height = 34.dp, enabled = position < clip.endTime - ClipSpec.MIN_DURATION)
+            ActionChip("Selesai di sini", { state.applyClip { editor.setRange(it, it.startTime, position) } }, height = 34.dp, enabled = position > clip.startTime + ClipSpec.MIN_DURATION)
+            val longPauses = pauses.filter { !it.removed && it.length >= 0.6 }
+            if (longPauses.isNotEmpty()) {
+                ActionChip("Buang ${longPauses.size} jeda", {
+                    if (!state.applyClip { editor.cleanPauses(it, state.silences.orEmpty(), 0.6) }) notifier.show(tooShort)
+                }, height = 34.dp)
+            }
+            ActionChip("Tempel ke batas kata", { state.applyClip { editor.snapToWords(it) } }, height = 34.dp)
+            ActionChip("+ Kalimat sebelum", { state.applyClip { editor.extend(it, "before") } }, height = 34.dp, enabled = editor.neighbour(clip, "before") != null)
+            ActionChip("+ Kalimat sesudah", { state.applyClip { editor.extend(it, "after") } }, height = 34.dp, enabled = editor.neighbour(clip, "after") != null)
+        }
+        state.silenceError?.let { Text("Jeda tidak terbaca: $it", style = MaterialTheme.typography.bodySmall, color = c.bad, modifier = Modifier.padding(horizontal = 16.dp)) }
+
+        // Teks berjalan: kalimat yang sedang terdengar disorot dan digulir ke atas daftar saat video berjalan.
+        val listState = rememberLazyListState()
+        val active = lines.indexOfLast { it.start <= position + 0.05 }.coerceAtLeast(0)
+        LaunchedEffect(active, playing) {
+            if (playing && !listState.isScrollInProgress && lines.isNotEmpty()) listState.animateScrollToItem(active, scrollOffset = -8)
+        }
+        var offset = 0
+        val ranges = lines.map { line -> (offset until offset + line.words.orEmpty().size).also { offset += line.words.orEmpty().size } }
+        LazyColumn(
+            Modifier.fillMaxSize(),
+            state = listState,
+            contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 4.dp, bottom = 16.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            itemsIndexed(lines) { index, line ->
+                val range = ranges[index]
+                val marked = Keywords.mark(line.words.orEmpty().map { it.text }, snapshot.keywords)
+                val current = index == active && position >= clip.startTime && position <= clip.endTime
+                Column(
+                    Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(14.dp))
+                        .background(EDITOR_CARD)
+                        .border(1.dp, if (current) c.accent.copy(alpha = 0.6f) else Color.Transparent, RoundedCornerShape(14.dp))
+                        .padding(horizontal = 12.dp, vertical = 10.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    Text(
+                        Timecode.format(ClipCuts.map(cuts, spec.startTime, line.start)),
+                        style = MaterialTheme.typography.labelSmall,
+                        color = if (current) c.accent else c.textMuted,
+                        modifier = Modifier.clip(RoundedCornerShape(6.dp)).clickable { seek(line.start) }.padding(end = 6.dp),
+                    )
+                    FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        val togglePause: (Pause) -> Unit = { pause -> if (!state.applyClip { editor.togglePause(it, pause) }) notifier.show(tooShort) }
+                        if (index == 0) pauses.filter { it.after < range.first }.forEach { pause -> PauseChip(pause) { togglePause(pause) } }
+                        for ((k, i) in range.withIndex()) {
+                            val word = clipWords.getOrNull(i) ?: continue
+                            WordChip(
+                                word, keyword = k in marked, speaking = current && position >= word.start && position < word.end,
+                                onClick = {
+                                    val ok = state.applyClip { if (word.cut) editor.restore(it, word.start, word.end) else editor.cut(it, word.start, word.end) }
+                                    if (!ok && !word.cut) notifier.show(tooShort)
+                                },
+                                onLongClick = { chosen = word },
+                            )
+                            pauses.filter { it.after == i }.forEach { pause -> PauseChip(pause) { togglePause(pause) } }
+                        }
                     }
                 }
             }
         }
-        item { Box(Modifier.height(8.dp)) }
     }
 
-    chosen?.let { word -> WordDialog(state, editor, word, seek, notify) { chosen = null } }
+    chosen?.let { word -> WordSheet(state, editor, word, seek) { chosen = null } }
 }
 
-/** Jumlah item di atas daftar baris (rentang, aksi, petunjuk). */
-private const val HEADER_ITEMS = 3
-
+/** Dua tombol kecil bertumpuk (▶ atas = maju, ◀ bawah = mundur) untuk satu ujung klip. */
 @Composable
-private fun TimeNudge(label: String, value: Double, onNudge: (Double) -> Unit) {
-    val c = MaterialTheme.colorScheme
-    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-        Column(Modifier.width(76.dp)) {
-            Text(label, fontSize = 12.sp, color = c.onSurface.copy(alpha = 0.6f))
-            Text(fineTime(value), fontWeight = FontWeight.SemiBold, color = c.onSurface)
-        }
-        for ((text, delta) in listOf("−1" to -1.0, "−0,1" to -0.1, "+0,1" to 0.1, "+1" to 1.0)) {
-            SmallButton(text) { onNudge(delta) }
-        }
+private fun NudgeColumn(edge: String, onStart: () -> Unit, onEnd: () -> Unit, onStep: (Double) -> Unit) {
+    Column(Modifier.width(34.dp).fillMaxSize(), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        RepeatButton(ClipMiIcons.Play, "Geser $edge maju 0,1 detik", Modifier.weight(1f), onStart, onEnd) { onStep(0.1) }
+        RepeatButton(ClipMiIcons.Play, "Geser $edge mundur 0,1 detik", Modifier.weight(1f).rotate(180f), onStart, onEnd) { onStep(-0.1) }
+    }
+}
+
+/** Tombol yang mengulang aksinya selama ditahan: sekali saat ditekan, lalu makin cepat (400 ms, lalu turun ke 40 ms). */
+@Composable
+private fun RepeatButton(icon: ImageVector, label: String, modifier: Modifier, onStart: () -> Unit, onEnd: () -> Unit, onStep: () -> Unit) {
+    val c = ClipMi.colors
+    val step by rememberUpdatedState(onStep)
+    val scope = rememberCoroutineScope()
+    Box(
+        modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(8.dp))
+            .background(EDITOR_CARD)
+            .semantics { contentDescription = label; role = Role.Button }
+            .pointerInput(Unit) {
+                awaitEachGesture {
+                    awaitFirstDown()
+                    onStart()
+                    step()
+                    val job = scope.launch {
+                        var wait = 400L
+                        while (true) {
+                            delay(wait)
+                            step()
+                            wait = maxOf(40L, (wait * 0.75).toLong())
+                        }
+                    }
+                    waitForUpOrCancellation()
+                    job.cancel()
+                    onEnd()
+                }
+            },
+        contentAlignment = Alignment.Center,
+    ) {
+        Icon(icon, null, tint = c.text, modifier = Modifier.size(12.dp))
     }
 }
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun WordChip(word: EditorWord, keyword: Boolean, speaking: Boolean, onClick: () -> Unit, onLongClick: () -> Unit) {
-    val c = MaterialTheme.colorScheme
+    val c = ClipMi.colors
     val (bg, fg) = when {
-        word.cut -> Danger.copy(alpha = 0.16f) to Danger
-        speaking -> c.onSurface to c.surface
-        word.hidden -> Color.Transparent to c.onSurface.copy(alpha = 0.5f)
-        keyword -> c.primary.copy(alpha = 0.18f) to c.primary
-        else -> c.onSurface.copy(alpha = 0.07f) to c.onSurface
+        word.cut -> c.badSoft to c.bad
+        speaking -> Color.White to EDITOR_BG
+        word.hidden -> Color.Transparent to c.textMuted
+        keyword -> c.accentSoft to c.accent
+        else -> Color(0xFF26302D) to c.text
     }
     Text(
-        word.text, fontSize = 15.sp, fontWeight = FontWeight.SemiBold, color = fg,
-        textDecoration = if (word.cut) TextDecoration.LineThrough else null,
+        word.text,
+        style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.SemiBold, textDecoration = if (word.cut) TextDecoration.LineThrough else null),
+        color = fg,
         modifier = Modifier
             .clip(RoundedCornerShape(12.dp))
             .background(bg)
-            .then(if (word.hidden) Modifier.border(1.dp, c.onSurface.copy(alpha = 0.25f), RoundedCornerShape(12.dp)) else Modifier)
+            .then(if (word.hidden) Modifier.border(1.dp, c.lineStrong, RoundedCornerShape(12.dp)) else Modifier)
             .combinedClickable(onClick = onClick, onLongClick = onLongClick)
             .padding(horizontal = 10.dp, vertical = 6.dp),
     )
@@ -673,15 +676,15 @@ private fun WordChip(word: EditorWord, keyword: Boolean, speaking: Boolean, onCl
 
 @Composable
 private fun PauseChip(pause: Pause, onClick: () -> Unit) {
-    val c = MaterialTheme.colorScheme
+    val c = ClipMi.colors
     Text(
-        "jeda ${oneDecimal(pause.length)} dtk", fontSize = 13.sp, fontWeight = FontWeight.Bold,
-        textDecoration = if (pause.removed) TextDecoration.LineThrough else null,
-        color = if (pause.removed) c.onSurface.copy(alpha = 0.45f) else Warn,
+        "jeda ${seconds(pause.length)} dtk",
+        style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold, textDecoration = if (pause.removed) TextDecoration.LineThrough else null),
+        color = if (pause.removed) c.textMuted else c.warn,
         modifier = Modifier
             .clip(RoundedCornerShape(12.dp))
-            .background(if (pause.removed) Color.Transparent else Warn.copy(alpha = 0.14f))
-            .border(1.dp, if (pause.removed) c.onSurface.copy(alpha = 0.25f) else Color.Transparent, RoundedCornerShape(12.dp))
+            .background(if (pause.removed) Color.Transparent else c.warnSoft)
+            .border(1.dp, if (pause.removed) c.lineStrong else Color.Transparent, RoundedCornerShape(12.dp))
             .clickable(onClick = onClick)
             .padding(horizontal = 10.dp, vertical = 6.dp),
     )
@@ -689,595 +692,55 @@ private fun PauseChip(pause: Pause, onClick: () -> Unit) {
 
 /** Opsi satu kata: ubah teks (waktu per kata tetap bila jumlahnya sama), buang, sembunyikan, kata kunci, putar. */
 @Composable
-private fun WordDialog(state: EditorState, editor: ClipEditor, word: EditorWord, seek: (Double) -> Unit, notify: (String, Boolean) -> Unit, onDone: () -> Unit) {
-    val c = MaterialTheme.colorScheme
+private fun WordSheet(state: EditorState, editor: ClipEditor, word: EditorWord, seek: (Double) -> Unit, onDone: () -> Unit) {
+    val notifier = LocalNotifier.current
     var text by remember(word) { mutableStateOf(word.text) }
     var error by remember { mutableStateOf<String?>(null) }
     val keyword = Keywords.mark(listOf(word.text), state.snapshot.keywords).isNotEmpty()
-    Dialog(onDismissRequest = onDone) {
-        Column(
-            Modifier.fillMaxWidth().clip(RoundedCornerShape(20.dp)).background(c.surfaceContainer).padding(20.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp),
-        ) {
-            Text("“${word.text}”", fontWeight = FontWeight.Bold, fontSize = 18.sp, color = c.onSurface)
-            Text("${fineTime(word.start)} – ${fineTime(word.end)}", fontSize = 12.sp, color = c.onSurface.copy(alpha = 0.55f))
-            OutlinedTextField(text, { text = it; error = null }, Modifier.fillMaxWidth(), label = { Text("Teks di subtitle") }, singleLine = true, isError = error != null)
-            Text(error ?: "Ejaan saja yang berubah; waktu tiap kata tetap.", fontSize = 12.sp, color = if (error != null) Danger else c.onSurface.copy(alpha = 0.55f))
-            Button(
-                onClick = {
-                    when (val result = editor.editWords(state.snapshot.clip, word.start, word.end, text)) {
-                        is ClipEditor.EditResult.Done -> {
-                            state.applyClip { result.clip }
-                            onDone()
-                        }
-                        is ClipEditor.EditResult.Rejected -> error = result.message
-                    }
-                },
-                enabled = text.isNotBlank() && text != word.text, modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(12.dp),
-            ) { Text("Simpan teks") }
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Action(if (word.cut) "Kembalikan" else "Buang dari video", danger = !word.cut, modifier = Modifier.weight(1f)) {
-                    val ok = state.applyClip { if (word.cut) editor.restore(it, word.start, word.end) else editor.cut(it, word.start, word.end) }
-                    if (!ok && !word.cut) notify("Sisa klip terlalu pendek.", false)
+
+    ClipMiSheet(onDone, title = "“${word.text}”", subtitle = "${precise(word.start)} – ${precise(word.end)}") {
+        Field(text, { text = it; error = null }, label = "Teks di subtitle", supporting = "Ejaan saja yang berubah; waktu tiap kata tetap.", error = error, singleLine = true)
+        PrimaryButton("Simpan teks", modifier = Modifier.fillMaxWidth(), enabled = text.isNotBlank() && text != word.text, onClick = {
+            when (val result = editor.editWords(state.snapshot.clip, word.start, word.end, text)) {
+                is ClipEditor.EditResult.Done -> {
+                    state.applyClip { result.clip }
                     onDone()
                 }
-                Action(if (word.hidden) "Tampilkan" else "Sembunyikan", modifier = Modifier.weight(1f)) {
-                    state.applyClip { if (word.hidden) editor.show(it, word.start, word.end) else editor.hide(it, word.start, word.end) }
-                    onDone()
-                }
+                is ClipEditor.EditResult.Rejected -> error = result.message
             }
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Action(if (keyword) "Lepas kata kunci" else "Kata kunci", modifier = Modifier.weight(1f)) {
-                    state.toggleKeyword(word.text)
-                    onDone()
-                }
-                Action("Putar dari sini", modifier = Modifier.weight(1f)) {
-                    seek(word.start)
-                    onDone()
-                }
-            }
-            Text(
-                "Sembunyikan = kata tetap terdengar tetapi tidak tampil di subtitle (misalnya \"eee\").",
-                fontSize = 12.sp, color = c.onSurface.copy(alpha = 0.55f),
-            )
+        })
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            SecondaryButton(if (word.cut) "Kembalikan" else "Buang dari video", modifier = Modifier.weight(1f), onClick = {
+                val ok = state.applyClip { if (word.cut) editor.restore(it, word.start, word.end) else editor.cut(it, word.start, word.end) }
+                if (!ok && !word.cut) notifier.show("Sisa klip terlalu pendek.")
+                onDone()
+            })
+            SecondaryButton(if (word.hidden) "Tampilkan" else "Sembunyikan", modifier = Modifier.weight(1f), onClick = {
+                state.applyClip { if (word.hidden) editor.show(it, word.start, word.end) else editor.hide(it, word.start, word.end) }
+                onDone()
+            })
         }
-    }
-}
-
-// ---------------------------------------------------------------------------------------------------------------
-// Tab Hook
-// ---------------------------------------------------------------------------------------------------------------
-
-/** Teks dan tampilan hook (padanan HookPanel Android); posisi diatur dengan menyeret di pratinjau. */
-@Composable
-private fun HookTab(state: EditorState, pending: PendingText) {
-    val layout = state.hookLayout()
-    val spec = state.spec()
-    val lead = spec.leadSeconds()
-    val length = spec.outputDuration()
-    fun merge(vararg changes: Pair<String, JsonElement>) = state.apply { it.copy(hookLayout = HookLayout.merge(it.hookLayout, JsonObject(changes.toMap()))) }
-    fun dragMerge(vararg changes: Pair<String, JsonElement>) = state.drag { it.copy(hookLayout = HookLayout.merge(it.hookLayout, JsonObject(changes.toMap()))) }
-
-    LazyColumn(
-        Modifier.fillMaxSize(),
-        contentPadding = PaddingValues(horizontal = 20.dp, vertical = 8.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp),
-    ) {
-        item {
-            Section("Hook", if (layout.x != null) "Posisi diatur sendiri" else "Seret di pratinjau untuk memindah") {
-                AutoSaveField("hook-${state.entity.id}", state.snapshot.hook.orEmpty(), "Teks pembuka di awal video", pending) { text ->
-                    state.apply { it.copy(hook = text.trim().ifEmpty { null }) }
-                }
-                ToggleRow("Tampilkan di video", checked = state.snapshot.showHookOverlay) { on -> state.apply { it.copy(showHookOverlay = on) } }
-            }
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            SecondaryButton(if (keyword) "Lepas kata kunci" else "Jadikan kata kunci", modifier = Modifier.weight(1f), onClick = {
+                state.toggleKeyword(word.text)
+                onDone()
+            })
+            SecondaryButton("Putar dari sini", modifier = Modifier.weight(1f), onClick = { seek(word.start); onDone() })
         }
-        item {
-            Section("Tampilan") {
-                Text("Model", fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f))
-                ChoiceRow(HookLayout.MODELS.map { (key, model) -> key to model.label }, layout.model) { merge("model" to JsonPrimitive(it)) }
-                Text("Animasi", fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f))
-                ChoiceRow(HookLayout.ANIMATIONS.map { (key, label) -> key to label }, layout.animation) { merge("animation" to JsonPrimitive(it)) }
-                LabeledSlider("Ukuran huruf", "${layout.size}", layout.size.toFloat(), HookLayout.SIZE_RANGE.first.toFloat()..HookLayout.SIZE_RANGE.last.toFloat(), onChange = { v ->
-                    dragMerge("size" to JsonPrimitive(v.roundToInt()))
-                }, onDone = { state.endDrag() })
-                if (layout.alpha != null) {
-                    LabeledSlider("Sudut kotak", "${layout.radius}", layout.radius.toFloat(), HookLayout.RADIUS_RANGE.first.toFloat()..HookLayout.RADIUS_RANGE.last.toFloat(), onChange = { v ->
-                        dragMerge("radius" to JsonPrimitive(v.roundToInt()))
-                    }, onDone = { state.endDrag() })
-                }
-            }
-        }
-        item {
-            Section("Waktu tampil", "${oneDecimal(layout.start)}–${oneDecimal(layout.end)} dtk") {
-                val min = if (lead > 0) -lead else 0.0
-                RangeSlider(
-                    value = layout.start.toFloat()..layout.end.toFloat(),
-                    onValueChange = { r ->
-                        dragMerge(
-                            "start" to JsonPrimitive((r.start * 10).roundToInt() / 10.0),
-                            "end" to JsonPrimitive((r.endInclusive * 10).roundToInt() / 10.0),
-                        )
-                    },
-                    valueRange = min.toFloat()..maxOf(min + 0.5, length).toFloat(),
-                    onValueChangeFinished = { state.endDrag() },
-                )
-                ToggleRow(
-                    "Kartu pembuka", "Hook di atas frame pertama yang dikaburkan, ${oneDecimal(HookLayout.OPENER_SECONDS)} dtk sebelum klip.", layout.opener,
-                ) { on -> merge("opener" to JsonPrimitive(on)) }
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Action("Posisi bawaan", enabled = layout.x != null, modifier = Modifier.weight(1f)) { merge("x" to JsonNull, "y" to JsonNull) }
-                    Action("Reset tampilan", enabled = state.snapshot.hookLayout != null, modifier = Modifier.weight(1f)) { state.apply { it.copy(hookLayout = null) } }
-                }
-            }
-        }
-        item { Box(Modifier.height(8.dp)) }
-    }
-}
-
-@Composable
-private fun LabeledSlider(label: String, value: String, current: Float, range: ClosedFloatingPointRange<Float>, onChange: (Float) -> Unit, onDone: () -> Unit) {
-    val c = MaterialTheme.colorScheme
-    Column {
-        Row {
-            Text(label, fontSize = 13.sp, color = c.onSurface.copy(alpha = 0.7f), modifier = Modifier.weight(1f))
-            Text(value, fontSize = 13.sp, color = c.onSurface)
-        }
-        Slider(current, onChange, valueRange = range, onValueChangeFinished = onDone)
-    }
-}
-
-// ---------------------------------------------------------------------------------------------------------------
-// Tab Gaya
-// ---------------------------------------------------------------------------------------------------------------
-
-@Composable
-private fun StyleTab(state: EditorState) {
-    LazyColumn(
-        Modifier.fillMaxSize(),
-        contentPadding = PaddingValues(horizontal = 20.dp, vertical = 8.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp),
-    ) {
-        item {
-            Section("Gaya subtitle") {
-                ChoiceRow(state.captionStyles.map { it.id.toString() to it.name }, state.captionStyleId()?.toString()) { id ->
-                    state.apply { it.copy(captionStyleId = id.toLong()) }
-                }
-            }
-        }
-        item {
-            Section("Bingkai") {
-                ChoiceRow(state.frameStyles.map { it.id.toString() to it.name }, state.frameStyleId()?.toString()) { id ->
-                    state.apply { it.copy(frameStyleId = id.toLong()) }
-                }
-            }
-        }
-    }
-}
-
-// ---------------------------------------------------------------------------------------------------------------
-// Tab Sampul
-// ---------------------------------------------------------------------------------------------------------------
-
-/**
- * Judul klip dan sampul (padanan CoverPanel Android): frame video atau gambar dari Photos, judul di atasnya, dan
- * pilihan menempelkannya di awal video. Pratinjau sampul dibuat FFmpeg seperti saat render.
- */
-@Composable
-private fun CoverTab(state: EditorState, position: Double, pending: PendingText, notify: (String, Boolean) -> Unit) {
-    val c = MaterialTheme.colorScheme
-    val scope = rememberCoroutineScope()
-    val s = state.snapshot
-    var image by remember { mutableStateOf<ImageBitmap?>(null) }
-    var making by remember { mutableStateOf(false) }
-    var picking by remember { mutableStateOf(false) }
-    var saving by remember { mutableStateOf(false) }
-    val coverKey = listOf(s.coverTime, s.coverPath, s.coverTitle, s.coverLayout, s.keywords, s.captionStyleId, s.frameStyleId, s.title, s.clip.startTime)
-    LaunchedEffect(coverKey) {
-        if (!s.hasCover) {
-            image = null
-            return@LaunchedEffect
-        }
-        delay(400)
-        making = true
-        try {
-            image = decodeImage(state.renderer.cover(state.entitySnapshot(s), state.project, state.captionStyle(s), state.frameStyle(s)))
-        } catch (e: CancellationException) {
-            throw e
-        } catch (e: Exception) {
-            notify("Sampul gagal dibuat: ${e.message?.take(120)}", false)
-        } finally {
-            making = false
-        }
-    }
-
-    LazyColumn(
-        Modifier.fillMaxSize(),
-        contentPadding = PaddingValues(horizontal = 20.dp, vertical = 8.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp),
-    ) {
-        item {
-            Section("Judul klip") {
-                AutoSaveField("title-${state.entity.id}", s.title, "Judul", pending) { text ->
-                    text.trim().takeIf { it.isNotEmpty() }?.let { title -> state.apply { it.copy(title = title) } }
-                }
-            }
-        }
-        item {
-            Section(
-                "Sampul",
-                when {
-                    s.coverPath != null -> "Gambar dari Photos"
-                    s.coverTime != null -> "Frame di ${Timecode.format(s.coverTime - s.clip.startTime)}"
-                    else -> "Belum ada"
-                },
-            ) {
-                Row(horizontalArrangement = Arrangement.spacedBy(14.dp)) {
-                    Box(
-                        Modifier.width(96.dp).aspectRatio(9f / 16f).clip(RoundedCornerShape(14.dp)).background(c.onSurface.copy(alpha = 0.08f)),
-                        contentAlignment = Alignment.Center,
-                    ) {
-                        image?.let { Image(it, contentDescription = "Sampul", contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize()) }
-                            ?: Text("Tanpa sampul", fontSize = 11.sp, color = c.onSurface.copy(alpha = 0.5f))
-                        if (making || picking) CircularProgressIndicator(Modifier.size(22.dp), strokeWidth = 2.dp, color = c.primary)
-                    }
-                    Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Action("Frame saat ini", modifier = Modifier.fillMaxWidth()) {
-                            val time = (position.coerceIn(s.clip.startTime, s.clip.endTime) * 1000).roundToInt() / 1000.0
-                            state.apply { it.copy(coverTime = time, coverPath = null) }
-                        }
-                        Action("Dari Photos", enabled = !picking, modifier = Modifier.fillMaxWidth()) {
-                            val relative = state.coverImagePath()
-                            val absolute = state.absolute(relative)
-                            createDirectory(absolute.substringBeforeLast('/'))
-                            picking = true
-                            state.engine.pickImage(
-                                absolute,
-                                object : PickListener {
-                                    override fun finished(path: String?) {
-                                        picking = false
-                                        if (path != null) state.apply { it.copy(coverPath = relative, coverTime = null) }
-                                    }
-                                },
-                            )
-                        }
-                        if (s.hasCover) {
-                            Action(if (saving) "Menyimpan…" else "Simpan ke Photos", enabled = !saving && !making, modifier = Modifier.fillMaxWidth()) {
-                                saving = true
-                                scope.launch {
-                                    val error = runCatching { state.renderer.saveCover(state.entitySnapshot(), state.project, state.captionStyle(), state.frameStyle()) }
-                                        .getOrElse { it.message ?: "gagal" }
-                                    notify(if (error == null) "Sampul tersimpan di Photos." else "Sampul tidak bisa disimpan: $error", error == null)
-                                    saving = false
-                                }
-                            }
-                            Action("Tanpa sampul", danger = true, modifier = Modifier.fillMaxWidth()) { state.apply { it.copy(coverTime = null, coverPath = null) } }
-                        }
-                    }
-                }
-                if (s.hasCover) {
-                    ToggleRow("Tempel di awal video", "Untuk platform yang memakai frame pertama.", s.coverInVideo) { on -> state.apply { it.copy(coverInVideo = on) } }
-                    ToggleRow("Judul di sampul", checked = s.coverTitle) { on -> state.apply { it.copy(coverTitle = on) } }
-                }
-            }
-        }
-        if (s.hasCover && s.coverTitle) {
-            item { CoverTitleSection(state, pending) }
-        }
-        item { Box(Modifier.height(8.dp)) }
-    }
-}
-
-/** Model judul sampul: Klasik (sama dengan desktop) atau tipografi, teks dengan `*kata*` sebagai sorotan, warna, posisi, ukuran. */
-@Composable
-private fun CoverTitleSection(state: EditorState, pending: PendingText) {
-    val c = MaterialTheme.colorScheme
-    val layout = CoverTitle.parse(state.snapshot.coverLayout)
-    fun update(change: (CoverTitleLayout) -> CoverTitleLayout) = state.apply { it.copy(coverLayout = CoverTitle.encode(change(CoverTitle.parse(it.coverLayout)))) }
-    val defaultText = ClipText.displayTitle(state.snapshot.title, state.entity.partNumber)
-
-    Section("Judul di sampul") {
-        ChoiceRow(CoverTitle.MODELS.map { (key, label) -> key to label }, layout.model) { key -> update { it.copy(model = key) } }
-        if (!layout.classic) {
-            AutoSaveField("cover-${state.entity.id}", layout.text ?: defaultText, "Teks sampul (*kata* = sorotan)", pending, maxLines = 4) { text ->
-                update { it.copy(text = text.takeIf { t -> t.isNotBlank() && t.trim() != defaultText }) }
-            }
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-                Text("Sorotan", fontSize = 13.sp, color = c.onSurface.copy(alpha = 0.7f), modifier = Modifier.width(64.dp))
-                val accent = layout.accent ?: CoverTitle.ACCENTS[layout.model]
-                CoverTitle.PALETTE.forEach { hex ->
-                    Box(
-                        Modifier.size(28.dp).clip(RoundedCornerShape(8.dp)).background(parse(hex) ?: Color.White)
-                            .border(2.dp, if (hex.equals(accent, ignoreCase = true)) c.primary else c.onSurface.copy(alpha = 0.15f), RoundedCornerShape(8.dp))
-                            .clickable { update { it.copy(accent = hex) } },
-                    )
-                }
-            }
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-                Text("Posisi", fontSize = 13.sp, color = c.onSurface.copy(alpha = 0.7f), modifier = Modifier.width(64.dp))
-                ChoiceRow(listOf("top" to "Atas", "center" to "Tengah", "bottom" to "Bawah"), layout.position) { key ->
-                    update { it.copy(position = if (it.position == key) null else key) }
-                }
-            }
-            LabeledSlider("Ukuran", "${layout.size}%", layout.size.toFloat(), CoverTitle.SIZE_MIN.toFloat()..CoverTitle.SIZE_MAX.toFloat(), onChange = { v ->
-                state.drag { it.copy(coverLayout = CoverTitle.encode(CoverTitle.parse(it.coverLayout).copy(size = v.roundToInt()))) }
-            }, onDone = { state.endDrag() })
-        }
-    }
-}
-
-// ---------------------------------------------------------------------------------------------------------------
-// Pratinjau
-// ---------------------------------------------------------------------------------------------------------------
-
-private enum class PreviewMode { None, Crop, Hook }
-
-/**
- * Pratinjau sebesar layar hasil: latar, video sesuai [Composition], lalu subtitle dan hook dari libass. Di tab Crop,
- * geser dan cubit mengatur posisi dan zoom video; di tab Hook, hook selalu terlihat (saat video berhenti) dan bisa
- * diseret ke posisi baru (titik tengahnya, persen layar).
- */
-@Composable
-private fun Preview(state: EditorState, composition: Composition, preview: PreviewPlayer, mode: PreviewMode) {
-    val layout = if (mode == PreviewMode.Hook) state.hookLayout() else null
-    val lead = if (mode == PreviewMode.Hook) state.spec().leadSeconds() else 0.0
-    val hookTime = if (layout != null && !preview.playing) layout.start + lead + minOf(0.6, (layout.end - layout.start) / 2) else null
-    val gesture = when (mode) {
-        PreviewMode.Hook -> Modifier.pointerInput(mode) {
-            fun move(at: Offset) {
-                val x = (at.x / size.width * 100).roundToInt().coerceIn(0, 100)
-                val y = (at.y / size.height * 100).roundToInt().coerceIn(0, 100)
-                state.drag { it.copy(hookLayout = HookLayout.merge(it.hookLayout, JsonObject(mapOf("x" to JsonPrimitive(x), "y" to JsonPrimitive(y))))) }
-            }
-            awaitEachGesture {
-                val down = awaitFirstDown(requireUnconsumed = false)
-                move(down.position)
-                do {
-                    val event = awaitPointerEvent()
-                    val change = event.changes.firstOrNull { it.pressed }
-                    if (change != null) {
-                        move(change.position)
-                        change.consume()
-                    }
-                } while (event.changes.any { it.pressed })
-                state.endDrag()
-            }
-        }
-        PreviewMode.Crop -> Modifier.pointerInput(mode) {
-            awaitEachGesture {
-                awaitFirstDown(requireUnconsumed = false)
-                var pan = Offset.Zero
-                var zoom = 1f
-                do {
-                    val event = awaitPointerEvent()
-                    pan += event.calculatePan()
-                    zoom *= event.calculateZoom()
-                    if (event.changes.any { it.pressed }) {
-                        crop(state, pan.x / size.width, pan.y / size.height, zoom, overflow(state.composition, state.sourceSize), preview.seconds())
-                    }
-                    event.changes.forEach { if (it.positionChanged()) it.consume() }
-                } while (event.changes.any { it.pressed })
-                state.endDrag()
-            }
-        }
-        PreviewMode.None -> Modifier
-    }
-    BoxWithConstraints(Modifier.fillMaxSize().then(gesture)) {
-        val density = LocalDensity.current
-        val widthPx = with(density) { maxWidth.toPx() }
-        val scale = widthPx / composition.canvas.width
-        Background(state, composition)
-        VideoLayer(composition, state.sourceSize, scale, preview, state.snapshot.clip.startTime)
-        AssOverlay(state, composition, preview, hookTime)
-    }
-}
-
-/** Bagian video yang tidak muat di areanya, sebagai pecahan lebar/tinggi layar hasil (dasar geser crop). */
-private fun overflow(composition: Composition, sourceSize: Pair<Int, Int>?): Offset {
-    val (sw, sh) = sourceSize ?: return Offset.Zero
-    val rect = composition.video.rect ?: return Offset.Zero
-    val video = composition.video
-    val areaW = rect.width.toFloat()
-    val areaH = rect.height.toFloat()
-    val fit = if (video.fill == "cover") max(areaW / sw, areaH / sh) else min(areaW / sw, areaH / sh)
-    val shown = fit * video.zoom.toFloat()
-    return Offset(
-        max(0f, sw * shown - areaW) / composition.canvas.width,
-        max(0f, sh * shown - areaH) / composition.canvas.height,
-    )
-}
-
-/**
- * Geser dan cubit di tab Crop (sama dengan Android): posisi 0–100 dan zoom 100–250%. Saat mengikuti pembicara, geser
- * kiri–kanan mengatur posisi manual adegan yang sedang tampil (adegan lain tetap otomatis).
- */
-private fun crop(state: EditorState, dx: Float, dy: Float, zoom: Float, overflow: Offset, position: Double) {
-    state.drag { _ ->
-        // Dihitung dari keadaan awal gerakan, jadi geser pelan pun terhitung (tidak hilang oleh pembulatan).
-        val base = state.gestureBase
-        val spec = state.spec(base)
-        val baseZoom = base.cropZoom ?: (spec.frame.zoomFactor() * 100).roundToInt()
-        fun move(start: Int, delta: Float, rest: Float) = (start - delta / rest * 100).roundToInt().coerceIn(0, 100)
-        val track = if (state.followsSpeaker(base)) state.speakerTrack(base) else null
-        val time = position - base.clip.startTime
-        val shot = track?.shotAt(time)
-        var manual = base.speakerManual
-        if (track != null && shot != null && dx != 0f && overflow.x > 0f) {
-            val composition = state.composition
-            val area = (composition.video.rect?.width ?: composition.canvas.width).toFloat() / composition.canvas.width
-            val videoWidth = overflow.x + area
-            val half = area / 2 / videoWidth
-            val start = shot.manual ?: track.keyframes.takeIf { it.isNotEmpty() }?.let { SpeakerTrack.positionAt(it, time) } ?: (spec.effectiveCropPosition() / 100.0)
-            val visible = start.coerceIn(half.toDouble(), 1.0 - half)
-            manual = track.withManual(shot, (visible - dx / videoWidth).coerceIn(half.toDouble(), 1.0 - half)).manual
-        }
-        base.copy(
-            cropPosition = if (shot == null && dx != 0f && overflow.x > 0f) move(spec.effectiveCropPosition(), dx, overflow.x) else base.cropPosition,
-            cropY = if (dy != 0f && overflow.y > 0f) move(spec.effectiveCropY(), dy, overflow.y) else base.cropY,
-            cropZoom = if (zoom != 1f) (baseZoom * zoom).roundToInt().coerceIn(ClipSpec.ZOOM_RANGE.first, ClipSpec.ZOOM_RANGE.last) else base.cropZoom,
-            speakerManual = manual,
+        Text(
+            "Sembunyikan = kata tetap terdengar tetapi tidak tampil di subtitle (misalnya \"eee\").",
+            style = MaterialTheme.typography.bodySmall, color = ClipMi.colors.textMuted,
         )
     }
 }
 
-/** Latar: blur dari frame video (diperbesar dan dikaburkan), warna, atau gradasi; crop penuh tanpa latar. */
-@Composable
-private fun Background(state: EditorState, composition: Composition) {
-    val background = composition.background
-    val color = parse(background?.color) ?: Color.Black
-    when (background?.kind) {
-        "blur" -> {
-            val thumbnail = remember(state.thumbnail) { decodeImage(state.thumbnail) }
-            Box(Modifier.fillMaxSize().background(color)) {
-                thumbnail?.let {
-                    Image(
-                        it, null, contentScale = ContentScale.Crop, alpha = 0.95f,
-                        modifier = Modifier.fillMaxSize().blur(18.dp, BlurredEdgeTreatment.Rectangle),
-                    )
-                }
-            }
-        }
-        "gradient" -> Box(Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(color, parse(background.color2) ?: Color.Black))))
-        else -> Box(Modifier.fillMaxSize().background(color))
-    }
-}
-
-/**
- * Video di area [Composition.Video.rect]: "cover" = menutupi area lalu digeser sesuai posisi crop (seperti filter crop
- * FFmpeg), "contain" = utuh di dalam area; zoom memperbesar dari posisi yang sama (sama dengan VideoLayer Android).
- * View UIKit tidak menerima sentuhan, supaya seret di pratinjau (posisi hook) sampai ke Compose.
- */
-@OptIn(ExperimentalForeignApi::class)
-@Composable
-private fun VideoLayer(composition: Composition, sourceSize: Pair<Int, Int>?, scale: Float, preview: PreviewPlayer, clipStart: Double) {
-    val (sw, sh) = sourceSize ?: return
-    val video = composition.video
-    val rect = video.rect ?: return
-    val density = LocalDensity.current
-    val areaW = rect.width.toFloat()
-    val areaH = rect.height.toFloat()
-    val zoom = video.zoom.toFloat()
-    val fit = if (video.fill == "cover") max(areaW / sw, areaH / sh) else min(areaW / sw, areaH / sh)
-    val shown = fit * zoom
-    val dw = sw * shown
-    val dh = sh * shown
-    val overflowX = max(0f, dw - areaW)
-    val overflowY = max(0f, dh - areaH)
-    val fixedLeft = if (dw > areaW) -overflowX * video.cropX / 100f else (areaW - dw) / 2
-    val top = if (dh > areaH) -overflowY * video.cropY / 100f else (areaH - dh) / 2
-    // Ikuti pembicara: tengah crop mengikuti jalur pada waktu video saat ini (seperti ekspresi x filter crop render).
-    val keyframes = video.keyframes
-    fun left(): Float =
-        if (keyframes != null && dw > areaW) -(dw * SpeakerTrack.positionAt(keyframes, preview.seconds() - clipStart).toFloat() - areaW / 2).coerceIn(0f, overflowX)
-        else fixedLeft
-    // Satuan UIKit = dp Compose (titik layar).
-    val toPoints = { px: Float -> (px * scale / density.density).toDouble() }
-    val layer = remember(preview) { AVPlayerLayer.playerLayerWithPlayer(preview.player).apply { videoGravity = AVLayerVideoGravityResize } }
-    fun place() {
-        CATransaction.begin()
-        CATransaction.setDisableActions(true)
-        layer.frame = CGRectMake(toPoints(left()), toPoints(top), toPoints(dw), toPoints(dh))
-        CATransaction.commit()
-    }
-    if (keyframes != null) {
-        LaunchedEffect(keyframes, clipStart, dw, dh, top) {
-            while (true) {
-                withFrameNanos { }
-                place()
-            }
-        }
-    }
-
-    Box(
-        Modifier
-            .offset { IntOffset((rect.x * scale).roundToInt(), (rect.y * scale).roundToInt()) }
-            .requiredSize(with(density) { (areaW * scale).toDp() }, with(density) { (areaH * scale).toDp() })
-            .wrapContentSize(Alignment.TopStart, unbounded = true)
-            .clip(RoundedCornerShape(with(density) { (video.radius * scale).toDp() })),
-    ) {
-        UIKitView(
-            factory = {
-                UIView().apply {
-                    // Clip Compose tidak memotong view UIKit: sudut dan potongan video lewat CALayer.
-                    this.layer.masksToBounds = true
-                    this.layer.addSublayer(layer)
-                }
-            },
-            modifier = Modifier.requiredSize(with(density) { (areaW * scale).toDp() }, with(density) { (areaH * scale).toDp() }),
-            update = { view ->
-                view.layer.cornerRadius = toPoints(video.radius.toFloat())
-                place()
-            },
-            properties = UIKitInteropProperties(isInteractive = false, isNativeAccessibilityEnabled = false),
-        )
-    }
-}
-
-/**
- * Subtitle dan hook dari ASS pratinjau, digambar libass (ass_core.c) ke buffer RGBA setiap frame. Waktu subtitle =
- * waktu video hasil (bagian yang dibuang dilewati); waktu hook = sejak awal pembuka, atau [hookTime] (tab Hook).
- */
-@OptIn(ExperimentalForeignApi::class)
-@Composable
-private fun AssOverlay(state: EditorState, composition: Composition, preview: PreviewPlayer, hookTime: Double?) {
-    val tracks = state.tracks ?: return
-    val engine = state.engine
-    val fixedHook by rememberUpdatedState(hookTime)
-    var image by remember { mutableStateOf<ImageBitmap?>(null) }
-    BoxWithConstraints(Modifier.fillMaxSize()) {
-        val density = LocalDensity.current
-        val width = with(density) { maxWidth.toPx() }.roundToInt().coerceIn(2, 720)
-        val height = (width.toFloat() * composition.canvas.height / composition.canvas.width).roundToInt().coerceAtLeast(2)
-
-        LaunchedEffect(tracks, width, height) {
-            val subs = engine.assCreate(width, height)
-            val hook = tracks.hook?.let { engine.assCreate(width, height) }
-            engine.assLoad(subs, tracks.subs)
-            if (hook != null) engine.assLoad(hook, tracks.hook!!)
-            val pixels = ByteArray(width * height * 4)
-            val info = ImageInfo(width, height, ColorType.RGBA_8888, ColorAlphaType.PREMUL)
-            val spec = state.spec()
-            val cuts = spec.cutRanges()
-            val lead = spec.leadSeconds()
-            var last = Long.MIN_VALUE to Long.MIN_VALUE
-            try {
-                while (true) {
-                    withFrameNanos { }
-                    val source = preview.seconds().coerceIn(spec.startTime, spec.endTime)
-                    val t = ClipCuts.map(cuts, spec.startTime, source)
-                    val ms = (t * 1000).toLong()
-                    val hookMs = ((fixedHook ?: (t + lead)) * 1000).toLong()
-                    if ((ms to hookMs) == last) continue
-                    last = ms to hookMs
-                    pixels.usePinned { pinned ->
-                        val address = pinned.addressOf(0).toLong()
-                        engine.assRender(subs, ms, address, width, height, true)
-                        if (hook != null) engine.assRender(hook, hookMs, address, width, height, false)
-                    }
-                    image = SkiaImage.makeRaster(info, pixels, width * 4).toComposeImageBitmap()
-                }
-            } finally {
-                engine.assDestroy(subs)
-                if (hook != null) engine.assDestroy(hook)
-            }
-        }
-
-        Canvas(Modifier.fillMaxSize()) {
-            image?.let { drawImage(it, dstSize = IntSize(size.width.roundToInt(), size.height.roundToInt())) }
-        }
-    }
-}
-
 // ---------------------------------------------------------------------------------------------------------------
-// Tab Crop
+// Crop
 // ---------------------------------------------------------------------------------------------------------------
 
-/**
- * Crop dan zoom (padanan CropPanel Android): ikuti pembicara (Apple Vision) atau posisi tetap, posisi atas–bawah, dan
- * zoom. Geser dan cubit video di pratinjau juga mengaturnya.
- */
 @Composable
-private fun CropTab(state: EditorState, position: Double, seek: (Double) -> Unit) {
-    val c = MaterialTheme.colorScheme
+private fun CropPanel(state: EditorState, position: Double, seek: (Double) -> Unit) {
+    val c = ClipMi.colors
     val spec = state.spec()
     val frame = spec.frame
     val zoom = state.snapshot.cropZoom ?: (frame.zoomFactor() * 100).roundToInt()
@@ -1289,66 +752,61 @@ private fun CropTab(state: EditorState, position: Double, seek: (Double) -> Unit
         if (follow && needs && state.speakerProgress == null && state.speakerError == null) state.detectSpeaker()
     }
 
-    LazyColumn(
-        Modifier.fillMaxSize(),
-        contentPadding = PaddingValues(horizontal = 20.dp, vertical = 8.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp),
-    ) {
-        item {
-            Section("Crop & zoom", frame.name) {
-                Text("Geser atau cubit video di pratinjau.", fontSize = 12.sp, color = c.onSurface.copy(alpha = 0.55f))
-                if (!frame.usesCropPosition() && zoom <= 100) {
-                    Text("Video utuh: posisi crop berlaku saat di-zoom.", fontSize = 12.sp, color = c.onSurface.copy(alpha = 0.55f))
-                }
-                if (frame.usesCropPosition()) {
-                    ToggleRow("Ikuti pembicara", "Crop mengikuti wajah yang sedang berbicara.", follow) { on ->
-                        if (on) state.apply { it.copy(cropPosition = null) }
-                        else state.apply { it.copy(cropPosition = fixedPosition(state, position)) }
-                    }
-                }
-                if (follow) {
-                    SpeakerSection(state, position, seek)
-                } else {
-                    LabeledSlider("Posisi kiri–kanan", "${spec.effectiveCropPosition()}", spec.effectiveCropPosition().toFloat(), 0f..100f, onChange = { v ->
-                        state.drag { it.copy(cropPosition = v.roundToInt()) }
-                    }, onDone = { state.endDrag() })
-                }
-                LabeledSlider("Posisi atas–bawah", "${spec.effectiveCropY()}", spec.effectiveCropY().toFloat(), 0f..100f, onChange = { v ->
-                    state.drag { it.copy(cropY = v.roundToInt()) }
-                }, onDone = { state.endDrag() })
-                LabeledSlider("Zoom", "$zoom%", zoom.toFloat(), ClipSpec.ZOOM_RANGE.first.toFloat()..ClipSpec.ZOOM_RANGE.last.toFloat(), onChange = { v ->
-                    state.drag { it.copy(cropZoom = v.roundToInt()) }
-                }, onDone = { state.endDrag() })
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Action("Tengahkan", modifier = Modifier.weight(1f)) { state.apply { it.copy(cropPosition = 50, cropY = 50) } }
-                    Action("Kembali ke bawaan", modifier = Modifier.weight(1f)) {
-                        state.apply { it.copy(cropPosition = null, cropY = null, cropZoom = null, speakerManual = emptyList()) }
-                    }
+    Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
+        PanelTitle("Crop & zoom", frame.name)
+        Text("Geser atau cubit video di pratinjau.", style = MaterialTheme.typography.bodySmall, color = c.textMuted)
+        if (!frame.usesCropPosition() && zoom <= 100) {
+            Text("Video utuh: posisi crop berlaku saat di-zoom.", style = MaterialTheme.typography.bodySmall, color = c.textMuted)
+        }
+        if (frame.usesCropPosition()) {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                Text("Ikuti pembicara", style = MaterialTheme.typography.titleSmall, color = c.text, modifier = Modifier.weight(1f))
+                ClipMiSwitch(follow) { on ->
+                    if (on) state.apply { it.copy(cropPosition = null) }
+                    else state.apply { it.copy(cropPosition = fixedPosition(state, position)) }
                 }
             }
         }
-        item { Box(Modifier.height(8.dp)) }
+        if (follow) {
+            SpeakerSection(state, position, seek)
+        } else {
+            LabeledSlider("Posisi kiri–kanan", "${spec.effectiveCropPosition()}", spec.effectiveCropPosition().toFloat(), 0f..100f, onChange = { v ->
+                state.drag { it.copy(cropPosition = v.roundToInt()) }
+            }, onDone = { state.endDrag() })
+        }
+        LabeledSlider("Posisi atas–bawah", "${spec.effectiveCropY()}", spec.effectiveCropY().toFloat(), 0f..100f, onChange = { v ->
+            state.drag { it.copy(cropY = v.roundToInt()) }
+        }, onDone = { state.endDrag() })
+        LabeledSlider("Zoom", "$zoom%", zoom.toFloat(), ClipSpec.ZOOM_RANGE.first.toFloat()..ClipSpec.ZOOM_RANGE.last.toFloat(), onChange = { v ->
+            state.drag { it.copy(cropZoom = v.roundToInt()) }
+        }, onDone = { state.endDrag() })
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            ActionChip("Tengahkan", { state.apply { it.copy(cropPosition = 50, cropY = 50) } }, Modifier.weight(1f), height = 40.dp)
+            ActionChip("Kembali ke bawaan", {
+                state.apply { it.copy(cropPosition = null, cropY = null, cropZoom = null, speakerManual = emptyList()) }
+            }, Modifier.weight(1f), height = 40.dp)
+        }
     }
 }
 
 /** Status deteksi pembicara, daftar adegan, dan posisi manual adegan yang sedang tampil. */
 @Composable
 private fun SpeakerSection(state: EditorState, position: Double, seek: (Double) -> Unit) {
-    val c = MaterialTheme.colorScheme
+    val c = ClipMi.colors
     val progress = state.speakerProgress
     val error = state.speakerError
     val track = state.speakerTrack()
     val clip = state.snapshot.clip
     when {
         progress != null -> Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-            Text("Mendeteksi pembicara… ${(progress * 100).roundToInt()}%", fontSize = 13.sp, color = c.onSurface.copy(alpha = 0.7f))
-            LinearProgressIndicator(progress = { progress }, modifier = Modifier.fillMaxWidth().height(4.dp), color = c.primary)
+            Text("Mendeteksi pembicara… ${(progress * 100).roundToInt()}%", style = MaterialTheme.typography.bodySmall, color = c.textBody)
+            ProgressBar(progress)
         }
         error != null -> Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            Text("Deteksi pembicara gagal: $error", fontSize = 13.sp, color = Danger)
-            Action("Coba lagi") { state.detectSpeaker() }
+            Text("Deteksi pembicara gagal: $error", style = MaterialTheme.typography.bodySmall, color = c.bad)
+            ActionChip("Coba lagi", { state.detectSpeaker() }, height = 40.dp)
         }
-        track == null -> Action("Deteksi pembicara") { state.detectSpeaker() }
+        track == null -> ActionChip("Deteksi pembicara", { state.detectSpeaker() }, height = 40.dp)
     }
     if (track == null || progress != null) return
 
@@ -1356,53 +814,333 @@ private fun SpeakerSection(state: EditorState, position: Double, seek: (Double) 
     val current = track.shotAt(position - clip.startTime)
     val detected = track.analysis?.samples?.any { it != null } == true
     if (!detected && track.manual.isEmpty()) {
-        Text("Pembicara tidak terdeteksi; crop memakai posisi project.", fontSize = 12.sp, color = c.onSurface.copy(alpha = 0.55f))
+        Text("Pembicara tidak terdeteksi; crop memakai posisi project.", style = MaterialTheme.typography.bodySmall, color = c.textMuted)
     }
     if (shots.size > 1) {
         val cuts = state.spec().cutRanges()
-        Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        ChipRow(gutter = 0.dp) {
             for (shot in shots) {
                 val active = shot.index == current?.index
                 Row(
                     Modifier
                         .clip(RoundedCornerShape(12.dp))
-                        .background(if (active) c.primary.copy(alpha = 0.16f) else c.onSurface.copy(alpha = 0.06f))
-                        .border(1.dp, if (active) c.primary else Color.Transparent, RoundedCornerShape(12.dp))
+                        .background(if (active) c.accentSoft else c.panel)
+                        .border(1.dp, if (active) c.accent else c.line, RoundedCornerShape(12.dp))
                         .clickable { seek(clip.startTime + shot.from + minOf(0.05, (shot.to - shot.from) / 2)) }
                         .padding(horizontal = 12.dp, vertical = 8.dp),
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(6.dp),
                 ) {
-                    Text("${shot.index + 1}", fontWeight = FontWeight.ExtraBold, color = if (active) c.primary else c.onSurface)
-                    Text(Timecode.format(ClipCuts.map(cuts, clip.startTime, clip.startTime + shot.from)), fontSize = 12.sp, color = c.onSurface.copy(alpha = 0.55f))
-                    // Posisi diatur manual: titik kecil.
-                    if (shot.manual != null) Box(Modifier.size(6.dp).clip(RoundedCornerShape(3.dp)).background(Warn))
+                    Text("${shot.index + 1}", style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.ExtraBold), color = if (active) c.accent else c.text)
+                    Text(Timecode.format(ClipCuts.map(cuts, clip.startTime, clip.startTime + shot.from)), style = MaterialTheme.typography.labelSmall, color = c.textMuted)
+                    if (shot.manual != null) Box(Modifier.size(6.dp).clip(CircleShape).background(c.warn))
                 }
             }
         }
-        Text("Geser video di pratinjau untuk mengatur posisi adegan yang sedang tampil.", fontSize = 12.sp, color = c.onSurface.copy(alpha = 0.55f))
     }
     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        Action("Otomatis lagi", enabled = current?.manual != null, modifier = Modifier.weight(1f)) {
+        ActionChip("Otomatis lagi", {
             current?.let { shot -> state.apply { it.copy(speakerManual = track.withManual(shot, null).manual) } }
-        }
-        Action("Deteksi ulang", modifier = Modifier.weight(1f)) { state.detectSpeaker() }
+        }, Modifier.weight(1f), height = 40.dp, enabled = current?.manual != null)
+        ActionChip("Deteksi ulang", { state.detectSpeaker() }, Modifier.weight(1f), height = 40.dp)
     }
 }
 
-/**
- * Posisi crop tetap (0–100) yang menampilkan bagian video yang sama dengan jalur pembicara saat ini, supaya mematikan
- * "Ikuti pembicara" tidak membuat crop meloncat.
- */
-private fun fixedPosition(state: EditorState, position: Double): Int {
+// ---------------------------------------------------------------------------------------------------------------
+// Gaya
+// ---------------------------------------------------------------------------------------------------------------
+
+@Composable
+private fun StylePanel(state: EditorState) {
+    val captionId = state.captionStyleId()
+    val frameId = state.frameStyleId()
+    val fonts = remember { HashMap<String, FontFamily>() }
+    Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(vertical = 16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        SectionTitle("Gaya subtitle")
+        ChipRow(gutter = 16.dp) {
+            for (style in state.captionStyles) {
+                val family = fonts.getOrPut(style.fontFamily) {
+                    runCatching {
+                        val bytes = readBytes("${state.renderer.fontsDir}/${Fonts.file(style.fontFamily)}") ?: error("font")
+                        FontFamily(Font("caption-${style.fontFamily}", bytes))
+                    }.getOrDefault(FontFamily.Default)
+                }
+                StyleCard(style.id == captionId, onClick = { state.apply { it.copy(captionStyleId = style.id) } }) {
+                    CaptionSample(style, family, style.id == captionId)
+                }
+            }
+        }
+        SectionTitle("Bingkai", Modifier.padding(top = 4.dp))
+        ChipRow(gutter = 16.dp) {
+            for (frame in state.frameStyles) {
+                StyleCard(frame.id == frameId, onClick = { state.apply { it.copy(frameStyleId = frame.id) } }) {
+                    FrameSample(frame, frame.id == frameId)
+                }
+            }
+        }
+        Text(
+            "Gaya baru dan perubahan gaya dibuat di ClipMI Android, lalu dipindah lewat cadangan.",
+            style = MaterialTheme.typography.bodySmall, color = ClipMi.colors.textMuted, modifier = Modifier.padding(horizontal = 16.dp),
+        )
+    }
+}
+
+@Composable
+private fun StyleCard(selected: Boolean, onClick: () -> Unit, content: @Composable () -> Unit) {
+    val c = ClipMi.colors
+    Box(
+        Modifier
+            .width(112.dp)
+            .clip(RoundedCornerShape(18.dp))
+            .background(EDITOR_CARD)
+            .border(if (selected) 2.dp else 1.dp, if (selected) c.accent else c.line, RoundedCornerShape(18.dp))
+            .clickable(onClick = onClick),
+        contentAlignment = Alignment.Center,
+    ) { content() }
+}
+
+@Composable
+private fun CaptionSample(style: CaptionStyleEntity, family: FontFamily, selected: Boolean) {
+    val c = ClipMi.colors
+    val sample = if (style.uppercase) "SABAR" else "Sabar"
+    Column(Modifier.fillMaxWidth().padding(10.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Box(Modifier.height(40.dp), contentAlignment = Alignment.Center) {
+            val color = hex(if (style.highlightActiveWord && style.highlightStyle == "color") style.highlightColor else style.primaryColor)
+            Text(
+                sample,
+                style = TextStyle(fontFamily = family, fontSize = 18.sp, color = color, shadow = Shadow(hex(style.outlineColor), blurRadius = 4f)),
+                modifier = if (style.highlightActiveWord && style.highlightStyle == "box") Modifier.clip(RoundedCornerShape(4.dp)).background(hex(style.highlightColor)).padding(horizontal = 6.dp) else Modifier,
+            )
+        }
+        Text(style.name, style = MaterialTheme.typography.labelSmall, color = if (selected) c.accent else c.textMuted, maxLines = 1, overflow = TextOverflow.Ellipsis, textAlign = TextAlign.Center)
+    }
+}
+
+@Composable
+private fun FrameSample(frame: FrameStyleEntity, selected: Boolean) {
+    val c = ClipMi.colors
+    Column(Modifier.fillMaxWidth().padding(10.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        val bg = when (frame.background) {
+            "color" -> hex(frame.backgroundColor)
+            else -> Color(0xFF1E2E29)
+        }
+        Box(Modifier.size(36.dp, 64.dp).clip(RoundedCornerShape(6.dp)).background(if (frame.mode == "crop") Color(0xFF3B5A50) else bg)) {
+            when (frame.mode) {
+                "fit" -> Box(Modifier.align(Alignment.Center).fillMaxWidth().height(20.dp).background(Color(0xFF3B5A50)))
+                "top" -> Box(
+                    Modifier.align(if (frame.videoPosition == "bottom") Alignment.BottomCenter else if (frame.videoPosition == "top") Alignment.TopCenter else Alignment.Center)
+                        .fillMaxWidth().height((64 * frame.videoHeight / 100).dp).background(Color(0xFF3B5A50)),
+                )
+            }
+        }
+        Text(frame.name, style = MaterialTheme.typography.labelSmall, color = if (selected) c.accent else c.textMuted, maxLines = 2, overflow = TextOverflow.Ellipsis, textAlign = TextAlign.Center)
+    }
+}
+
+private fun hex(value: String?): Color = parse(value) ?: Color.White
+
+// ---------------------------------------------------------------------------------------------------------------
+// Hook
+// ---------------------------------------------------------------------------------------------------------------
+
+@Composable
+private fun HookPanel(state: EditorState, pending: PendingText) {
+    val c = ClipMi.colors
+    val layout = state.hookLayout()
     val spec = state.spec()
-    val keyframes = spec.speakerKeyframes ?: return spec.effectiveCropPosition()
-    val center = SpeakerTrack.positionAt(keyframes, position - state.snapshot.clip.startTime)
-    val (sw, sh) = state.sourceSize ?: return (center * 100).roundToInt().coerceIn(0, 100)
-    val composition = state.composition
-    val rect = composition.video.rect ?: return (center * 100).roundToInt().coerceIn(0, 100)
-    val shown = maxOf(rect.width.toDouble() / sw, rect.height.toDouble() / sh) * composition.video.zoom
-    val dw = sw * shown
-    if (dw <= rect.width) return 50
-    return ((center * dw - rect.width / 2.0) / (dw - rect.width) * 100).roundToInt().coerceIn(0, 100)
+    val lead = spec.leadSeconds()
+    val length = spec.outputDuration()
+    fun merge(vararg changes: Pair<String, JsonElement>) = state.apply { it.copy(hookLayout = HookLayout.merge(it.hookLayout, JsonObject(changes.toMap()))) }
+    fun dragMerge(vararg changes: Pair<String, JsonElement>) = state.drag { it.copy(hookLayout = HookLayout.merge(it.hookLayout, JsonObject(changes.toMap()))) }
+
+    Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(vertical = 16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        Column(Modifier.padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            PanelTitle("Hook", if (layout.x != null) "Posisi diatur sendiri" else "Seret di pratinjau untuk memindah")
+            AutoSaveField("hook-${state.entity.id}", state.snapshot.hook.orEmpty(), pending, placeholder = "Teks pembuka 3 detik pertama") { text ->
+                state.apply { it.copy(hook = text.trim().ifEmpty { null }) }
+            }
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                Text("Tampilkan", style = MaterialTheme.typography.labelMedium, color = c.textBody, modifier = Modifier.weight(1f))
+                ClipMiSwitch(state.snapshot.showHookOverlay) { on -> state.apply { it.copy(showHookOverlay = on) } }
+            }
+        }
+        Text("Model", style = MaterialTheme.typography.labelMedium, color = c.textBody, modifier = Modifier.padding(horizontal = 16.dp))
+        ChipRow(gutter = 16.dp) {
+            HookLayout.MODELS.forEach { (key, model) -> FilterPill(model.label, selected = layout.model == key, height = 34.dp, onClick = { merge("model" to JsonPrimitive(key)) }) }
+        }
+        Text("Animasi", style = MaterialTheme.typography.labelMedium, color = c.textBody, modifier = Modifier.padding(horizontal = 16.dp))
+        ChipRow(gutter = 16.dp) {
+            HookLayout.ANIMATIONS.forEach { (key, label) -> FilterPill(label, selected = layout.animation == key, height = 34.dp, onClick = { merge("animation" to JsonPrimitive(key)) }) }
+        }
+        Column(Modifier.padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            LabeledSlider("Ukuran huruf", "${layout.size}", layout.size.toFloat(), HookLayout.SIZE_RANGE.first.toFloat()..HookLayout.SIZE_RANGE.last.toFloat(), onChange = { v ->
+                dragMerge("size" to JsonPrimitive(v.roundToInt()))
+            }, onDone = { state.endDrag() })
+            if (layout.alpha != null) {
+                LabeledSlider("Sudut kotak", "${layout.radius}", layout.radius.toFloat(), HookLayout.RADIUS_RANGE.first.toFloat()..HookLayout.RADIUS_RANGE.last.toFloat(), onChange = { v ->
+                    dragMerge("radius" to JsonPrimitive(v.roundToInt()))
+                }, onDone = { state.endDrag() })
+            }
+            val min = if (lead > 0) -lead else 0.0
+            Row {
+                Text("Waktu tampil", style = MaterialTheme.typography.labelMedium, color = c.textBody, modifier = Modifier.weight(1f))
+                Text("${seconds(layout.start)}–${seconds(layout.end)} dtk", style = MaterialTheme.typography.labelMedium, color = c.text)
+            }
+            ClipMiRangeSlider(
+                value = layout.start.toFloat()..layout.end.toFloat(),
+                onValueChange = { r ->
+                    dragMerge("start" to JsonPrimitive((r.start * 10).roundToInt() / 10.0), "end" to JsonPrimitive((r.endInclusive * 10).roundToInt() / 10.0))
+                },
+                valueRange = min.toFloat()..maxOf(min + 0.5, length).toFloat(),
+                onValueChangeFinished = { state.endDrag() },
+            )
+            Toggle("Kartu pembuka", "Hook di atas frame pertama yang dikaburkan, ${seconds(HookLayout.OPENER_SECONDS)} dtk sebelum klip.", layout.opener) { on ->
+                merge("opener" to JsonPrimitive(on))
+            }
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                ActionChip("Posisi bawaan", { merge("x" to JsonNull, "y" to JsonNull) }, Modifier.weight(1f), height = 40.dp, enabled = layout.x != null)
+                GhostButton("Reset tampilan", onClick = { state.apply { it.copy(hookLayout = null) } })
+            }
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------------------------------------------
+// Sampul
+// ---------------------------------------------------------------------------------------------------------------
+
+/**
+ * Tab Sampul (padanan CoverPanel Android): sampul dari frame video atau gambar Photos, judul di atasnya, dan pilihan
+ * menempelkannya di awal video. Pratinjau sampul dibuat FFmpeg seperti saat render.
+ */
+@Composable
+private fun CoverPanel(state: EditorState, position: Double, pending: PendingText) {
+    val c = ClipMi.colors
+    val scope = rememberCoroutineScope()
+    val notifier = LocalNotifier.current
+    val s = state.snapshot
+    var image by remember { mutableStateOf<ImageBitmap?>(null) }
+    var making by remember { mutableStateOf(false) }
+    var picking by remember { mutableStateOf(false) }
+    var saving by remember { mutableStateOf(false) }
+    val coverKey = listOf(s.coverTime, s.coverPath, s.coverTitle, s.coverLayout, s.keywords, s.captionStyleId, s.frameStyleId, s.title, s.clip.startTime, s.cropPosition, s.cropZoom, s.cropY)
+    LaunchedEffect(coverKey) {
+        if (!s.hasCover) {
+            image = null
+            return@LaunchedEffect
+        }
+        delay(400)
+        making = true
+        try {
+            val file = state.renderer.cover(state.entitySnapshot(s), state.project, state.captionStyle(s), state.frameStyle(s))
+            image = withContext(Dispatchers.Default) { decodeImage(file) }
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            notifier.show("Sampul gagal dibuat: ${e.message?.take(100)}")
+        } finally {
+            making = false
+        }
+    }
+
+    Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
+        PanelTitle(
+            "Sampul",
+            when {
+                s.coverPath != null -> "Gambar dari Photos"
+                s.coverTime != null -> "Frame di ${Timecode.format(s.coverTime - s.clip.startTime)}"
+                else -> "Belum ada"
+            },
+        )
+        Row(horizontalArrangement = Arrangement.spacedBy(14.dp)) {
+            Box(Modifier.width(96.dp).aspectRatio(9f / 16f).clip(RoundedCornerShape(14.dp)).background(EDITOR_CARD), contentAlignment = Alignment.Center) {
+                image?.let { Image(it, contentDescription = "Sampul", contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize()) }
+                    ?: Icon(ClipMiIcons.Image, contentDescription = null, tint = c.textMuted, modifier = Modifier.size(24.dp))
+                if (making || picking) ProgressBar(null, Modifier.align(Alignment.BottomCenter).padding(8.dp))
+            }
+            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                ActionChip("Frame saat ini", {
+                    val time = (position.coerceIn(s.clip.startTime, s.clip.endTime) * 1000).roundToInt() / 1000.0
+                    state.apply { it.copy(coverTime = time, coverPath = null) }
+                }, Modifier.fillMaxWidth(), height = 40.dp, icon = ClipMiIcons.Film)
+                ActionChip("Dari Photos", {
+                    val relative = state.coverImagePath()
+                    val absolute = state.absolute(relative)
+                    createDirectory(absolute.substringBeforeLast('/'))
+                    picking = true
+                    state.engine.pickImage(
+                        absolute,
+                        object : PickListener {
+                            override fun finished(path: String?) {
+                                picking = false
+                                if (path != null) state.apply { it.copy(coverPath = relative, coverTime = null) }
+                            }
+                        },
+                    )
+                }, Modifier.fillMaxWidth(), height = 40.dp, icon = ClipMiIcons.Image, enabled = !picking)
+                if (s.hasCover) {
+                    ActionChip(if (saving) "Menyimpan…" else "Simpan ke Photos", {
+                        saving = true
+                        scope.launch {
+                            val error = runCatching { state.renderer.saveCover(state.entitySnapshot(), state.project, state.captionStyle(), state.frameStyle()) }
+                                .getOrElse { it.message ?: "gagal" }
+                            notifier.show(if (error == null) "Sampul tersimpan di Photos." else "Sampul tidak bisa disimpan: $error")
+                            saving = false
+                        }
+                    }, Modifier.fillMaxWidth(), height = 40.dp, icon = ClipMiIcons.Download, enabled = !saving && !making)
+                    GhostButton("Tanpa sampul", danger = true, onClick = { state.apply { it.copy(coverTime = null, coverPath = null) } })
+                }
+            }
+        }
+        if (s.hasCover) {
+            Toggle("Judul di sampul", null, s.coverTitle) { on -> state.apply { it.copy(coverTitle = on) } }
+            if (s.coverTitle) CoverTitleSection(state, pending)
+            Toggle("Tempel di awal video", "Untuk platform yang memakai frame pertama.", s.coverInVideo) { on -> state.apply { it.copy(coverInVideo = on) } }
+        }
+        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            Text("Judul klip", style = MaterialTheme.typography.labelMedium, color = c.textBody)
+            AutoSaveField("title-${state.entity.id}", s.title, pending, placeholder = "Judul klip") { text ->
+                text.trim().takeIf { it.isNotEmpty() }?.let { title -> state.apply { it.copy(title = title) } }
+            }
+        }
+    }
+}
+
+/** Model judul sampul: Klasik (sama dengan desktop) atau tipografi, teks dengan `*kata*` sebagai sorotan, warna, posisi, ukuran. */
+@Composable
+private fun CoverTitleSection(state: EditorState, pending: PendingText) {
+    val c = ClipMi.colors
+    val layout = CoverTitle.parse(state.snapshot.coverLayout)
+    fun update(change: (CoverTitleLayout) -> CoverTitleLayout) = state.apply { it.copy(coverLayout = CoverTitle.encode(change(CoverTitle.parse(it.coverLayout)))) }
+    val defaultText = ClipText.displayTitle(state.snapshot.title, state.entity.partNumber)
+
+    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        ChipRow(gutter = 0.dp) {
+            CoverTitle.MODELS.forEach { (key, label) -> FilterPill(label, selected = layout.model == key, height = 34.dp, onClick = { update { it.copy(model = key) } }) }
+        }
+        if (layout.classic) return@Column
+        AutoSaveField(
+            "cover-${state.entity.id}", layout.text ?: defaultText, pending, label = "Teks sampul", supporting = "Enter = baris baru · *kata* = sorotan", minLines = 2, maxLines = 4,
+        ) { text -> update { it.copy(text = text.takeIf { t -> t.isNotBlank() && t.trim() != defaultText }) } }
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+            Text("Sorotan", style = MaterialTheme.typography.labelMedium, color = c.textBody, modifier = Modifier.width(64.dp))
+            val accent = layout.accent ?: CoverTitle.ACCENTS[layout.model]
+            CoverTitle.PALETTE.forEach { hexValue ->
+                Box(
+                    Modifier.size(28.dp).clip(RoundedCornerShape(8.dp)).background(hex(hexValue))
+                        .border(2.dp, if (hexValue.equals(accent, ignoreCase = true)) c.accent else Color.Transparent, RoundedCornerShape(8.dp))
+                        .clickable { update { it.copy(accent = hexValue) } },
+                )
+            }
+        }
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+            Text("Posisi", style = MaterialTheme.typography.labelMedium, color = c.textBody, modifier = Modifier.width(64.dp))
+            listOf("top" to "Atas", "center" to "Tengah", "bottom" to "Bawah").forEach { (key, label) ->
+                FilterPill(label, selected = layout.position == key, height = 32.dp, onClick = { update { it.copy(position = if (it.position == key) null else key) } })
+            }
+        }
+        LabeledSlider("Ukuran", "${layout.size}%", layout.size.toFloat(), CoverTitle.SIZE_MIN.toFloat()..CoverTitle.SIZE_MAX.toFloat(), onChange = { v ->
+            state.drag { it.copy(coverLayout = CoverTitle.encode(CoverTitle.parse(it.coverLayout).copy(size = v.roundToInt()))) }
+        }, onDone = { state.endDrag() })
+    }
 }
