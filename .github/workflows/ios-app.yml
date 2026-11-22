@@ -15,6 +15,8 @@ on:
       - "app/src/main/cpp/text_measure_core.*"
       - "app/src/main/cpp/ass_core.*"
       - "app/src/main/assets/fonts/**"
+      - "app/src/main/res/font/**"
+      - "ui/**"
       - ".github/workflows/ios-app.yml"
 
 jobs:

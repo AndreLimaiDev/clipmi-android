@@ -120,6 +120,7 @@ android {
 dependencies {
     implementation(project(":core"))
     implementation(project(":shared"))
+    implementation(project(":ui"))
 
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.activity.compose)

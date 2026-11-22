@@ -27,6 +27,10 @@ targets:
       - path: ../app/src/main/assets/fonts
         type: folder
         buildPhase: resources
+      # Font antarmuka Plus Jakarta Sans (res/font Android), di bundle sebagai folder font/.
+      - path: ../app/src/main/res/font
+        type: folder
+        buildPhase: resources
     dependencies:
       - framework: ../composeApp/build/bin/iosArm64/releaseFramework/ComposeApp.framework
         embed: true
@@ -37,6 +41,7 @@ targets:
         embed: false
       - sdk: WebKit.framework
       - sdk: AVFoundation.framework
+      - sdk: AVKit.framework
       - sdk: Photos.framework
       - sdk: PhotosUI.framework
       - sdk: Vision.framework

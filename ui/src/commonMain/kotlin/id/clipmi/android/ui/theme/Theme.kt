@@ -14,14 +14,11 @@ import androidx.compose.runtime.ReadOnlyComposable
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.TextStyle
-import androidx.compose.ui.text.font.Font
 import androidx.compose.ui.text.font.FontFamily
-import androidx.compose.ui.text.font.FontVariation
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.em
 import androidx.compose.ui.unit.sp
-import id.clipmi.android.R
 
 /**
  * Token warna ClipMI (mockup "Sistem UI"): netral hitam kehijauan, satu aksen emerald,
@@ -126,15 +123,28 @@ object ClipMi {
         @Composable @ReadOnlyComposable get() = LocalClipMiColors.current
 }
 
-/** Plus Jakarta Sans (OFL 1.1, satu berkas variabel 200–800; lisensi di assets/licenses). */
-val JakartaSans = FontFamily(
-    listOf(FontWeight.Normal, FontWeight.Medium, FontWeight.SemiBold, FontWeight.Bold, FontWeight.ExtraBold).map { weight ->
-        Font(R.font.plus_jakarta_sans, weight = weight, variationSettings = FontVariation.Settings(FontVariation.weight(weight.weight)))
-    },
-)
+/**
+ * Font antarmuka ClipMI: Plus Jakarta Sans (OFL 1.1, satu berkas variabel 200–800). Berkasnya milik tiap aplikasi
+ * (Android: res/font, iOS: bundle), jadi dipasang lewat [install] sebelum layar pertama tampil.
+ */
+object ClipMiFonts {
+    var sans: FontFamily = FontFamily.Default
+        private set
+    private var cached: Typography? = null
 
-private fun style(size: Int, weight: FontWeight, line: Int, spacing: Double = 0.0) = TextStyle(
-    fontFamily = JakartaSans,
+    fun install(family: FontFamily) {
+        sans = family
+        cached = null
+    }
+
+    internal fun typography(): Typography = cached ?: typographyFor(sans).also { cached = it }
+}
+
+/** Plus Jakarta Sans (lihat [ClipMiFonts]). */
+val JakartaSans: FontFamily get() = ClipMiFonts.sans
+
+private fun style(family: FontFamily, size: Int, weight: FontWeight, line: Int, spacing: Double = 0.0) = TextStyle(
+    fontFamily = family,
     fontWeight = weight,
     fontSize = size.sp,
     lineHeight = line.sp,
@@ -142,20 +152,22 @@ private fun style(size: Int, weight: FontWeight, line: Int, spacing: Double = 0.
 )
 
 /** Skala huruf mockup: judul layar 30, judul bagian 20, judul kartu 15, isi 14, keterangan 12. */
-val ClipMiTypography = Typography(
-    displaySmall = style(34, FontWeight.ExtraBold, 40, -0.02),
-    headlineLarge = style(30, FontWeight.ExtraBold, 36, -0.02),
-    headlineMedium = style(26, FontWeight.ExtraBold, 32, -0.01),
-    headlineSmall = style(22, FontWeight.ExtraBold, 28),
-    titleLarge = style(20, FontWeight.ExtraBold, 25),
-    titleMedium = style(15, FontWeight.Bold, 20),
-    titleSmall = style(14, FontWeight.Bold, 18),
-    bodyLarge = style(15, FontWeight.Medium, 22),
-    bodyMedium = style(14, FontWeight.Medium, 21),
-    bodySmall = style(12, FontWeight.Medium, 17),
-    labelLarge = style(14, FontWeight.Bold, 18),
-    labelMedium = style(12, FontWeight.SemiBold, 16),
-    labelSmall = style(11, FontWeight.Bold, 14),
+val ClipMiTypography: Typography get() = ClipMiFonts.typography()
+
+private fun typographyFor(f: FontFamily) = Typography(
+    displaySmall = style(f, 34, FontWeight.ExtraBold, 40, -0.02),
+    headlineLarge = style(f, 30, FontWeight.ExtraBold, 36, -0.02),
+    headlineMedium = style(f, 26, FontWeight.ExtraBold, 32, -0.01),
+    headlineSmall = style(f, 22, FontWeight.ExtraBold, 28),
+    titleLarge = style(f, 20, FontWeight.ExtraBold, 25),
+    titleMedium = style(f, 15, FontWeight.Bold, 20),
+    titleSmall = style(f, 14, FontWeight.Bold, 18),
+    bodyLarge = style(f, 15, FontWeight.Medium, 22),
+    bodyMedium = style(f, 14, FontWeight.Medium, 21),
+    bodySmall = style(f, 12, FontWeight.Medium, 17),
+    labelLarge = style(f, 14, FontWeight.Bold, 18),
+    labelMedium = style(f, 12, FontWeight.SemiBold, 16),
+    labelSmall = style(f, 11, FontWeight.Bold, 14),
 )
 
 /** Sudut: chip 10–14, kolom isian 18, kartu 24, panel bawah 28. */

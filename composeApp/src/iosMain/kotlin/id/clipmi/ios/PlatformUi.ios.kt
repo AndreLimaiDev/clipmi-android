@@ -1,0 +1,75 @@
+package id.clipmi.ios
+
+import androidx.compose.foundation.Image
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.size
+import androidx.compose.material3.Icon
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.produceState
+import androidx.compose.runtime.remember
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.graphics.toComposeImageBitmap
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.viewinterop.UIKitViewController
+import id.clipmi.android.data.ProjectEntity
+import id.clipmi.android.data.VideoStatus
+import id.clipmi.android.ui.theme.ClipMi
+import id.clipmi.android.ui.theme.ClipMiIcons
+import kotlinx.cinterop.ExperimentalForeignApi
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+import platform.AVFoundation.AVPlayer
+import platform.AVFoundation.pause
+import platform.AVKit.AVPlayerViewController
+import platform.Foundation.NSDate
+import platform.Foundation.NSDateFormatter
+import platform.Foundation.NSLocale
+import platform.Foundation.NSURL
+import platform.Foundation.dateWithTimeIntervalSince1970
+import org.jetbrains.skia.Image as SkiaImage
+
+@Composable
+actual fun ProjectThumbnail(repo: Repository, engine: MediaEngine, project: ProjectEntity, modifier: Modifier) {
+    val image by produceState<ImageBitmap?>(null, project.id, project.videoStatus, project.thumbnailPath) {
+        value = withContext(Dispatchers.Default) {
+            val stored = project.thumbnailPath?.let { repo.absolute(it) }?.takeIf { fileSize(it) > 0 }
+            val path = stored ?: repo.absolute("${repo.projectDir(project.id)}/thumb.jpg")
+            if (fileSize(path) <= 0) {
+                val source = project.videoPath?.takeIf { project.video == VideoStatus.Ready }?.let { repo.absolute(it) }?.takeIf { fileSize(it) > 0 }
+                if (source != null) {
+                    createDirectory(path.substringBeforeLast('/'))
+                    engine.videoFrame(source, minOf(30.0, (project.durationSeconds ?: 60.0) * 0.1), path, 360)
+                }
+            }
+            readBytes(path)?.let { bytes -> runCatching { SkiaImage.makeFromEncoded(bytes).toComposeImageBitmap() }.getOrNull() }
+        }
+    }
+    Box(modifier.background(ClipMi.colors.panel), contentAlignment = Alignment.Center) {
+        val bitmap = image
+        if (bitmap != null) {
+            Image(bitmap, contentDescription = null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
+        } else {
+            Icon(ClipMiIcons.Play, contentDescription = null, tint = ClipMi.colors.textMuted, modifier = Modifier.size(24.dp))
+        }
+    }
+}
+
+@OptIn(ExperimentalForeignApi::class)
+@Composable
+actual fun SourceVideo(path: String, modifier: Modifier) {
+    val controller = remember(path) { AVPlayerViewController().apply { player = AVPlayer(uRL = NSURL.fileURLWithPath(path)) } }
+    DisposableEffect(controller) { onDispose { controller.player?.pause() } }
+    UIKitViewController(factory = { controller }, modifier = modifier)
+}
+
+actual fun dayMonth(millis: Long): String = NSDateFormatter().apply {
+    locale = NSLocale(localeIdentifier = "id_ID")
+    dateFormat = "d MMM"
+}.stringFromDate(NSDate.dateWithTimeIntervalSince1970(millis / 1000.0))

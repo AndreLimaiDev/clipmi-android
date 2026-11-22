@@ -288,14 +288,17 @@ private fun EditorContent(state: EditorState, renders: Renders, onBack: () -> Un
             val now = preview.seconds()
             position = now
             if (!preview.playing || preview.settling(now)) continue
-            val cut = currentCuts.firstOrNull { now >= it.first && now < it.second }
+            // Lompat sedikit melewati akhir potongan: AVPlayer membulatkan waktu ke 1/600 detik, jadi lompatan tepat ke
+            // akhir potongan bisa mendarat sedikit sebelumnya, terhitung masih di dalam potongan, lalu melompat terus
+            // (video macet). Sisa 0,04 detik terakhir potongan juga tidak memicu lompatan lagi.
+            val cut = currentCuts.firstOrNull { now >= it.first && now < it.second - 0.04 }
             when {
                 now >= clip.endTime - 0.03 -> {
                     preview.pause()
                     preview.seek(clip.startTime)
                 }
                 now < clip.startTime - 0.25 -> preview.seek(clip.startTime)
-                cut != null -> preview.seek(cut.second)
+                cut != null -> preview.seek(min(cut.second + 0.02, clip.endTime))
             }
         }
     }
@@ -363,7 +366,7 @@ private fun EditorContent(state: EditorState, renders: Renders, onBack: () -> Un
         }
 
         // Aksi bawah: render (menyimpan isian yang belum tersimpan dulu) dan progres render.
-        Column(Modifier.fillMaxWidth().background(c.surface).padding(horizontal = 20.dp, vertical = 12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Column(Modifier.fillMaxWidth().background(c.surfaceContainer).padding(horizontal = 20.dp, vertical = 12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             notice?.let { (text, ok) -> Text(text, fontSize = 13.sp, color = if (ok) c.primary else Danger, maxLines = 3, overflow = TextOverflow.Ellipsis) }
             val rendering = renders.active == state.entity.id
             if (rendering) {
@@ -409,7 +412,7 @@ private fun EditorContent(state: EditorState, renders: Renders, onBack: () -> Un
 private fun Section(title: String, hint: String? = null, content: @Composable () -> Unit) {
     val c = MaterialTheme.colorScheme
     Column(
-        Modifier.fillMaxWidth().clip(RoundedCornerShape(20.dp)).background(c.surface).padding(16.dp),
+        Modifier.fillMaxWidth().clip(RoundedCornerShape(20.dp)).background(c.surfaceContainer).padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
@@ -593,7 +596,7 @@ private fun TrimTab(state: EditorState, position: Double, playing: Boolean, seek
                 Modifier
                     .fillMaxWidth()
                     .clip(RoundedCornerShape(14.dp))
-                    .background(c.surface)
+                    .background(c.surfaceContainer)
                     .border(1.dp, if (current) c.primary.copy(alpha = 0.6f) else Color.Transparent, RoundedCornerShape(14.dp))
                     .padding(horizontal = 12.dp, vertical = 10.dp),
                 verticalArrangement = Arrangement.spacedBy(8.dp),
@@ -693,7 +696,7 @@ private fun WordDialog(state: EditorState, editor: ClipEditor, word: EditorWord,
     val keyword = Keywords.mark(listOf(word.text), state.snapshot.keywords).isNotEmpty()
     Dialog(onDismissRequest = onDone) {
         Column(
-            Modifier.fillMaxWidth().clip(RoundedCornerShape(20.dp)).background(c.surface).padding(20.dp),
+            Modifier.fillMaxWidth().clip(RoundedCornerShape(20.dp)).background(c.surfaceContainer).padding(20.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             Text("“${word.text}”", fontWeight = FontWeight.Bold, fontSize = 18.sp, color = c.onSurface)

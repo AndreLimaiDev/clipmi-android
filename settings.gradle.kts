@@ -21,5 +21,6 @@ rootProject.name = "clipmi-android"
 // -Pclipmi.coreOnly (CI iOS di macOS): tanpa app, supaya tidak perlu Android SDK.
 include(":core")
 include(":shared")
+include(":ui")
 if (!providers.gradleProperty("clipmi.coreOnly").isPresent) include(":app")
 if (System.getProperty("os.name").startsWith("Mac") || providers.gradleProperty("clipmi.ios").isPresent) include(":composeApp")

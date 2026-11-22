@@ -1,7 +1,6 @@
 package id.clipmi.android.ui.components
 
 import androidx.compose.ui.draw.shadow
-import android.graphics.BitmapFactory
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
@@ -32,12 +31,8 @@ import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.windowInsetsPadding
-import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.windowInsetsTopHeight
-import androidx.activity.compose.LocalActivity
-import androidx.compose.ui.platform.LocalView
-import androidx.core.view.WindowCompat
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
@@ -85,7 +80,6 @@ import androidx.compose.ui.unit.offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.SolidColor
-import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.semantics.Role
@@ -102,11 +96,7 @@ import id.clipmi.android.data.VideoStatus
 import id.clipmi.android.ui.theme.ClipMi
 import id.clipmi.android.ui.theme.ClipMiIcons
 import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
-import java.io.File
-import java.util.Locale
 
 // ---------------------------------------------------------------------------------------------------------------
 // Tata letak dasar
@@ -121,11 +111,11 @@ val FloatingNavSpace: Dp
 
 /** Lebar ≥600 dp (tablet, HP miring): navigasi utama pindah ke samping, isi daftar dan form dibatasi lebarnya. */
 @Composable
-fun isWideScreen(): Boolean = LocalConfiguration.current.screenWidthDp >= 600
+expect fun isWideScreen(): Boolean
 
 /** Layar lebar dan mendatar: pratinjau yang biasanya tetap di atas pindah ke kiri, isian di kanan. */
 @Composable
-fun isSideBySide(): Boolean = LocalConfiguration.current.let { it.screenWidthDp >= 600 && it.screenWidthDp > it.screenHeightDp }
+expect fun isSideBySide(): Boolean
 
 /** Lebar maksimum isi daftar dan form di layar lebar, supaya baris tidak memanjang selebar tablet. */
 val ReadableWidth = 760.dp
@@ -177,7 +167,7 @@ fun ScreenHeader(title: String, modifier: Modifier = Modifier, eyebrow: String? 
 
 @Composable
 fun Eyebrow(text: String, color: Color = ClipMi.colors.accent) {
-    Text(text.uppercase(Locale.ROOT), style = MaterialTheme.typography.labelMedium.copy(fontSize = 13.sp, letterSpacing = 1.sp), color = color)
+    Text(text.uppercase(), style = MaterialTheme.typography.labelMedium.copy(fontSize = 13.sp, letterSpacing = 1.sp), color = color)
 }
 
 /** Latar di belakang status bar agar isi yang digulir tidak menabrak jam dan ikon. */
@@ -188,16 +178,7 @@ fun StatusBarScrim(modifier: Modifier = Modifier, color: Color = ClipMi.colors.b
 
 /** Ikon status bar terang selama layar ini tampil (di atas video hitam), dikembalikan saat keluar. */
 @Composable
-fun LightStatusIcons() {
-    val activity = LocalActivity.current ?: return
-    val view = LocalView.current
-    DisposableEffect(activity) {
-        val controller = WindowCompat.getInsetsController(activity.window, view)
-        val before = controller.isAppearanceLightStatusBars
-        controller.isAppearanceLightStatusBars = false
-        onDispose { controller.isAppearanceLightStatusBars = before }
-    }
-}
+expect fun LightStatusIcons()
 
 /** Judul halaman turunan: tombol kembali bulat + judul, aksi di kanan. */
 @Composable
@@ -217,7 +198,7 @@ fun SubScreenHeader(title: String, onBack: () -> Unit, modifier: Modifier = Modi
 @Composable
 fun SectionLabel(text: String, modifier: Modifier = Modifier) {
     Text(
-        text.uppercase(Locale.ROOT),
+        text.uppercase(),
         style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold, letterSpacing = 0.7.sp),
         color = ClipMi.colors.textMuted,
         modifier = modifier.padding(start = 4.dp),
@@ -934,37 +915,6 @@ fun ClipMiSnackbarHost(notifier: Notifier, modifier: Modifier = Modifier) {
 // ---------------------------------------------------------------------------------------------------------------
 // Gambar dan format
 // ---------------------------------------------------------------------------------------------------------------
-
-/** Gambar dari file (thumbnail), didekode di latar dan diperkecil agar hemat memori. */
-@Composable
-fun FileImage(file: File?, modifier: Modifier = Modifier, maxSize: Int = 480, placeholder: ImageVector? = ClipMiIcons.Play) {
-    var image by remember(file?.path, file?.lastModified()) { mutableStateOf<ImageBitmap?>(null) }
-    LaunchedEffect(file?.path, file?.lastModified()) {
-        image = withContext(Dispatchers.IO) {
-            if (file == null || !file.isFile) return@withContext null
-            val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
-            BitmapFactory.decodeFile(file.path, bounds)
-            var sample = 1
-            while (bounds.outWidth / (sample * 2) >= maxSize) sample *= 2
-            BitmapFactory.decodeFile(file.path, BitmapFactory.Options().apply { inSampleSize = sample })?.asImageBitmap()
-        }
-    }
-    val c = ClipMi.colors
-    Box(modifier.background(c.panel), contentAlignment = Alignment.Center) {
-        val bitmap = image
-        if (bitmap != null) {
-            Image(bitmap, contentDescription = null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
-        } else if (placeholder != null) {
-            Icon(placeholder, contentDescription = null, tint = c.textMuted, modifier = Modifier.size(24.dp))
-        }
-    }
-}
-
-fun formatBytes(bytes: Long): String = when {
-    bytes >= 1L shl 30 -> "%.1f GB".format(Locale.forLanguageTag("id"), bytes / (1L shl 30).toDouble())
-    bytes >= 1L shl 20 -> "%.0f MB".format(Locale.ROOT, bytes / (1L shl 20).toDouble())
-    else -> "%.0f KB".format(Locale.ROOT, bytes / 1024.0)
-}
 
 /**
  * Slider aplikasi: jalur tipis (4 dp) dan bulatan putih, tanpa garis tegak dan titik ujung. Dipakai di semua layar

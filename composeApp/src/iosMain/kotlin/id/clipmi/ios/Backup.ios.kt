@@ -328,7 +328,7 @@ actual fun BackupScreen(repo: Repository, engine: MediaEngine, onBack: () -> Uni
     ) {
         item {
             Text(
-                "‹ Project", color = c.primary, fontWeight = FontWeight.SemiBold, fontSize = 15.sp,
+                "‹ Pengaturan", color = c.primary, fontWeight = FontWeight.SemiBold, fontSize = 15.sp,
                 modifier = Modifier.clip(RoundedCornerShape(12.dp)).clickable(enabled = busy == null, onClick = onBack).padding(vertical = 6.dp, horizontal = 2.dp),
             )
         }
@@ -436,7 +436,7 @@ actual fun BackupScreen(repo: Repository, engine: MediaEngine, onBack: () -> Uni
 @Composable
 private fun BackupCard(title: String, content: @Composable () -> Unit) {
     Column(
-        Modifier.fillMaxWidth().clip(RoundedCornerShape(20.dp)).background(MaterialTheme.colorScheme.surface).padding(16.dp),
+        Modifier.fillMaxWidth().clip(RoundedCornerShape(20.dp)).background(MaterialTheme.colorScheme.surfaceContainer).padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
         Text(title, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface)

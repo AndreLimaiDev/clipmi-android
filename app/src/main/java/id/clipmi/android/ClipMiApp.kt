@@ -53,6 +53,7 @@ class ClipMiApp : Application() {
 
     override fun onCreate() {
         super.onCreate()
+        id.clipmi.android.ui.theme.installClipMiFonts()
         container = AppContainer(this)
         createNotificationChannels()
     }
