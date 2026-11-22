@@ -1,0 +1,88 @@
+# Aplikasi ClipMI iOS: framework Compose (composeApp) + proyek Xcode (iosApp, XcodeGen) + Python tertanam.
+# Hasilnya ClipMI-ios.ipa tanpa tanda tangan (artifact), dipasang lewat iloader/SideStore.
+# Jalan saat composeApp/iosApp berubah di branch ios-port, atau manual: runner macOS memakan kuota menit 10x
+# untuk repo privat (workflow_dispatch baru bisa dipicu setelah file ini ada di branch utama).
+name: iOS app
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ios-port]
+    paths:
+      - "composeApp/**"
+      - "iosApp/**"
+      - ".github/workflows/ios-app.yml"
+
+jobs:
+  ipa:
+    runs-on: macos-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+
+      - uses: gradle/actions/setup-gradle@v4
+
+      - name: Cache Kotlin/Native
+        uses: actions/cache@v4
+        with:
+          path: ~/.konan
+          key: konan-${{ runner.os }}-${{ hashFiles('gradle/libs.versions.toml') }}
+
+      - name: Framework Compose (Kotlin/Native)
+        run: ./gradlew -Pclipmi.coreOnly :composeApp:linkReleaseFrameworkIosArm64 --stacktrace
+
+      - name: Python.xcframework (BeeWare Python-Apple-support 3.14)
+        working-directory: iosApp
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          tag=$(gh release list -R beeware/Python-Apple-support --limit 60 --json tagName -q '.[].tagName' | grep '^3\.14-' | head -1)
+          echo "Rilis BeeWare: $tag"
+          mkdir -p /tmp/py
+          gh release download "$tag" -R beeware/Python-Apple-support -p '*iOS*' -D /tmp/py
+          tar -xzf /tmp/py/*iOS*.tar.gz -C .
+          cat VERSIONS
+
+      - name: Paket Python (murni)
+        working-directory: iosApp
+        run: |
+          set -euo pipefail
+          python3 -m pip install --target app_packages --no-deps yt-dlp yt-dlp-ejs yt-dlp-apple-webkit-jsi certifi
+          ls app_packages
+
+      - name: Proyek Xcode (XcodeGen)
+        working-directory: iosApp
+        run: |
+          brew install xcodegen
+          xcodegen generate
+
+      - name: Build
+        working-directory: iosApp
+        run: |
+          set -o pipefail
+          xcodebuild -project ClipMI.xcodeproj -scheme ClipMI -configuration Release \
+            -sdk iphoneos -destination 'generic/platform=iOS' -derivedDataPath build \
+            CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" build | tail -200
+
+      - name: Bungkus IPA
+        working-directory: iosApp
+        run: |
+          set -euo pipefail
+          app=build/Build/Products/Release-iphoneos/ClipMI.app
+          ls "$app/Frameworks" | head -20
+          du -sh "$app"
+          mkdir Payload
+          cp -R "$app" Payload/
+          zip -qry ClipMI-ios.ipa Payload
+          ls -la ClipMI-ios.ipa
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ClipMI-ios-ipa
+          path: iosApp/ClipMI-ios.ipa

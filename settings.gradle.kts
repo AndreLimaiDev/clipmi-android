@@ -16,6 +16,9 @@ dependencyResolutionManagement {
 
 rootProject.name = "clipmi-android"
 
-// app: aplikasi Android. core: logika Kotlin murni (padanan kode desktop), bisa diuji tanpa HP.
-// -Pclipmi.coreOnly (CI tes iOS di macOS): hanya core, supaya tidak perlu Android SDK.
-if (providers.gradleProperty("clipmi.coreOnly").isPresent) include(":core") else include(":app", ":core")
+// app: aplikasi Android. core: logika Kotlin (padanan kode desktop, juga untuk iOS). composeApp: aplikasi iOS
+// (Compose Multiplatform), hanya di macOS atau dengan -Pclipmi.ios.
+// -Pclipmi.coreOnly (CI iOS di macOS): tanpa app, supaya tidak perlu Android SDK.
+include(":core")
+if (!providers.gradleProperty("clipmi.coreOnly").isPresent) include(":app")
+if (System.getProperty("os.name").startsWith("Mac") || providers.gradleProperty("clipmi.ios").isPresent) include(":composeApp")

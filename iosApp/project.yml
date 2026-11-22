@@ -1,0 +1,60 @@
+# XcodeGen: proyek Xcode ClipMI iOS dibuat di CI (.github/workflows/ios-app.yml), tidak ada Mac lokal.
+# Sebelum xcodegen: framework ComposeApp dibangun Gradle, Python.xcframework (BeeWare) dan app_packages diunduh CI.
+name: ClipMI
+options:
+  bundleIdPrefix: id.clipmi
+  deploymentTarget:
+    iOS: "16.0"
+targets:
+  ClipMI:
+    type: application
+    platform: iOS
+    sources:
+      - path: Sources
+      - path: app
+        type: folder
+        buildPhase: resources
+      - path: app_packages
+        type: folder
+        buildPhase: resources
+    dependencies:
+      - framework: ../composeApp/build/bin/iosArm64/releaseFramework/ComposeApp.framework
+        embed: true
+      - framework: Python.xcframework
+        embed: true
+      - sdk: WebKit.framework
+      - sdk: AVFoundation.framework
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: id.clipmi.ios
+        PRODUCT_NAME: ClipMI
+        MARKETING_VERSION: "0.0.1"
+        CURRENT_PROJECT_VERSION: "1"
+        SWIFT_VERSION: "5.0"
+        SWIFT_OBJC_BRIDGING_HEADER: Sources/ClipMI-Bridging-Header.h
+        ENABLE_USER_SCRIPT_SANDBOXING: NO
+        ENABLE_TESTABILITY: YES
+        FRAMEWORK_SEARCH_PATHS:
+          - $(PROJECT_DIR)
+          - $(PROJECT_DIR)/../composeApp/build/bin/iosArm64/releaseFramework
+        HEADER_SEARCH_PATHS: "\"$(BUILT_PRODUCTS_DIR)/Python.framework/Headers\""
+        CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER: NO
+        GENERATE_INFOPLIST_FILE: YES
+        INFOPLIST_KEY_CFBundleDisplayName: ClipMI
+        INFOPLIST_KEY_UILaunchScreen_Generation: YES
+        INFOPLIST_KEY_UISupportedInterfaceOrientations: UIInterfaceOrientationPortrait
+        INFOPLIST_KEY_UIFileSharingEnabled: YES
+        INFOPLIST_KEY_LSSupportsOpeningDocumentsInPlace: YES
+    postBuildScripts:
+      # Pustaka standar Python ke <app>/python dan modul biner (.so) menjadi framework (CPython "Using Python on iOS").
+      - name: Process Python libraries
+        basedOnDependencyAnalysis: false
+        script: |
+          set -e
+          # Build tanpa sertifikat (CODE_SIGNING_ALLOWED=NO): tanda tangan ad-hoc; iloader/SideStore menandatangani ulang.
+          if [ -z "$EXPANDED_CODE_SIGN_IDENTITY" ]; then
+            export EXPANDED_CODE_SIGN_IDENTITY="-"
+            export EXPANDED_CODE_SIGN_IDENTITY_NAME="ad-hoc"
+          fi
+          source "$PROJECT_DIR/Python.xcframework/build/utils.sh"
+          install_python Python.xcframework app app_packages

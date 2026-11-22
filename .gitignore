@@ -27,3 +27,13 @@ native/out/
 core/fixtures/transcript/input/real/
 core/fixtures/transcript/expected/real/
 dist/
+
+# iOS (iosApp): diunduh/dibuat CI
+iosApp/Python.xcframework/
+iosApp/VERSIONS
+iosApp/testbed/
+iosApp/app_packages/
+iosApp/build/
+iosApp/*.xcodeproj/
+iosApp/Payload/
+iosApp/*.ipa
