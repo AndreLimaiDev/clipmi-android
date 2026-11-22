@@ -247,7 +247,7 @@ object Keywords {
     fun mark(texts: List<String>, keywords: List<String>): Set<Int> {
         if (keywords.isEmpty() || texts.isEmpty()) return emptySet()
         val normalized = texts.map(::normalize)
-        val marked = sortedSetOf<Int>()
+        val marked = mutableSetOf<Int>()
         for (phrase in keywords.map(::words).filter { it.isNotEmpty() }.sortedByDescending { it.size }) {
             var i = 0
             while (i + phrase.size <= normalized.size) {
@@ -255,7 +255,8 @@ object Keywords {
                 i++
             }
         }
-        return marked
+        // Urut naik seperti sortedSetOf (hanya ada di JVM).
+        return marked.sorted().toSet()
     }
 
     private fun contains(haystack: List<String>, needle: List<String>): Boolean {
