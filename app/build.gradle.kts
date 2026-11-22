@@ -4,8 +4,6 @@ plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.compose)
     alias(libs.plugins.kotlin.serialization)
-    alias(libs.plugins.ksp)
-    alias(libs.plugins.room)
 }
 
 // Hasil scripts/build-native.sh: library statis libass dkk. (prefix/) dan executable qjs/ffmpeg (jniLibs/).
@@ -119,12 +117,9 @@ android {
     }
 }
 
-room {
-    schemaDirectory("$projectDir/schemas")
-}
-
 dependencies {
     implementation(project(":core"))
+    implementation(project(":shared"))
 
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.activity.compose)
@@ -139,7 +134,6 @@ dependencies {
     debugImplementation(libs.compose.ui.tooling)
 
     implementation(libs.room.runtime)
-    ksp(libs.room.compiler)
     implementation(libs.work.runtime)
 
     implementation(libs.media3.transformer)

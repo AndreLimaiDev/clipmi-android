@@ -1,6 +1,7 @@
 package id.clipmi.ios
 
 import androidx.compose.ui.window.ComposeUIViewController
+import id.clipmi.android.data.openDatabase
 import platform.UIKit.UIViewController
 import kotlin.experimental.ExperimentalNativeApi
 
@@ -12,5 +13,7 @@ fun MainViewController(engine: MediaEngine, documents: String): UIViewController
     setUnhandledExceptionHook { error ->
         writeText("$documents/crash.txt", "ClipMI iOS crash ${nowMillis()}\n${error.stackTraceToString()}")
     }
-    return ComposeUIViewController { App(engine, documents) }
+    // Database Room yang sama dengan Android (modul shared), di Documents/clipmi.db.
+    val repository = Repository(openDatabase(documents), documents)
+    return ComposeUIViewController { App(repository, engine) }
 }

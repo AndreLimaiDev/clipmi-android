@@ -26,7 +26,7 @@ interface ProjectDao {
 
     /** Intro/outro bawaan project: dipasang ke klip baru di project ini. */
     @Query("UPDATE projects SET intro_id = :introId, outro_id = :outroId, updated_at = :now WHERE id = :id")
-    suspend fun setBumpers(id: Long, introId: Long?, outroId: Long?, now: Long = System.currentTimeMillis())
+    suspend fun setBumpers(id: Long, introId: Long?, outroId: Long?, now: Long = nowMillis())
 
     @Query("SELECT * FROM projects")
     suspend fun all(): List<ProjectEntity>
@@ -47,7 +47,7 @@ interface ProjectDao {
     @Transaction
     suspend fun modify(id: Long, change: (ProjectEntity) -> ProjectEntity): ProjectEntity? {
         val current = find(id) ?: return null
-        return change(current).copy(updatedAt = System.currentTimeMillis()).also { update(it) }
+        return change(current).copy(updatedAt = nowMillis()).also { update(it) }
     }
 }
 
@@ -130,7 +130,7 @@ interface SettingDao {
     /** Tanpa "ON CONFLICT DO UPDATE": Android 10 masih memakai SQLite 3.22 yang belum mengenalnya. */
     @Transaction
     suspend fun put(key: String, value: String?) {
-        val now = System.currentTimeMillis()
+        val now = nowMillis()
         if (updateValue(key, value, now) == 0) insert(AppSettingEntity(key = key, value = value, createdAt = now, updatedAt = now))
     }
 }
@@ -160,11 +160,11 @@ interface ClipDao {
     suspend fun update(clip: ClipEntity)
 
     @Query("UPDATE clips SET review_status = :status, updated_at = :now WHERE id = :id")
-    suspend fun setReview(id: Long, status: String, now: Long = System.currentTimeMillis())
+    suspend fun setReview(id: Long, status: String, now: Long = nowMillis())
 
     /** Teks transkrip di rentang ini berubah: subtitle klip yang tumpang tindih ikut berubah (hasil render jadi lama). */
     @Query("UPDATE clips SET edited_at = :now, updated_at = :now WHERE project_id = :projectId AND start_time < :end AND end_time > :start")
-    suspend fun touchRange(projectId: Long, start: Double, end: Double, now: Long = System.currentTimeMillis()): Int
+    suspend fun touchRange(projectId: Long, start: Double, end: Double, now: Long = nowMillis()): Int
 
     @Query("DELETE FROM clips WHERE id = :id")
     suspend fun delete(id: Long)
@@ -192,19 +192,19 @@ interface ClipDao {
         id: Long, start: Double, end: Double, cuts: String?, subtitleLines: String?, subtitleEdited: Boolean,
         captionStyleId: Long?, frameStyleId: Long?, cropPosition: Int?, cropZoom: Int?, cropY: Int?, hook: String?,
         showHookOverlay: Boolean, hookLayout: String?, keywords: String?, coverTime: Double?, coverPath: String?,
-        coverTitle: Boolean, coverInVideo: Boolean, coverLayout: String?, introId: Long?, outroId: Long?, now: Long = System.currentTimeMillis(),
+        coverTitle: Boolean, coverInVideo: Boolean, coverLayout: String?, introId: Long?, outroId: Long?, now: Long = nowMillis(),
     )
 
     /** Jalur "ikuti pembicara" (JSON [id.clipmi.core.render.SpeakerTrackData]); null = belum dideteksi. */
     @Query("UPDATE clips SET speaker_track = :track, updated_at = :now WHERE id = :id")
-    suspend fun setSpeakerTrack(id: Long, track: String?, now: Long = System.currentTimeMillis())
+    suspend fun setSpeakerTrack(id: Long, track: String?, now: Long = nowMillis())
 
     /** Hanya kolom teks, supaya status render yang berubah di latar tidak tertimpa salinan lama. */
     @Query(
         """UPDATE clips SET title = :title, hook = :hook, caption = :caption, hashtags = :hashtags, keywords = :keywords,
         edited_at = CASE WHEN :changesRender THEN :now ELSE edited_at END, updated_at = :now WHERE id = :id""",
     )
-    suspend fun updateText(id: Long, title: String, hook: String?, caption: String?, hashtags: String?, keywords: String?, changesRender: Boolean, now: Long = System.currentTimeMillis())
+    suspend fun updateText(id: Long, title: String, hook: String?, caption: String?, hashtags: String?, keywords: String?, changesRender: Boolean, now: Long = nowMillis())
 
     /** Klip yang sudah atau sedang dirender (layar Hasil): yang sedang antre/dirender paling atas, lalu terbaru lebih dulu. */
     @Query("SELECT * FROM clips WHERE render_status != 'not_rendered' ORDER BY CASE WHEN render_status IN ('queued', 'rendering') THEN 0 ELSE 1 END, COALESCE(rendered_at, updated_at) DESC")
@@ -221,10 +221,10 @@ interface ClipDao {
     suspend fun busyRenders(): List<ClipEntity>
 
     @Query("UPDATE clips SET render_status = :status, render_progress = :progress, render_error = :error, updated_at = :now WHERE id = :id")
-    suspend fun setRender(id: Long, status: String, progress: Int?, error: String?, now: Long = System.currentTimeMillis())
+    suspend fun setRender(id: Long, status: String, progress: Int?, error: String?, now: Long = nowMillis())
 
     @Query("UPDATE clips SET render_status = 'done', render_progress = 100, render_error = NULL, output_path = :output, rendered_at = :now, updated_at = :now WHERE id = :id")
-    suspend fun renderDone(id: Long, output: String, now: Long = System.currentTimeMillis())
+    suspend fun renderDone(id: Long, output: String, now: Long = nowMillis())
 }
 
 data class ProjectClipCount(
@@ -375,7 +375,7 @@ interface BumperDao {
     suspend fun delete(bumper: BumperEntity)
 
     @Query("UPDATE bumpers SET last_used_at = :now WHERE id = :id")
-    suspend fun touchUsed(id: Long, now: Long = System.currentTimeMillis())
+    suspend fun touchUsed(id: Long, now: Long = nowMillis())
 }
 
 /** Akun sosmed, jadwal posting, akun tujuan, dan statistik postingan (tabel sama dengan desktop). */
@@ -470,7 +470,7 @@ interface ScheduleDao {
     suspend fun deleteTargetsExcept(scheduleId: Long, keep: List<Long>)
 
     @Query("UPDATE schedule_accounts SET schedule_id = :to, updated_at = :now WHERE schedule_id = :from AND social_account_id IN (:accounts)")
-    suspend fun moveTargets(from: Long, to: Long, accounts: List<Long>, now: Long = System.currentTimeMillis())
+    suspend fun moveTargets(from: Long, to: Long, accounts: List<Long>, now: Long = nowMillis())
 
     @Query("UPDATE schedule_accounts SET stats_checked_at = :at, stats_error = :error, updated_at = :at WHERE id = :id")
     suspend fun setStatsChecked(id: Long, at: Long, error: String?)

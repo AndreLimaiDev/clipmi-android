@@ -78,8 +78,8 @@ data class ProjectEntity(
     /** Gaya prompt analisis (id gaya bawaan atau buatan sendiri; null = Kajian) dan opsinya (JSON), khusus Android. */
     @ColumnInfo(name = "prompt_style") val promptStyle: String? = null,
     @ColumnInfo(name = "prompt_options") val promptOptions: String? = null,
-    @ColumnInfo(name = "created_at") val createdAt: Long = System.currentTimeMillis(),
-    @ColumnInfo(name = "updated_at") val updatedAt: Long = System.currentTimeMillis(),
+    @ColumnInfo(name = "created_at") val createdAt: Long = nowMillis(),
+    @ColumnInfo(name = "updated_at") val updatedAt: Long = nowMillis(),
 ) {
     val video: VideoStatus get() = VideoStatus.from(videoStatus)
     val transcript: TranscriptStatus get() = TranscriptStatus.from(transcriptStatus)
@@ -115,8 +115,8 @@ data class CorrectionEntryEntity(
     @ColumnInfo(name = "wrong_text", collate = ColumnInfo.NOCASE) val wrongText: String,
     @ColumnInfo(name = "correct_text") val correctText: String,
     @ColumnInfo(name = "is_active") val isActive: Boolean = true,
-    @ColumnInfo(name = "created_at") val createdAt: Long = System.currentTimeMillis(),
-    @ColumnInfo(name = "updated_at") val updatedAt: Long = System.currentTimeMillis(),
+    @ColumnInfo(name = "created_at") val createdAt: Long = nowMillis(),
+    @ColumnInfo(name = "updated_at") val updatedAt: Long = nowMillis(),
 )
 
 @Entity(tableName = "app_settings", indices = [Index(value = ["key"], unique = true)])
@@ -124,8 +124,8 @@ data class AppSettingEntity(
     @PrimaryKey(autoGenerate = true) val id: Long = 0,
     val key: String,
     val value: String?,
-    @ColumnInfo(name = "created_at") val createdAt: Long = System.currentTimeMillis(),
-    @ColumnInfo(name = "updated_at") val updatedAt: Long = System.currentTimeMillis(),
+    @ColumnInfo(name = "created_at") val createdAt: Long = nowMillis(),
+    @ColumnInfo(name = "updated_at") val updatedAt: Long = nowMillis(),
 )
 
 /** Status tinjauan kandidat; nilai sama dengan desktop. */
@@ -164,8 +164,8 @@ data class ClipSeriesEntity(
     @PrimaryKey(autoGenerate = true) val id: Long = 0,
     @ColumnInfo(name = "project_id") val projectId: Long,
     val title: String,
-    @ColumnInfo(name = "created_at") val createdAt: Long = System.currentTimeMillis(),
-    @ColumnInfo(name = "updated_at") val updatedAt: Long = System.currentTimeMillis(),
+    @ColumnInfo(name = "created_at") val createdAt: Long = nowMillis(),
+    @ColumnInfo(name = "updated_at") val updatedAt: Long = nowMillis(),
 )
 
 /** Status render klip; nilai sama dengan enum RenderStatus desktop. */
@@ -248,8 +248,8 @@ data class ClipEntity(
      * dan "manual" (posisi yang diatur sendiri per adegan). Berlaku bila crop_position null dan rentangnya cocok.
      */
     @ColumnInfo(name = "speaker_track") val speakerTrack: String? = null,
-    @ColumnInfo(name = "created_at") val createdAt: Long = System.currentTimeMillis(),
-    @ColumnInfo(name = "updated_at") val updatedAt: Long = System.currentTimeMillis(),
+    @ColumnInfo(name = "created_at") val createdAt: Long = nowMillis(),
+    @ColumnInfo(name = "updated_at") val updatedAt: Long = nowMillis(),
 ) {
     val review: ReviewStatus get() = ReviewStatus.from(reviewStatus)
     val duration: Double get() = endTime - startTime
@@ -287,8 +287,8 @@ data class CaptionStyleEntity(
     @ColumnInfo(name = "line_box_color") val lineBoxColor: String = "#000000",
     @ColumnInfo(name = "line_box_opacity") val lineBoxOpacity: Int = 65,
     @ColumnInfo(name = "is_default") val isDefault: Boolean = false,
-    @ColumnInfo(name = "created_at") val createdAt: Long = System.currentTimeMillis(),
-    @ColumnInfo(name = "updated_at") val updatedAt: Long = System.currentTimeMillis(),
+    @ColumnInfo(name = "created_at") val createdAt: Long = nowMillis(),
+    @ColumnInfo(name = "updated_at") val updatedAt: Long = nowMillis(),
 )
 
 /** Gaya bingkai (tabel frame_styles, kolom sama dengan desktop). template_area = JSON {"x","y","width","height"}. */
@@ -328,8 +328,8 @@ data class FrameStyleEntity(
     @ColumnInfo(name = "title_text_color") val titleTextColor: String = "#FFFFFF",
     @ColumnInfo(name = "subtitle_y") val subtitleY: Int? = null,
     @ColumnInfo(name = "is_default") val isDefault: Boolean = false,
-    @ColumnInfo(name = "created_at") val createdAt: Long = System.currentTimeMillis(),
-    @ColumnInfo(name = "updated_at") val updatedAt: Long = System.currentTimeMillis(),
+    @ColumnInfo(name = "created_at") val createdAt: Long = nowMillis(),
+    @ColumnInfo(name = "updated_at") val updatedAt: Long = nowMillis(),
 )
 
 /** Catatan pemakaian API AI per analisis/transkripsi, untuk halaman Pemakaian AI (sama dengan desktop). */
@@ -350,8 +350,8 @@ data class AiUsageEntity(
     @ColumnInfo(name = "output_tokens") val outputTokens: Int = 0,
     @ColumnInfo(name = "audio_seconds") val audioSeconds: Double = 0.0,
     val cost: Double? = null,
-    @ColumnInfo(name = "created_at") val createdAt: Long = System.currentTimeMillis(),
-    @ColumnInfo(name = "updated_at") val updatedAt: Long = System.currentTimeMillis(),
+    @ColumnInfo(name = "created_at") val createdAt: Long = nowMillis(),
+    @ColumnInfo(name = "updated_at") val updatedAt: Long = nowMillis(),
 )
 
 /**
@@ -368,8 +368,8 @@ data class BumperEntity(
     val duration: Double,
     @ColumnInfo(name = "thumbnail_path") val thumbnailPath: String? = null,
     @ColumnInfo(name = "last_used_at") val lastUsedAt: Long? = null,
-    @ColumnInfo(name = "created_at") val createdAt: Long = System.currentTimeMillis(),
-    @ColumnInfo(name = "updated_at") val updatedAt: Long = System.currentTimeMillis(),
+    @ColumnInfo(name = "created_at") val createdAt: Long = nowMillis(),
+    @ColumnInfo(name = "updated_at") val updatedAt: Long = nowMillis(),
 ) {
     companion object {
         val KINDS = linkedMapOf("intro" to "Intro", "outro" to "Outro")
@@ -391,8 +391,8 @@ data class SocialAccountEntity(
     val handle: String? = null,
     val color: String,
     val slots: String? = null,
-    @ColumnInfo(name = "created_at") val createdAt: Long = System.currentTimeMillis(),
-    @ColumnInfo(name = "updated_at") val updatedAt: Long = System.currentTimeMillis(),
+    @ColumnInfo(name = "created_at") val createdAt: Long = nowMillis(),
+    @ColumnInfo(name = "updated_at") val updatedAt: Long = nowMillis(),
 )
 
 /**
@@ -412,8 +412,8 @@ data class ScheduleEntity(
     val hashtags: String? = null,
     val note: String? = null,
     @ColumnInfo(name = "notified_at") val notifiedAt: Long? = null,
-    @ColumnInfo(name = "created_at") val createdAt: Long = System.currentTimeMillis(),
-    @ColumnInfo(name = "updated_at") val updatedAt: Long = System.currentTimeMillis(),
+    @ColumnInfo(name = "created_at") val createdAt: Long = nowMillis(),
+    @ColumnInfo(name = "updated_at") val updatedAt: Long = nowMillis(),
 )
 
 /** Akun tujuan satu jadwal: status terbit, link postingan, waktu terbit, dan percobaan statistik terakhir. */
@@ -434,8 +434,8 @@ data class ScheduleAccountEntity(
     @ColumnInfo(name = "published_at") val publishedAt: Long? = null,
     @ColumnInfo(name = "stats_checked_at") val statsCheckedAt: Long? = null,
     @ColumnInfo(name = "stats_error") val statsError: String? = null,
-    @ColumnInfo(name = "created_at") val createdAt: Long = System.currentTimeMillis(),
-    @ColumnInfo(name = "updated_at") val updatedAt: Long = System.currentTimeMillis(),
+    @ColumnInfo(name = "created_at") val createdAt: Long = nowMillis(),
+    @ColumnInfo(name = "updated_at") val updatedAt: Long = nowMillis(),
 )
 
 /** Satu pengambilan statistik sebuah postingan (youtube_api, ytdlp, atau manual). */
@@ -453,8 +453,8 @@ data class PostStatEntity(
     val shares: Long? = null,
     val source: String,
     @ColumnInfo(name = "recorded_at") val recordedAt: Long,
-    @ColumnInfo(name = "created_at") val createdAt: Long = System.currentTimeMillis(),
-    @ColumnInfo(name = "updated_at") val updatedAt: Long = System.currentTimeMillis(),
+    @ColumnInfo(name = "created_at") val createdAt: Long = nowMillis(),
+    @ColumnInfo(name = "updated_at") val updatedAt: Long = nowMillis(),
 )
 
 /**
@@ -477,10 +477,10 @@ data class PerformanceReportEntity(
     @ColumnInfo(name = "input_tokens") val inputTokens: Int? = null,
     @ColumnInfo(name = "output_tokens") val outputTokens: Int? = null,
     val cost: Double? = null,
-    @ColumnInfo(name = "created_at") val createdAt: Long = System.currentTimeMillis(),
-    @ColumnInfo(name = "updated_at") val updatedAt: Long = System.currentTimeMillis(),
+    @ColumnInfo(name = "created_at") val createdAt: Long = nowMillis(),
+    @ColumnInfo(name = "updated_at") val updatedAt: Long = nowMillis(),
 ) {
     /** Masih antre atau berjalan, dan ada kabar dalam 15 menit terakhir (`PerformanceReport::isBusy`). */
     val isBusy: Boolean
-        get() = (status == "queued" || status == "running") && updatedAt > System.currentTimeMillis() - 15 * 60_000L
+        get() = (status == "queued" || status == "running") && updatedAt > nowMillis() - 15 * 60_000L
 }

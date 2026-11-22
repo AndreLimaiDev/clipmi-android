@@ -34,6 +34,7 @@ compose-ui-tooling-preview = { module = "androidx.compose.ui:ui-tooling-preview"
 compose-ui-tooling = { module = "androidx.compose.ui:ui-tooling" }
 room-runtime = { module = "androidx.room:room-runtime", version.ref = "room" }
 room-compiler = { module = "androidx.room:room-compiler", version.ref = "room" }
+sqlite-bundled = { module = "androidx.sqlite:sqlite-bundled", version = "2.6.2" }
 work-runtime = { module = "androidx.work:work-runtime-ktx", version.ref = "work" }
 media3-transformer = { module = "androidx.media3:media3-transformer", version.ref = "media3" }
 media3-effect = { module = "androidx.media3:media3-effect", version.ref = "media3" }
@@ -54,6 +55,7 @@ kotlinx-coroutines-core = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-c
 
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }
+android-kotlin-multiplatform-library = { id = "com.android.kotlin.multiplatform.library", version.ref = "agp" }
 kotlin-jvm = { id = "org.jetbrains.kotlin.jvm", version.ref = "kotlin" }
 kotlin-multiplatform = { id = "org.jetbrains.kotlin.multiplatform", version.ref = "kotlin" }
 kotlin-compose = { id = "org.jetbrains.kotlin.plugin.compose", version.ref = "kotlin" }

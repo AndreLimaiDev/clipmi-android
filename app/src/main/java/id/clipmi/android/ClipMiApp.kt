@@ -4,6 +4,7 @@ import android.app.Application
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import id.clipmi.android.data.AppDatabase
+import id.clipmi.android.data.build
 import id.clipmi.android.domain.AiClient
 import id.clipmi.android.domain.Backup
 import id.clipmi.android.domain.Analysis

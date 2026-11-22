@@ -354,7 +354,7 @@ private fun TargetCard(
         } else {
             ActionChip("Tambah link", { sheet = true }, icon = ClipMiIcons.Link)
         }
-        val failed = row.statsError != null && row.statsCheckedAt != null && (latest == null || row.statsCheckedAt > latest.recordedAt)
+        val failed = row.statsError != null && row.statsCheckedAt.let { checked -> checked != null && (latest == null || checked > latest.recordedAt) }
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             if (fetching) CircularProgressIndicator(Modifier.size(14.dp), color = c.accent, strokeWidth = 2.dp)
             Text(

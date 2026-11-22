@@ -20,6 +20,7 @@ kotlin {
         commonMain {
             dependencies {
                 implementation(project(":core"))
+                implementation(project(":shared"))
                 implementation(libs.cmp.runtime)
                 implementation(libs.cmp.foundation)
                 implementation(libs.cmp.ui)
