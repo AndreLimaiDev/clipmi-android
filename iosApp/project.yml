@@ -44,7 +44,6 @@ targets:
         INFOPLIST_KEY_CFBundleDisplayName: ClipMI
         INFOPLIST_KEY_UILaunchScreen_Generation: YES
         INFOPLIST_KEY_UISupportedInterfaceOrientations: UIInterfaceOrientationPortrait
-        INFOPLIST_KEY_UIFileSharingEnabled: YES
         INFOPLIST_KEY_LSSupportsOpeningDocumentsInPlace: YES
     postBuildScripts:
       # Pustaka standar Python ke <app>/python dan modul biner (.so) menjadi framework (CPython "Using Python on iOS").

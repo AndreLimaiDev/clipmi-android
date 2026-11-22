@@ -6,5 +6,8 @@
 	     Kunci lain dibuat Xcode dari INFOPLIST_KEY_* di project.yml (GENERATE_INFOPLIST_FILE). -->
 	<key>CADisableMinimumFrameDurationOnPhone</key>
 	<true/>
+	<!-- Folder Documents (project, log, crash.txt) terlihat di aplikasi Files; INFOPLIST_KEY_ untuk kunci ini tidak dibuat Xcode. -->
+	<key>UIFileSharingEnabled</key>
+	<true/>
 </dict>
 </plist>
