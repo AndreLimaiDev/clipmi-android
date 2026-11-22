@@ -173,10 +173,29 @@ private class PreviewPlayer(path: String) {
     var playing by mutableStateOf(false)
         private set
 
+    /** Tujuan lompatan yang belum sampai (AVPlayer mencari frame secara asinkron) dan kapan diminta. */
+    private var target: Double? = null
+    private var targetAt = 0L
+
     fun seconds(): Double = CMTimeGetSeconds(player.currentTime()).takeIf { !it.isNaN() } ?: 0.0
 
     fun seek(seconds: Double) {
+        target = seconds
+        targetAt = nowMillis()
         player.seekToTime(CMTimeMakeWithSeconds(seconds, 600), CMTimeMake(0, 1), CMTimeMake(0, 1))
+    }
+
+    /**
+     * True selama lompatan terakhir belum sampai (paling lama 1,5 detik). Selama itu posisi lama jangan dipakai untuk
+     * melompat lagi: lompatan yang diulang setiap frame saling membatalkan dan video macet.
+     */
+    fun settling(now: Double): Boolean {
+        val to = target ?: return false
+        if (abs(now - to) < 0.15 || nowMillis() - targetAt > 1500) {
+            target = null
+            return false
+        }
+        return true
     }
 
     fun play() {
@@ -264,7 +283,7 @@ private fun EditorContent(state: EditorState, renders: Renders, onBack: () -> Un
             val clip = state.snapshot.clip
             val now = preview.seconds()
             position = now
-            if (!preview.playing) continue
+            if (!preview.playing || preview.settling(now)) continue
             val cut = currentCuts.firstOrNull { now >= it.first && now < it.second }
             when {
                 now >= clip.endTime - 0.03 -> {
