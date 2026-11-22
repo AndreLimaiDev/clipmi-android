@@ -11,7 +11,7 @@ foreach(lib ass harfbuzz fribidi freetype)
     set_target_properties(${lib} PROPERTIES IMPORTED_LOCATION "${CLIPMI_NATIVE_PREFIX}/lib/lib${lib}.a")
 endforeach()
 
-add_library(clipmi_native SHARED ass_jni.c text_measure.c text_measure_core.c)
+add_library(clipmi_native SHARED ass_jni.c ass_core.c text_measure.c text_measure_core.c)
 target_include_directories(clipmi_native PRIVATE "${CLIPMI_NATIVE_PREFIX}/include" "${CLIPMI_NATIVE_PREFIX}/include/freetype2")
 target_compile_options(clipmi_native PRIVATE -O2 -Wall)
 # Urutan penting untuk library statis: libass butuh harfbuzz/fribidi/freetype, harfbuzz butuh freetype.

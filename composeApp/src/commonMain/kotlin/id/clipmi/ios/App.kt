@@ -72,13 +72,17 @@ fun App(repo: Repository, engine: MediaEngine) {
     val downloads = remember { Downloads(repo, engine, scope) }
     val renders = remember { Renders(IosRenderer(repo, engine), scope) }
     var opened by remember { mutableStateOf<Long?>(null) }
+    var editing by remember { mutableStateOf<Long?>(null) }
     LaunchedEffect(Unit) { repo.recoverInterrupted() }
 
     MaterialTheme(colorScheme = scheme) {
         Box(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background).safeDrawingPadding()) {
-            when (val id = opened) {
-                null -> ProjectListScreen(repo, downloads, onOpen = { opened = it })
-                else -> ProjectScreen(repo, downloads, renders, id, onBack = { opened = null })
+            val project = opened
+            val clip = editing
+            when {
+                clip != null -> ClipEditorScreen(repo, renders, clip, onBack = { editing = null })
+                project == null -> ProjectListScreen(repo, downloads, onOpen = { opened = it })
+                else -> ProjectScreen(repo, downloads, renders, project, onBack = { opened = null }, onEdit = { editing = it })
             }
         }
     }
@@ -188,7 +192,7 @@ private fun ProjectStatus(project: ProjectEntity, downloads: Downloads) {
 private enum class ProjectTab(val label: String) { Clips("Klip"), Transcript("Transkrip") }
 
 @Composable
-private fun ProjectScreen(repo: Repository, downloads: Downloads, renders: Renders, id: Long, onBack: () -> Unit) {
+private fun ProjectScreen(repo: Repository, downloads: Downloads, renders: Renders, id: Long, onBack: () -> Unit, onEdit: (Long) -> Unit) {
     val project by remember(id) { repo.db.projects().observe(id) }.collectAsState(null)
     val clips by remember(id) { repo.db.clips().observe(id) }.collectAsState(emptyList())
     val segments by remember(id) { repo.db.segments().observe(id) }.collectAsState(emptyList())
@@ -246,7 +250,7 @@ private fun ProjectScreen(repo: Repository, downloads: Downloads, renders: Rende
                 if (clips.isEmpty()) {
                     item { Text("Belum ada klip.", color = c.muted, modifier = Modifier.padding(top = 8.dp)) }
                 }
-                items(clips, key = { it.id }) { ClipCard(repo, renders, it) }
+                items(clips, key = { it.id }) { ClipCard(repo, renders, it, onEdit) }
             }
             ProjectTab.Transcript -> {
                 if (segments.isEmpty()) {
@@ -314,7 +318,7 @@ private fun AnalysisCard(repo: Repository, project: ProjectEntity) {
 }
 
 @Composable
-private fun ClipCard(repo: Repository, renders: Renders, clip: ClipEntity) {
+private fun ClipCard(repo: Repository, renders: Renders, clip: ClipEntity, onEdit: (Long) -> Unit) {
     val c = MaterialTheme.colorScheme
     Card {
         Row(verticalAlignment = Alignment.Top, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -331,6 +335,7 @@ private fun ClipCard(repo: Repository, renders: Renders, clip: ClipEntity) {
         clip.hook?.takeIf { it.isNotBlank() }?.let { Text(it, fontSize = 14.sp, color = c.onSurface) }
         val tags = repo.hashtags(clip)
         if (tags.isNotEmpty()) Text(tags.joinToString(" ") { "#" + it.removePrefix("#") }, fontSize = 12.sp, color = c.muted)
+        SecondaryButton("Edit klip", Modifier.fillMaxWidth()) { onEdit(clip.id) }
         RenderRow(renders, clip)
     }
 }

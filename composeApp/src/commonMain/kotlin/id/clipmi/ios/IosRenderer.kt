@@ -70,12 +70,12 @@ class IosFontMeasurer(private val engine: MediaEngine, private val fontsDir: Str
  * dengan desktop dan Android), FFmpeg di dalam proses dengan VideoToolbox, lalu disimpan ke Photos. Intro/outro dari
  * pustaka dan sampul belum ada di iOS; kartu pembuka hook didukung.
  */
-class IosRenderer(private val repo: Repository, private val engine: MediaEngine) {
+class IosRenderer(private val repo: Repository, val engine: MediaEngine) {
     private val json = Json { ignoreUnknownKeys = true }
     private val strings = ListSerializer(String.serializer())
     private val words = ListSerializer(Word.serializer())
     private val db get() = repo.db
-    private val fontsDir get() = engine.fontsDirectory()
+    val fontsDir get() = engine.fontsDirectory()
 
     private suspend fun captionStyle(id: Long?): CaptionStyle =
         (id?.let { db.styles().captionStyle(it) } ?: db.styles().defaultCaptionStyle())?.toCore() ?: CaptionStyle.DEFAULT
@@ -83,7 +83,8 @@ class IosRenderer(private val repo: Repository, private val engine: MediaEngine)
     private suspend fun frameStyle(id: Long?): FrameStyle =
         (id?.let { db.styles().frameStyle(it) } ?: db.styles().defaultFrameStyle())?.toCore() ?: FrameStyle.DEFAULT
 
-    private suspend fun spec(clip: ClipEntity, projectCrop: Int): ClipSpec = ClipSpec(
+    /** Data klip untuk core render dengan gaya yang berlaku (dipakai juga pratinjau editor). */
+    suspend fun spec(clip: ClipEntity, projectCrop: Int): ClipSpec = ClipSpec(
         startTime = clip.startTime,
         endTime = clip.endTime,
         title = clip.title,
@@ -103,7 +104,7 @@ class IosRenderer(private val repo: Repository, private val engine: MediaEngine)
         frame = frameStyle(clip.frameStyleId),
     )
 
-    private suspend fun segments(projectId: Long): List<SegmentWords> = db.segments().forProject(projectId).map {
+    suspend fun segments(projectId: Long): List<SegmentWords> = db.segments().forProject(projectId).map {
         SegmentWords(it.startTime, it.endTime, it.words?.let { w -> runCatching { json.decodeFromString(words, w) }.getOrNull() })
     }
 

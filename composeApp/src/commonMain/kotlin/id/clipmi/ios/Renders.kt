@@ -11,7 +11,7 @@ import kotlinx.coroutines.launch
  * Render yang sedang berjalan (satu per satu: FFmpeg di dalam proses hanya satu). VideoToolbox tidak bisa encode saat
  * aplikasi di latar, jadi aplikasi harus tetap terbuka; status akhir disimpan di klip (render_status).
  */
-class Renders(private val renderer: IosRenderer, private val scope: CoroutineScope) {
+class Renders(val renderer: IosRenderer, private val scope: CoroutineScope) {
     var active by mutableStateOf<Long?>(null)
         private set
     var fraction by mutableStateOf(0.0)

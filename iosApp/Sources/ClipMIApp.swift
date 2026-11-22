@@ -17,6 +17,8 @@ struct ClipMIApp: App {
 struct ComposeView: UIViewControllerRepresentable {
     func makeUIViewController(context: Context) -> UIViewController {
         let documents = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0].path
+        // Pratinjau editor bersuara walau tombol senyap aktif (seperti aplikasi video).
+        try? AVAudioSession.sharedInstance().setCategory(.playback)
         return MainViewControllerKt.MainViewController(engine: IOSMediaEngine(), documents: documents)
     }
 
@@ -146,6 +148,31 @@ final class IOSMediaEngine: NSObject, MediaEngine {
                 DispatchQueue.main.async { listener.finished(error: ok ? nil : (error?.localizedDescription ?? "gagal")) }
             }
         }
+    }
+
+    // MARK: libass (pratinjau)
+
+    func assCreate(width: Int32, height: Int32) -> Int64 {
+        guard let ctx = clipmi_ass_create(width, height, fontsDirectory(), nil) else { return 0 }
+        return Int64(Int(bitPattern: ctx))
+    }
+
+    func assLoad(handle: Int64, ass: String) -> Bool {
+        guard let ctx = OpaquePointer(bitPattern: Int(handle)) else { return false }
+        let bytes = Array(ass.utf8)
+        return bytes.withUnsafeBufferPointer { buffer in
+            buffer.withMemoryRebound(to: CChar.self) { clipmi_ass_load(ctx, $0.baseAddress, $0.count) == 1 }
+        }
+    }
+
+    func assRender(handle: Int64, timeMs: Int64, pixels: Int64, width: Int32, height: Int32, clear: Bool) -> Int32 {
+        guard let ctx = OpaquePointer(bitPattern: Int(handle)),
+              let buffer = UnsafeMutablePointer<UInt8>(bitPattern: Int(pixels)) else { return -1 }
+        return clipmi_ass_render(ctx, timeMs, buffer, UInt32(width) * 4, width, height, clear ? 1 : 0, 1)
+    }
+
+    func assDestroy(handle: Int64) {
+        clipmi_ass_destroy(OpaquePointer(bitPattern: Int(handle)))
     }
 
     // MARK: Gabung video

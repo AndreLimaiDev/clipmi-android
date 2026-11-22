@@ -14,6 +14,9 @@ targets:
       # Lebar teks FreeType untuk kotak hook: file C yang sama dengan Android.
       - path: ../app/src/main/cpp/text_measure_core.c
       - path: ../app/src/main/cpp/text_measure_core.h
+      # Pratinjau subtitle libass: file C yang sama dengan Android.
+      - path: ../app/src/main/cpp/ass_core.c
+      - path: ../app/src/main/cpp/ass_core.h
       - path: app
         type: folder
         buildPhase: resources

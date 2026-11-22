@@ -13,6 +13,7 @@ on:
       - "iosApp/**"
       - "shared/**"
       - "app/src/main/cpp/text_measure_core.*"
+      - "app/src/main/cpp/ass_core.*"
       - "app/src/main/assets/fonts/**"
       - ".github/workflows/ios-app.yml"
 
@@ -63,8 +64,8 @@ jobs:
         working-directory: iosApp
         env:
           GH_TOKEN: ${{ github.token }}
-          NATIVE_TAG: v2
-          NATIVE_SHA256: 80b53b817970e35c8d4779c01a2434920b9f8cdc8d383fc204877bade136e18a
+          NATIVE_TAG: v3
+          NATIVE_SHA256: 226b469f88f9cd4353a7afae4819e4bfb8dcd2ee2a185f7300e8ce756f7ab2b5
         run: |
           set -euo pipefail
           gh release download "$NATIVE_TAG" -R AndreLimaiDev/clipmi-ios-native -p 'ClipMIFFmpeg.xcframework.zip*' -D /tmp/native

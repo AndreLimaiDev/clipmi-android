@@ -31,6 +31,22 @@ interface MediaEngine {
 
     /** Menyimpan video ke Photos (meminta izin tambah bila perlu). [listener] dipanggil di main thread. */
     fun saveVideoToPhotos(path: String, listener: SaveListener)
+
+    // libass untuk pratinjau (ass_core.c, sama dengan Android). Handle 0 = gagal.
+
+    /** Renderer libass seukuran [width]×[height] dengan font bawaan. */
+    fun assCreate(width: Int, height: Int): Long
+
+    /** Memuat (mengganti) trek ASS. */
+    fun assLoad(handle: Long, ass: String): Boolean
+
+    /**
+     * Menggambar frame pada [timeMs] ke buffer RGBA premultiplied di alamat [pixels] ([width]×[height]×4 byte, milik
+     * pemanggil dan di-pin selama panggilan). [clear] = kosongkan dulu. Hasil: -1 gagal, 0 tidak berubah, 1/2 berubah.
+     */
+    fun assRender(handle: Long, timeMs: Long, pixels: Long, width: Int, height: Int, clear: Boolean): Int
+
+    fun assDestroy(handle: Long)
 }
 
 interface DownloadListener {
