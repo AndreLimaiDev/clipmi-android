@@ -71,7 +71,7 @@ class IosBumpers(private val repo: Repository, private val renderer: IosRenderer
         })
     }
 
-    suspend fun import(kind: String, picked: String): BumperEntity {
+    suspend fun import(kind: String, picked: String, name: String? = null): BumperEntity {
         val label = BumperEntity.KINDS.getValue(kind)
         try {
             val info = renderer.probe(picked)
@@ -84,7 +84,7 @@ class IosBumpers(private val repo: Repository, private val renderer: IosRenderer
             val relative = "bumpers/$kind-${random(10)}.mov"
             moveItem(picked, repo.absolute(relative))
             val count = dao.all().count { it.kind == kind }
-            val id = dao.insert(BumperEntity(kind = kind, name = "$label ${count + 1}", path = relative, duration = Php.round(duration, 3)))
+            val id = dao.insert(BumperEntity(kind = kind, name = name ?: "$label ${count + 1}", path = relative, duration = Php.round(duration, 3)))
             val thumbnail = "bumpers/$kind-$id-thumb.jpg"
             val ok = renderer.videoFrame(repo.absolute(relative), minOf(1.0, duration / 2), repo.absolute(thumbnail), 320)
             val bumper = dao.find(id)!!.copy(thumbnailPath = thumbnail.takeIf { ok })

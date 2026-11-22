@@ -13,6 +13,7 @@ import id.clipmi.core.render.ClipCuts
 import id.clipmi.core.render.ClipRender
 import id.clipmi.core.render.ClipSilence
 import id.clipmi.core.render.ClipSpec
+import id.clipmi.core.render.SubtitleLine
 import id.clipmi.core.render.Composition
 import id.clipmi.core.render.CoverTitle
 import id.clipmi.core.render.Fonts
@@ -56,7 +57,7 @@ class IosFontMeasurer(private val engine: MediaEngine, private val fontsDir: Str
     private val scales = HashMap<String, Double>()
 
     override fun width(family: String, size: Int, text: String): Double {
-        val path = "$fontsDir/${Fonts.file(family)}"
+        val path = IosUserFonts.file(fontsDir, family)
         val scale = scales.getOrPut(path) { emScale(path) }
         return engine.textWidth(path, size * scale * 0.75, text).takeIf { it >= 0 } ?: 0.0
     }
@@ -94,7 +95,10 @@ class IosRenderer(private val repo: Repository, val engine: MediaEngine) {
     private val words = ListSerializer(Word.serializer())
     private val db get() = repo.db
     private val ffmpegLock = Mutex()
-    val fontsDir get() = engine.fontsDirectory()
+
+    /** Font tambahan pengguna; [fontsDir] = folder gabungan font bawaan + tambahan (disamakan saat aplikasi dibuka). */
+    val userFonts = IosUserFonts(repo, engine).also { it.sync() }
+    val fontsDir get() = userFonts.dir
 
     /** Jalur "ikuti pembicara" (Apple Vision). */
     val speakers = IosSpeakers(repo, this)
@@ -200,12 +204,25 @@ class IosRenderer(private val repo: Repository, val engine: MediaEngine) {
         }
     }
 
-    /** Font bawaan ke folder kerja (ass=...:fontsdir=fonts), seperti Android. */
+    /** Font bawaan dan font tambahan ke folder kerja (ass=...:fontsdir=fonts), seperti Android. */
     private fun copyFonts(workDir: String) {
         createDirectory("$workDir/fonts")
-        for (file in Fonts.AVAILABLE.values.map { it.file } + Fonts.COVER.values.map { it.file }) {
+        for (file in listDirectory(fontsDir).filter { it.endsWith(".ttf") || it.endsWith(".otf") }) {
             copyItem("$fontsDir/$file", "$workDir/fonts/$file")
         }
+    }
+
+    /**
+     * Folder kerja untuk satu frame contoh (pratinjau gaya bingkai): font, subtitle, watermark, dan gambar bingkai;
+     * input 0 = gambar contoh.
+     */
+    internal fun prepareStill(
+        core: ClipRender, spec: ClipSpec, composition: Composition, workDir: String, lines: List<SubtitleLine>, length: Double,
+    ): Pair<RenderGraph.Inputs, MutableList<String>> {
+        copyFonts(workDir)
+        writeText("$workDir/subs.ass", core.subtitleTrack(spec, composition, lines, length, null))
+        composition.watermark?.let { writeText("$workDir/watermark.txt", it.text) }
+        return frameImages(spec.frame, workDir)
     }
 
     /** Gambar bingkai (latar, template, logo) dari Documents ke folder kerja; nomor input mulai dari 1. */

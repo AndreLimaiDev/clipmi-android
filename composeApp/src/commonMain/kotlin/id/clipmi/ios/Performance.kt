@@ -88,6 +88,10 @@ class IosPerformance(
 ) {
     private val db get() = repo.db
 
+    /** Analisis Mode API sedang berjalan (layar dijaga tetap menyala). */
+    var running by mutableStateOf(false)
+        private set
+
     /** Angka untuk analisis berikutnya, dari postingan terbit yang punya statistik tayangan. */
     suspend fun digest(): JsonObject {
         val dao = db.schedules()
@@ -140,7 +144,14 @@ class IosPerformance(
         val count = PerformanceDigest.postCount(digest)
         if (count < PerformanceDigest.MIN_POSTS) return Result.failure(IllegalStateException("Butuh minimal ${PerformanceDigest.MIN_POSTS} postingan yang sudah punya statistik."))
         val id = db.reports().insert(PerformanceReportEntity(status = QUEUED, source = "api", postsCount = count, digest = digest.toString()))
-        scope.launch { analyze(id) }
+        scope.launch {
+            running = true
+            try {
+                analyze(id)
+            } finally {
+                running = false
+            }
+        }
         return Result.success(id)
     }
 

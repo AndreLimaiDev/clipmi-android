@@ -15,6 +15,18 @@ interface MediaEngine {
     /** Folder font bawaan di dalam bundle aplikasi (Poppins-Bold.ttf, dll.; sama dengan assets/fonts Android). */
     fun fontsDirectory(): String
 
+    /** Folder font yang dipakai libass pratinjau (font bawaan + font tambahan pengguna). */
+    fun useFontsDirectory(path: String)
+
+    /** Memilih file font TTF/OTF dari aplikasi Files (disalin) ke [output]. */
+    fun pickFont(output: String, listener: PickListener)
+
+    /**
+     * Ada proses panjang (unduh, render, transkripsi, analisis): layar tidak terkunci otomatis, dan iOS memberi waktu
+     * tambahan singkat bila aplikasi ditinggal. false = kembali normal.
+     */
+    fun setBusy(busy: Boolean)
+
     /** Lebar piksel [text] dengan font [fontPath] pada [points] poin (FreeType, sama dengan Android); -1 bila gagal. */
     fun textWidth(fontPath: String, points: Double, text: String): Double
 
@@ -52,6 +64,21 @@ interface MediaEngine {
      * [listener] dipanggil di main thread: path = [output], atau null bila batal/gagal.
      */
     fun pickVideo(output: String, listener: PickListener)
+
+    /**
+     * Gambar gaya bingkai dari Photos: PNG (kanal transparan tetap, untuk logo dan template) atau JPEG, sisi terpanjang
+     * paling besar [maxSide] piksel, disimpan di [output]. [listener]: path atau null bila batal/gagal.
+     */
+    fun pickStyleImage(output: String, png: Boolean, maxSide: Int, listener: PickListener)
+
+    /** Kanal transparan gambar (1 byte per piksel, 0 = transparan) di [output]; hasil `"lebar×tinggi"` atau null. */
+    fun alphaPixels(imagePath: String, output: String): String?
+
+    /**
+     * Video sumber project dari Photos (bentuk asli, tanpa konversi) atau dari aplikasi Files bila [fromFiles], dipindah
+     * ke `[output].<ekstensi>`. [listener] dipanggil di main thread dengan `{"path", "name"}`, `{"error"}`, atau `{}` bila batal.
+     */
+    fun pickSourceVideo(output: String, fromFiles: Boolean, listener: ResultListener)
 
     /**
      * Wajah di gambar [imagePath] (Apple Vision, padanan FaceModels Android): JSON array `[{"cx", "w", "open"}]`,
@@ -99,6 +126,15 @@ interface MediaEngine {
      * file [filePath] sebagai bidang [fileField]. Jawaban seperti [httpRequest].
      */
     fun uploadFile(url: String, headersJson: String, fieldsJson: String, filePath: String, fileField: String, mimeType: String, timeoutSeconds: Int, listener: HttpListener)
+
+    /** Memilih file Paket Standar Tim (JSON) dari aplikasi Files (disalin) ke [output]. */
+    fun pickTeamPack(output: String, listener: PickListener)
+
+    /**
+     * Gambar [input] (format apa pun yang dibaca iOS, misalnya WebP dari paket PC) disimpan ulang sebagai PNG atau JPEG
+     * di [output], sisi terpanjang paling besar [maxSide]. Sinkron; false bila gagal.
+     */
+    fun convertImage(input: String, output: String, png: Boolean, maxSide: Int): Boolean
 
     /** Memilih file subtitle SRT/VTT dari aplikasi Files (disalin) ke [output]. */
     fun pickSubtitle(output: String, listener: PickListener)

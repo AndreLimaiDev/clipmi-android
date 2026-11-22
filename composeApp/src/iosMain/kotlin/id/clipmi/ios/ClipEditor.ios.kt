@@ -917,7 +917,7 @@ private fun StylePanel(state: EditorState) {
             for (style in state.captionStyles) {
                 val family = fonts.getOrPut(style.fontFamily) {
                     runCatching {
-                        val bytes = readBytes("${state.renderer.fontsDir}/${Fonts.file(style.fontFamily)}") ?: error("font")
+                        val bytes = readBytes(IosUserFonts.file(state.renderer.fontsDir, style.fontFamily)) ?: error("font")
                         FontFamily(Font("caption-${style.fontFamily}", bytes))
                     }.getOrDefault(FontFamily.Default)
                 }

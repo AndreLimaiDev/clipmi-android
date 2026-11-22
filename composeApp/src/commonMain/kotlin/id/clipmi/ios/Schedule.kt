@@ -218,9 +218,6 @@ fun rememberScheduleData(repo: Repository): State<ScheduleData?> {
     return flow.collectAsState(initial = null)
 }
 
-private fun hexColor(value: String?): Color =
-    value?.trimStart('#')?.takeIf { it.length == 6 }?.toLongOrNull(16)?.let { Color(0xFF000000 or it) } ?: Color.White
-
 @Composable
 fun AccountDot(color: String, size: Dp = 10.dp, modifier: Modifier = Modifier) {
     Box(modifier.size(size).clip(CircleShape).background(hexColor(color)))
@@ -683,14 +680,6 @@ private fun ClipPicker(repo: Repository, engine: MediaEngine, d: ScheduleData, o
 // ---------------------------------------------------------------------------------------------------------------
 // Jadwalkan / ubah jadwal
 // ---------------------------------------------------------------------------------------------------------------
-
-@Composable
-private fun FieldLabel(text: String, value: String? = null) {
-    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-        Text(text, style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold), color = ClipMi.colors.textBody, modifier = Modifier.weight(1f))
-        value?.let { Text(it, style = MaterialTheme.typography.labelMedium, color = ClipMi.colors.textMuted) }
-    }
-}
 
 /**
  * Jadwal baru untuk satu klip (besok 19.00 ke semua akun, atau tanggal pilihan dari kalender), atau ubah jadwal:

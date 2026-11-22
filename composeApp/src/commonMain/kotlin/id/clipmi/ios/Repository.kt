@@ -6,6 +6,7 @@ import id.clipmi.android.data.AnalysisStatus
 import id.clipmi.android.data.AppDatabase
 import id.clipmi.android.data.ClipEntity
 import id.clipmi.android.data.ClipSource
+import id.clipmi.android.data.CorrectionEntryEntity
 import id.clipmi.android.data.ProjectEntity
 import id.clipmi.android.data.RenderStatus
 import id.clipmi.android.data.ReviewStatus
@@ -116,6 +117,13 @@ class Repository(val db: AppDatabase, val documents: String) {
                         transcriptStatus = restore.value, transcriptionResumeAt = null,
                         transcriptionMessage = "Transkripsi terhenti karena aplikasi ditutup. Jalankan lagi; potongan yang sudah selesai tidak dikirim ulang.",
                     )
+                }
+                continue
+            }
+            // Video dari galeri yang belum selesai disalin saat aplikasi ditutup.
+            if (!project.isYouTube && project.video == VideoStatus.Processing) {
+                db.projects().modify(project.id) {
+                    it.copy(videoStatus = VideoStatus.Failed.value, errorMessage = "Video belum selesai disalin karena aplikasi ditutup. Hapus project ini lalu pilih videonya lagi.")
                 }
                 continue
             }
@@ -270,6 +278,70 @@ class Repository(val db: AppDatabase, val documents: String) {
 
     fun hashtags(clip: ClipEntity): List<String> =
         clip.hashtags?.let { runCatching { json.decodeFromString(strings, it) }.getOrNull() }.orEmpty()
+
+    /**
+     * Menghapus video sumber untuk menghemat ruang (padanan ProjectActions.deleteSource Android). Transkrip, klip, gambar
+     * kecil, dan hasil render tetap ada. Mengembalikan jumlah byte yang dibebaskan (0 = tidak dihapus).
+     */
+    suspend fun deleteSource(projectId: Long): Long {
+        val project = db.projects().find(projectId) ?: return 0
+        if (project.video != VideoStatus.Ready) return 0
+        if (db.clips().forProject(projectId).any { RenderStatus.from(it.renderStatus).isBusy }) return 0
+        val files = listOfNotNull(project.videoPath, project.previewPath).map { absolute(it) }.filter { fileSize(it) > 0 }
+        val freed = files.sumOf { fileSize(it) }
+        files.forEach { removeItem(it) }
+        db.projects().modify(projectId) {
+            it.copy(videoStatus = VideoStatus.Deleted.value, videoPath = null, previewPath = null, sourceDeletedAt = nowMillis())
+        }
+        return freed
+    }
+
+    // --- Kamus koreksi (padanan Transcripts + ProjectActions.saveCorrection Android) ---------------------------------
+
+    /** Menyimpan entri kamus; pesan kesalahan untuk pengguna, atau null bila tersimpan. */
+    suspend fun saveCorrection(id: Long?, wrong: String, correct: String, active: Boolean): String? {
+        val w = wrong.trim()
+        val c = correct.trim()
+        if (w.isEmpty() || c.isEmpty()) return "Teks salah dan teks benar wajib diisi."
+        val duplicate = db.corrections().findByWrong(w)
+        if (duplicate != null && duplicate.id != id) return "\"$w\" sudah ada di kamus."
+        if (id == null) {
+            db.corrections().insert(CorrectionEntryEntity(wrongText = w, correctText = c, isActive = active))
+        } else {
+            val existing = db.corrections().find(id) ?: return "Entri kamus tidak ditemukan."
+            db.corrections().update(existing.copy(wrongText = w, correctText = c, isActive = active, updatedAt = nowMillis()))
+        }
+        return null
+    }
+
+    /** Menerapkan ulang kamus aktif ke transkrip project; jumlah koreksi yang mengubah teks. */
+    suspend fun applyCorrections(projectId: Long, applier: CorrectionApplier? = null): Int {
+        val corrections = applier ?: CorrectionApplier(db.corrections().active().map { it.wrongText to it.correctText })
+        if (corrections.isEmpty) return 0
+        var total = 0
+        val changed = db.segments().forProject(projectId).mapNotNull { entity ->
+            val segment = Segment(entity.sequence, entity.startTime, entity.endTime, entity.text, decodeWords(entity.words), entity.wordsEstimated)
+            val (corrected, count) = corrections.applyToSegment(segment)
+            if (count == 0) return@mapNotNull null
+            total += count
+            entity.copy(text = corrected.text, words = json.encodeToString(wordsSerializer, corrected.words), wordsEstimated = corrected.wordsEstimated)
+        }
+        if (changed.isNotEmpty()) db.segments().updateAll(changed)
+        return total
+    }
+
+    /** Kamus diterapkan ulang ke semua project; jumlah project yang berubah dan total koreksi. */
+    suspend fun applyCorrectionsToAll(): Pair<Int, Int> {
+        val applier = CorrectionApplier(db.corrections().active().map { it.wrongText to it.correctText })
+        var projects = 0
+        var total = 0
+        for (project in db.projects().all()) {
+            val count = applyCorrections(project.id, applier)
+            if (count > 0) projects++
+            total += count
+        }
+        return projects to total
+    }
 
     private fun decodeWords(value: String?): List<Word> =
         value?.let { runCatching { json.decodeFromString(wordsSerializer, it) }.getOrNull() }.orEmpty()

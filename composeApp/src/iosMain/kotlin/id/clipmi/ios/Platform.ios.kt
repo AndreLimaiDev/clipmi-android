@@ -33,6 +33,12 @@ actual fun readBytes(path: String): ByteArray? {
 }
 
 @OptIn(ExperimentalForeignApi::class, BetaInteropApi::class)
+@OptIn(ExperimentalForeignApi::class, BetaInteropApi::class)
+actual fun writeBytes(path: String, bytes: ByteArray) {
+    val data = if (bytes.isEmpty()) NSData() else bytes.usePinned { NSData.create(bytes = it.addressOf(0), length = bytes.size.toULong()) }
+    data.writeToFile(path, atomically = true)
+}
+
 actual fun writeText(path: String, text: String) {
     NSString.create(string = text).writeToFile(path, atomically = true, encoding = NSUTF8StringEncoding, error = null)
 }
@@ -75,3 +81,9 @@ actual fun moveItem(from: String, to: String) {
     NSFileManager.defaultManager.removeItemAtPath(to, null)
     NSFileManager.defaultManager.moveItemAtPath(from, to, null)
 }
+
+actual fun directorySize(path: String): Long = allFiles(path).sumOf { fileSize("$path/$it") }
+
+@OptIn(ExperimentalForeignApi::class)
+actual fun freeSpace(path: String): Long =
+    (NSFileManager.defaultManager.attributesOfFileSystemForPath(path, null)?.get(platform.Foundation.NSFileSystemFreeSize) as? NSNumber)?.longLongValue ?: 0L

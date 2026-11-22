@@ -87,6 +87,47 @@ final class IOSMediaEngine: NSObject, MediaEngine {
         (Bundle.main.resourcePath ?? "") + "/fonts"
     }
 
+    /// Folder font libass (font bawaan + font tambahan pengguna), diatur Kotlin setelah folder gabungannya siap.
+    private var assFonts: String?
+
+    func useFontsDirectory(path: String) {
+        assFonts = path
+    }
+
+    func pickFont(output: String, listener: PickListener) {
+        guard let top = Self.topController() else {
+            listener.finished(path: nil)
+            return
+        }
+        let controller = UIDocumentPickerViewController(forOpeningContentTypes: [.font, .data], asCopy: true)
+        let delegate = FilePicker(output: output) { [weak self] path in
+            self?.documentPicker = nil
+            listener.finished(path: path)
+        }
+        documentPicker = delegate
+        controller.delegate = delegate
+        top.present(controller, animated: true)
+    }
+
+    // MARK: Proses panjang (layar tetap menyala, waktu tambahan di latar)
+
+    private var backgroundTask: UIBackgroundTaskIdentifier = .invalid
+
+    func setBusy(busy: Bool) {
+        UIApplication.shared.isIdleTimerDisabled = busy
+        if busy {
+            guard backgroundTask == .invalid else { return }
+            backgroundTask = UIApplication.shared.beginBackgroundTask(withName: "ClipMI") { [weak self] in
+                guard let self = self else { return }
+                UIApplication.shared.endBackgroundTask(self.backgroundTask)
+                self.backgroundTask = .invalid
+            }
+        } else if backgroundTask != .invalid {
+            UIApplication.shared.endBackgroundTask(backgroundTask)
+            backgroundTask = .invalid
+        }
+    }
+
     /// FreeType lewat text_measure_core.c (file yang sama dengan Android).
     func textWidth(fontPath: String, points: Double, text: String) -> Double {
         let bytes = Array(text.utf8)
@@ -185,6 +226,7 @@ final class IOSMediaEngine: NSObject, MediaEngine {
 
     private var picker: ImagePicker?
     private var videoPicker: VideoPicker?
+    private var sourcePicker: SourceVideoPicker?
 
     func pickImage(output: String, listener: PickListener) {
         guard let top = Self.topController() else {
@@ -196,6 +238,24 @@ final class IOSMediaEngine: NSObject, MediaEngine {
         configuration.selectionLimit = 1
         let controller = PHPickerViewController(configuration: configuration)
         let delegate = ImagePicker(output: output) { [weak self] path in
+            self?.picker = nil
+            listener.finished(path: path)
+        }
+        picker = delegate
+        controller.delegate = delegate
+        top.present(controller, animated: true)
+    }
+
+    func pickStyleImage(output: String, png: Bool, maxSide: Int32, listener: PickListener) {
+        guard let top = Self.topController() else {
+            listener.finished(path: nil)
+            return
+        }
+        var configuration = PHPickerConfiguration()
+        configuration.filter = .images
+        configuration.selectionLimit = 1
+        let controller = PHPickerViewController(configuration: configuration)
+        let delegate = ImagePicker(output: output, png: png, maxSide: CGFloat(maxSide)) { [weak self] path in
             self?.picker = nil
             listener.finished(path: path)
         }
@@ -222,6 +282,32 @@ final class IOSMediaEngine: NSObject, MediaEngine {
         videoPicker = delegate
         controller.delegate = delegate
         top.present(controller, animated: true)
+    }
+
+    func pickSourceVideo(output: String, fromFiles: Bool, listener: ResultListener) {
+        guard let top = Self.topController() else {
+            listener.finished(resultJson: "{}")
+            return
+        }
+        let delegate = SourceVideoPicker(output: output) { [weak self] result in
+            self?.sourcePicker = nil
+            listener.finished(resultJson: Self.json(result))
+        }
+        sourcePicker = delegate
+        if fromFiles {
+            let controller = UIDocumentPickerViewController(forOpeningContentTypes: [.movie], asCopy: true)
+            controller.delegate = delegate
+            top.present(controller, animated: true)
+        } else {
+            var configuration = PHPickerConfiguration()
+            configuration.filter = .videos
+            configuration.selectionLimit = 1
+            // Bentuk asli (tanpa konversi): video kajian berjam-jam tidak perlu ditranskode dulu.
+            configuration.preferredAssetRepresentationMode = .current
+            let controller = PHPickerViewController(configuration: configuration)
+            controller.delegate = delegate
+            top.present(controller, animated: true)
+        }
     }
 
     // MARK: Pembicara (Vision)
@@ -259,6 +345,24 @@ final class IOSMediaEngine: NSObject, MediaEngine {
             guard let context = CGContext(
                 data: buffer.baseAddress, width: width, height: height, bitsPerComponent: 8, bytesPerRow: width,
                 space: CGColorSpaceCreateDeviceGray(), bitmapInfo: CGImageAlphaInfo.none.rawValue
+            ) else { return false }
+            context.draw(image, in: CGRect(x: 0, y: 0, width: width, height: height))
+            return true
+        }
+        guard drawn, (try? Data(bytes).write(to: URL(fileURLWithPath: output))) != nil else { return nil }
+        return "\(width)x\(height)"
+    }
+
+    /// Kanal transparan (alpha) gambar sebagai 1 byte per piksel, baris atas dulu; hasil "lebar×tinggi" atau nil.
+    func alphaPixels(imagePath: String, output: String) -> String? {
+        guard let image = UIImage(contentsOfFile: imagePath)?.cgImage else { return nil }
+        let width = image.width
+        let height = image.height
+        var bytes = [UInt8](repeating: 0, count: width * height)
+        let drawn: Bool = bytes.withUnsafeMutableBytes { buffer in
+            guard let context = CGContext(
+                data: buffer.baseAddress, width: width, height: height, bitsPerComponent: 8, bytesPerRow: width,
+                space: CGColorSpaceCreateDeviceGray(), bitmapInfo: CGImageAlphaInfo.alphaOnly.rawValue
             ) else { return false }
             context.draw(image, in: CGRect(x: 0, y: 0, width: width, height: height))
             return true
@@ -483,6 +587,30 @@ final class IOSMediaEngine: NSObject, MediaEngine {
         top.present(controller, animated: true)
     }
 
+    func pickTeamPack(output: String, listener: PickListener) {
+        guard let top = Self.topController() else {
+            listener.finished(path: nil)
+            return
+        }
+        let controller = UIDocumentPickerViewController(forOpeningContentTypes: [.json, .plainText, .data], asCopy: true)
+        let delegate = FilePicker(output: output) { [weak self] path in
+            self?.documentPicker = nil
+            listener.finished(path: path)
+        }
+        documentPicker = delegate
+        controller.delegate = delegate
+        top.present(controller, animated: true)
+    }
+
+    /// Gambar apa pun yang dibaca iOS (termasuk WebP/HEIC) disimpan ulang sebagai PNG atau JPEG tegak; FFmpeg di iPhone
+    /// hanya membaca PNG dan JPEG.
+    func convertImage(input: String, output: String, png: Bool, maxSide: Int32) -> Bool {
+        guard let image = UIImage(contentsOfFile: input) else { return false }
+        let upright = ImagePicker.upright(image, maxSide: CGFloat(maxSide), opaque: !png)
+        guard let data = png ? upright.pngData() : upright.jpegData(compressionQuality: 0.92) else { return false }
+        return (try? data.write(to: URL(fileURLWithPath: output))) != nil
+    }
+
     func pickSubtitle(output: String, listener: PickListener) {
         guard let top = Self.topController() else {
             listener.finished(path: nil)
@@ -510,7 +638,7 @@ final class IOSMediaEngine: NSObject, MediaEngine {
     // MARK: libass (pratinjau)
 
     func assCreate(width: Int32, height: Int32) -> Int64 {
-        guard let ctx = clipmi_ass_create(width, height, fontsDirectory(), nil) else { return 0 }
+        guard let ctx = clipmi_ass_create(width, height, assFonts ?? fontsDirectory(), nil) else { return 0 }
         return Int64(Int(bitPattern: ctx))
     }
 
@@ -641,6 +769,65 @@ final class FilePicker: NSObject, UIDocumentPickerDelegate {
     }
 }
 
+/// Video sumber project dari Photos atau Files: dipindah ke `output.<ekstensi>`; hasil `{"path", "name"}`, `{}` bila batal.
+final class SourceVideoPicker: NSObject, PHPickerViewControllerDelegate, UIDocumentPickerDelegate {
+    private let output: String
+    private let done: ([String: Any]) -> Void
+
+    init(output: String, done: @escaping ([String: Any]) -> Void) {
+        self.output = output
+        self.done = done
+    }
+
+    private static func store(_ url: URL, output: String, move: Bool) -> String? {
+        let ext = url.pathExtension.isEmpty ? "mp4" : url.pathExtension.lowercased()
+        let target = URL(fileURLWithPath: output + "." + ext)
+        try? FileManager.default.removeItem(at: target)
+        let ok = (move && (try? FileManager.default.moveItem(at: url, to: target)) != nil)
+            || (try? FileManager.default.copyItem(at: url, to: target)) != nil
+        return ok ? target.path : nil
+    }
+
+    func picker(_ picker: PHPickerViewController, didFinishPicking results: [PHPickerResult]) {
+        picker.dismiss(animated: true)
+        let type = UTType.movie.identifier
+        guard let provider = results.first?.itemProvider, provider.hasItemConformingToTypeIdentifier(type) else {
+            done([:])
+            return
+        }
+        let output = self.output
+        let done = self.done
+        let name = provider.suggestedName ?? "Video"
+        provider.loadFileRepresentation(forTypeIdentifier: type) { url, error in
+            var result: [String: Any] = ["error": error?.localizedDescription ?? "Video tidak bisa dibuka."]
+            // Salinan sementara sistem dihapus setelah blok ini, jadi disalin sekarang.
+            if let url = url, let path = Self.store(url, output: output, move: false) {
+                result = ["path": path, "name": name]
+            }
+            DispatchQueue.main.async { done(result) }
+        }
+    }
+
+    func documentPicker(_ controller: UIDocumentPickerViewController, didPickDocumentsAt urls: [URL]) {
+        guard let url = urls.first else {
+            done([:])
+            return
+        }
+        let output = self.output
+        let done = self.done
+        DispatchQueue.global(qos: .userInitiated).async {
+            let path = Self.store(url, output: output, move: true)
+            var result: [String: Any] = ["error": "Video tidak bisa disalin."]
+            if let path = path { result = ["path": path, "name": url.deletingPathExtension().lastPathComponent] }
+            DispatchQueue.main.async { done(result) }
+        }
+    }
+
+    func documentPickerWasCancelled(_ controller: UIDocumentPickerViewController) {
+        done([:])
+    }
+}
+
 /// Satu video dari PHPicker (tanpa izin galeri), disalin ke tujuan sebelum salinan sementara sistem dihapus.
 final class VideoPicker: NSObject, PHPickerViewControllerDelegate {
     private let output: String
@@ -675,10 +862,14 @@ final class VideoPicker: NSObject, PHPickerViewControllerDelegate {
 /// Satu gambar dari PHPicker, digambar ulang tegak (orientasi EXIF diterapkan; FFmpeg tidak membacanya) sebagai JPEG.
 final class ImagePicker: NSObject, PHPickerViewControllerDelegate {
     private let output: String
+    private let png: Bool
+    private let maxSide: CGFloat
     private let done: (String?) -> Void
 
-    init(output: String, done: @escaping (String?) -> Void) {
+    init(output: String, png: Bool = false, maxSide: CGFloat = 2160, done: @escaping (String?) -> Void) {
         self.output = output
+        self.png = png
+        self.maxSide = maxSide
         self.done = done
     }
 
@@ -690,24 +881,29 @@ final class ImagePicker: NSObject, PHPickerViewControllerDelegate {
         }
         let output = self.output
         let done = self.done
+        let png = self.png
+        let maxSide = self.maxSide
         provider.loadObject(ofClass: UIImage.self) { object, _ in
             var path: String?
-            if let image = object as? UIImage, let data = ImagePicker.upright(image).jpegData(compressionQuality: 0.92),
-               (try? data.write(to: URL(fileURLWithPath: output))) != nil {
-                path = output
+            if let image = object as? UIImage {
+                let upright = ImagePicker.upright(image, maxSide: maxSide, opaque: !png)
+                if let data = png ? upright.pngData() : upright.jpegData(compressionQuality: 0.92),
+                   (try? data.write(to: URL(fileURLWithPath: output))) != nil {
+                    path = output
+                }
             }
             DispatchQueue.main.async { done(path) }
         }
     }
 
-    /** Tegak dan paling besar 2160 piksel di sisi terpanjang. */
-    static func upright(_ image: UIImage) -> UIImage {
+    /** Tegak dan paling besar [maxSide] piksel di sisi terpanjang; [opaque] false = kanal transparan dipertahankan. */
+    static func upright(_ image: UIImage, maxSide: CGFloat = 2160, opaque: Bool = true) -> UIImage {
         let longest = max(image.size.width, image.size.height)
-        let scale = longest > 2160 ? 2160 / longest : 1
+        let scale = longest > maxSide ? maxSide / longest : 1
         let size = CGSize(width: (image.size.width * scale).rounded(), height: (image.size.height * scale).rounded())
         let format = UIGraphicsImageRendererFormat()
         format.scale = 1
-        format.opaque = true
+        format.opaque = opaque
         return UIGraphicsImageRenderer(size: size, format: format).image { _ in image.draw(in: CGRect(origin: .zero, size: size)) }
     }
 }

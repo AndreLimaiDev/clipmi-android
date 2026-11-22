@@ -130,6 +130,14 @@ private sealed interface Route {
     data object TranscriptionSettings : Route
     data object Performance : Route
     data object Bumpers : Route
+    data class Styles(val tab: Int = 0) : Route
+    data class CaptionStyleEdit(val id: Long, val copyOf: Long = 0) : Route
+    data class FrameStyleEdit(val id: Long, val copyOf: Long = 0) : Route
+    data object TeamPack : Route
+    data object Corrections : Route
+    data object AiUsage : Route
+    data object Results : Route
+    data object Data : Route
 }
 
 @Composable
@@ -147,12 +155,19 @@ fun App(repo: Repository, engine: MediaEngine) = ClipMiTheme {
     val scheduler = remember { IosScheduler(repo, engine) { settings.youtubeKey() } }
     val performance = remember { IosPerformance(repo, renders.renderer, scheduler, settings, ai, scope) }
     val bumpers = remember { IosBumpers(repo, renders.renderer) }
+    val localVideos = remember { LocalVideos(repo, renders.renderer) }
+    val styleMedia = remember { StyleMedia(repo, renders.renderer) }
+    val teamPacks = remember { IosTeamPacks(repo, renders.renderer, settings, bumpers) }
     val notifier = remember { Notifier(SnackbarHostState(), scope) }
     var tab by remember { mutableStateOf(MainTab.Projects) }
     // Tumpukan layar di atas tab (kembali = ambil yang teratas).
     var stack by remember { mutableStateOf(listOf<Route>()) }
     val push: (Route) -> Unit = { stack = stack + it }
     val pop: () -> Unit = { stack = stack.dropLast(1) }
+    BusyKeeper(engine) {
+        downloads.active != null || renders.active != null || transcriber.active != null || analysis.active != null || localVideos.busy ||
+            performance.running
+    }
     // Ketuk pengingat jadwal: langsung ke halaman siap posting jadwal itu, di atas tab Jadwal.
     LaunchedEffect(Unit) {
         engine.onReminderTapped(object : ResultListener {
@@ -198,9 +213,35 @@ fun App(repo: Repository, engine: MediaEngine) = ClipMiTheme {
                 Route.AiSettings -> Box(Modifier.fillMaxSize()) { AnalysisSettingsScreen(settings, ai, onBack = pop) }
                 Route.TranscriptionSettings -> Box(Modifier.fillMaxSize()) { TranscriptionSettingsScreen(settings, onBack = pop) }
                 Route.Bumpers -> Box(Modifier.fillMaxSize()) { BumpersScreen(repo, bumpers, onBack = pop) }
+                Route.TeamPack -> Box(Modifier.fillMaxSize()) { TeamPackScreen(teamPacks, onBack = pop) }
+                Route.Corrections -> Box(Modifier.fillMaxSize()) { CorrectionsScreen(repo, onBack = pop) }
+                Route.AiUsage -> Box(Modifier.fillMaxSize()) { AiUsageScreen(repo, onBack = pop) }
+                Route.Data -> Box(Modifier.fillMaxSize()) { DataScreen(repo, downloads, localVideos, onBack = pop) }
+                Route.Results -> Box(Modifier.fillMaxSize()) {
+                    ResultsScreen(
+                        repo, engine, renders, onBack = pop,
+                        onOpenProject = { push(Route.Project(it)) }, onOpenEditor = { push(Route.Editor(it)) },
+                        onSchedule = { push(Route.ScheduleEdit(clipId = it)) }, onOpenSchedule = { push(Route.Ready(it)) },
+                    )
+                }
+                is Route.Styles -> Box(Modifier.fillMaxSize()) {
+                    StylesScreen(
+                        repo, renders.renderer, top.tab, onTab = { stack = stack.dropLast(1) + Route.Styles(it) }, onBack = pop,
+                        onEdit = { caption, id, copyOf -> push(if (caption) Route.CaptionStyleEdit(id, copyOf) else Route.FrameStyleEdit(id, copyOf)) },
+                    )
+                }
+                is Route.CaptionStyleEdit -> Box(Modifier.fillMaxSize()) {
+                    CaptionStyleEditScreen(repo, renders.renderer, top.id, top.copyOf, onBack = pop, onDuplicate = { from -> stack = stack.dropLast(1) + Route.CaptionStyleEdit(0, from) })
+                }
+                is Route.FrameStyleEdit -> Box(Modifier.fillMaxSize()) {
+                    FrameStyleEditScreen(repo, renders.renderer, styleMedia, top.id, top.copyOf, onBack = pop, onDuplicate = { from -> stack = stack.dropLast(1) + Route.FrameStyleEdit(0, from) })
+                }
                 Route.Performance -> Box(Modifier.fillMaxSize()) { PerformanceScreen(repo, performance, settings, onBack = pop, onOpenSchedule = { push(Route.Ready(it)) }) }
                 null -> when (tab) {
-                    MainTab.Projects -> ProjectListScreen(repo, engine, downloads, onOpen = { push(Route.Project(it)) })
+                    MainTab.Projects -> ProjectListScreen(repo, engine, downloads, localVideos, onOpen = { push(Route.Project(it)) }, onLocalCreated = { id ->
+                        push(Route.Project(id))
+                        scope.launch { transcriber.startAutomatically(id) }
+                    })
                     MainTab.Schedule -> ScheduleScreen(
                         repo, engine, scheduler, renders,
                         onOpenAccounts = { push(Route.Accounts) },
@@ -208,7 +249,7 @@ fun App(repo: Repository, engine: MediaEngine) = ClipMiTheme {
                         onNewSchedule = { clip, date -> push(Route.ScheduleEdit(clipId = clip, date = date)) },
                     )
                     MainTab.Stats -> StatsScreen(repo, engine, scheduler, downloads, onOpenSchedule = { push(Route.Ready(it)) }, onOpenPerformance = { push(Route.Performance) })
-                    MainTab.Settings -> SettingsScreen(repo, settings, onAnalysis = { push(Route.AiSettings) }, onTranscription = { push(Route.TranscriptionSettings) }, onBumpers = { push(Route.Bumpers) }, onBackup = { push(Route.Backup) })
+                    MainTab.Settings -> SettingsScreen(repo, settings, onAnalysis = { push(Route.AiSettings) }, onTranscription = { push(Route.TranscriptionSettings) }, onBumpers = { push(Route.Bumpers) }, onStyles = { push(Route.Styles()) }, onTeamPack = { push(Route.TeamPack) }, onBackup = { push(Route.Backup) }, open = push)
                 }
             }
             val topLevel = stack.isEmpty()
@@ -263,9 +304,24 @@ private fun FloatingNavBar(selected: MainTab, onSelect: (MainTab) -> Unit) {
     }
 }
 
+/**
+ * Selama ada proses panjang, layar tidak terkunci otomatis (iOS menghentikan aplikasi yang terkunci) dan iOS memberi waktu
+ * tambahan singkat bila aplikasi ditinggal. Dipisah supaya perubahan status tidak menyusun ulang seluruh aplikasi.
+ */
 @Composable
-private fun SettingsScreen(repo: Repository, settings: IosSettings, onAnalysis: () -> Unit, onTranscription: () -> Unit, onBumpers: () -> Unit, onBackup: () -> Unit) {
+private fun BusyKeeper(engine: MediaEngine, busy: () -> Boolean) {
+    val now = busy()
+    LaunchedEffect(now) { engine.setBusy(now) }
+}
+
+@Composable
+private fun SettingsScreen(repo: Repository, settings: IosSettings, onAnalysis: () -> Unit, onTranscription: () -> Unit, onBumpers: () -> Unit, onStyles: () -> Unit, onTeamPack: () -> Unit, onBackup: () -> Unit, open: (Route) -> Unit) {
+    val corrections by remember { repo.db.corrections().observeAll() }.collectAsState(emptyList())
+    val usages by remember { repo.db.aiUsages().observeAll() }.collectAsState(emptyList())
+    val rendered by remember { repo.db.clips().observeRendered() }.collectAsState(emptyList())
     val bumperList by remember { repo.db.bumpers().observeAll() }.collectAsState(emptyList())
+    val captionStyles by remember { repo.db.styles().observeCaptionStyles() }.collectAsState(emptyList())
+    val frameStyles by remember { repo.db.styles().observeFrameStyles() }.collectAsState(emptyList())
     val transcription by produceState<Pair<String, Boolean>?>(null) {
         val cfg = settings.transcription()
         value = if (cfg != null) "${cfg.provider.label.substringBefore(" (")} · ${cfg.model}" to true else "Belum diatur" to false
@@ -288,10 +344,16 @@ private fun SettingsScreen(repo: Repository, settings: IosSettings, onAnalysis: 
                 SettingsRow("Transkripsi API", transcription?.first, onClick = onTranscription, trailing = { transcription?.let { ReadyMark(it.second) } })
                 GroupDivider()
                 SettingsRow("Analisis AI", analysis?.first, onClick = onAnalysis, trailing = { analysis?.let { ReadyMark(it.second) } })
+                GroupDivider()
+                SettingsRow("Kamus koreksi", if (corrections.isEmpty()) "Kosong" else "${corrections.count { it.isActive }} kata aktif", onClick = { open(Route.Corrections) })
+                GroupDivider()
+                SettingsRow("Pemakaian AI", if (usages.isEmpty()) "Belum ada" else "${usages.size} pemakaian", onClick = { open(Route.AiUsage) })
             }
         }
         item {
             SettingsGroup("Render") {
+                SettingsRow("Gaya klip", "${captionStyles.size} subtitle · ${frameStyles.size} bingkai", onClick = onStyles)
+                GroupDivider()
                 SettingsRow(
                     "Intro & outro",
                     if (bumperList.isEmpty()) "Belum ada" else "${bumperList.count { it.kind == "intro" }} intro · ${bumperList.count { it.kind == "outro" }} outro",
@@ -306,7 +368,14 @@ private fun SettingsScreen(repo: Repository, settings: IosSettings, onAnalysis: 
         }
         item {
             SettingsGroup("Data") {
+                val done = rendered.count { it.render == RenderStatus.Done }
+                SettingsRow("Hasil render", if (done == 0) "Belum ada" else "$done video", onClick = { open(Route.Results) })
+                GroupDivider()
+                SettingsRow("Data & penyimpanan", "Sisa ruang, video sumber per project", onClick = { open(Route.Data) })
+                GroupDivider()
                 SettingsRow("Cadangkan & pulihkan", "Satu file ZIP, sama dengan ClipMI Android", onClick = onBackup)
+                GroupDivider()
+                SettingsRow("Paket Standar Tim", "Gaya, prompt, intro/outro, dan kamus untuk tim", onClick = onTeamPack)
             }
         }
         item {
@@ -343,7 +412,22 @@ private fun ProjectEntity.isBusy() =
 private fun ProjectEntity.isFailed() = video == VideoStatus.Failed || transcript == TranscriptStatus.Failed
 
 @Composable
-private fun ProjectListScreen(repo: Repository, engine: MediaEngine, downloads: Downloads, onOpen: (Long) -> Unit) {
+private fun ProjectListScreen(
+    repo: Repository, engine: MediaEngine, downloads: Downloads, localVideos: LocalVideos, onOpen: (Long) -> Unit, onLocalCreated: (Long) -> Unit,
+) {
+    val scope = rememberCoroutineScope()
+    val notifier = LocalNotifier.current
+    var choosingLocal by remember { mutableStateOf(false) }
+    if (choosingLocal) {
+        LocalVideoSheet(onDismiss = { choosingLocal = false }, onPick = { fromFiles ->
+            choosingLocal = false
+            scope.launch {
+                localVideos.create(fromFiles)
+                    .onSuccess { id -> if (id != null) onLocalCreated(id) }
+                    .onFailure { notifier.show(it.message ?: "Video tidak bisa dipakai.") }
+            }
+        })
+    }
     val projects by remember { repo.db.projects().observeAll() }.collectAsState(null)
     val clipCounts by remember { repo.db.clips().observeCounts() }.collectAsState(emptyList())
     var linking by remember { mutableStateOf(false) }
@@ -361,6 +445,9 @@ private fun ProjectListScreen(repo: Repository, engine: MediaEngine, downloads: 
                 ScreenHeader("Project", Modifier.padding(horizontal = ScreenGutter))
                 Row(Modifier.padding(horizontal = ScreenGutter), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                     EntryCard(ClipMiIcons.Link, "Link YouTube", "Tempel link", Modifier.weight(1f)) { linking = true }
+                    EntryCard(
+                        ClipMiIcons.Image, "Dari galeri", if (localVideos.busy) "Menyalin video…" else "MP4, MOV", Modifier.weight(1f),
+                    ) { if (!localVideos.busy) choosingLocal = true }
                 }
                 if (!all.isNullOrEmpty()) {
                     if (all.size > 3) {
@@ -468,7 +555,7 @@ private fun ProjectCard(
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 Text(project.title, style = MaterialTheme.typography.titleSmall, color = c.text, maxLines = 2, overflow = TextOverflow.Ellipsis)
                 Text(
-                    listOf(if (project.isYouTube) "YouTube" else "Video", dayMonth(project.createdAt)).joinToString(" · "),
+                    listOf(if (project.isYouTube) "YouTube" else "Galeri", dayMonth(project.createdAt)).joinToString(" · "),
                     style = MaterialTheme.typography.bodySmall, color = c.textMuted,
                 )
                 if (ready) {
@@ -626,7 +713,7 @@ private fun ProjectScreen(
                     Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                         Text(p.title, style = MaterialTheme.typography.titleMedium, color = c.text, maxLines = 3, overflow = TextOverflow.Ellipsis)
                         Text(
-                            listOfNotNull(if (p.isYouTube) "YouTube" else "Video", p.durationSeconds?.let { Timecode.format(it) }, dayMonth(p.createdAt)).joinToString(" · "),
+                            listOfNotNull(if (p.isYouTube) "YouTube" else "Galeri", p.durationSeconds?.let { Timecode.format(it) }, dayMonth(p.createdAt)).joinToString(" · "),
                             style = MaterialTheme.typography.bodySmall, color = c.textMuted,
                         )
                     }
@@ -807,6 +894,7 @@ private fun AnalysisCard(repo: Repository, analysis: IosAnalysis, project: Proje
     // Sudah ada klip dan tidak ada yang berjalan/tersisa: cukup dua tombol kecil, analisis ulang dikonfirmasi dulu.
     if (compact && !active && project.analysisMessage == null && resumable.isEmpty()) {
         var confirmAgain by remember { mutableStateOf(false) }
+        PromptStyleChip(analysis, project)
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             if (cfg != null) ActionChip("Analisis lagi", { confirmAgain = true }, Modifier.weight(1f), height = 40.dp, icon = ClipMiIcons.Sparkle, enabled = prompts.isNotEmpty())
             ActionChip("Lewat chat AI", { manual = true }, Modifier.weight(1f), height = 40.dp, icon = if (cfg == null) ClipMiIcons.Sparkle else null, enabled = prompts.isNotEmpty())
@@ -849,6 +937,7 @@ private fun AnalysisCard(repo: Repository, analysis: IosAnalysis, project: Proje
                     IconCircle(ClipMiIcons.Close, "Tutup pesan", { scope.launch { analysis.dismiss(project.id) } }, size = 36.dp, background = Color.Transparent, border = false, tint = c.textMuted)
                 }
             }
+            PromptStyleChip(analysis, project)
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 if (cfg != null) {
                     if (resumable.isNotEmpty()) {

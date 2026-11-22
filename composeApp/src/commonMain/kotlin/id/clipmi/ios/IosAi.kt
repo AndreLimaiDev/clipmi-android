@@ -334,8 +334,19 @@ class IosSettings(private val repo: Repository, private val engine: MediaEngine)
     }
 
     /** Semua gaya prompt: bawaan lalu buatan sendiri (dari cadangan Android). */
-    suspend fun promptStyles(): List<PromptStyle> =
-        PromptStyles.BUILT_IN + dao.get(KEY_PROMPT_STYLES)?.let { runCatching { styleJson.decodeFromString(ListSerializer(PromptStyle.serializer()), it) }.getOrNull() }.orEmpty()
+    suspend fun promptStyles(): List<PromptStyle> = PromptStyles.BUILT_IN + customPromptStyles()
+
+    private suspend fun customPromptStyles(): List<PromptStyle> =
+        dao.get(KEY_PROMPT_STYLES)?.let { runCatching { styleJson.decodeFromString(ListSerializer(PromptStyle.serializer()), it) }.getOrNull() }.orEmpty()
+
+    suspend fun saveCustomPromptStyle(style: PromptStyle) {
+        val list = customPromptStyles().filterNot { it.id == style.id } + style.copy(custom = true)
+        dao.put(KEY_PROMPT_STYLES, styleJson.encodeToString(ListSerializer(PromptStyle.serializer()), list))
+    }
+
+    suspend fun deleteCustomPromptStyle(id: String) {
+        dao.put(KEY_PROMPT_STYLES, styleJson.encodeToString(ListSerializer(PromptStyle.serializer()), customPromptStyles().filterNot { it.id == id }))
+    }
 
     private val styleJson = Json { ignoreUnknownKeys = true; encodeDefaults = true }
 
@@ -376,7 +387,7 @@ data class Estimate(val tokens: Int, val cost: Double?)
  * balasan disimpan sebagai kandidat, bagian yang selesai dicatat (bisa dilanjutkan), dan pemakaian token dicatat.
  * Berjalan selama aplikasi terbuka; satu project pada satu waktu.
  */
-class IosAnalysis(private val repo: Repository, private val settings: IosSettings, private val client: IosAiClient, private val scope: CoroutineScope) {
+class IosAnalysis(private val repo: Repository, val settings: IosSettings, private val client: IosAiClient, private val scope: CoroutineScope) {
     private val projects get() = repo.db.projects()
     var active by mutableStateOf<Long?>(null)
         private set
@@ -387,6 +398,26 @@ class IosAnalysis(private val repo: Repository, private val settings: IosSetting
 
     /** Prompt project dengan template, batas panjang, dan gaya dari Pengaturan (sama dengan Android). */
     suspend fun prompts(project: ProjectEntity): List<String> = repo.prompts(project.id, settings)
+
+    /** Gaya prompt project dan opsinya (sama dengan Android). */
+    suspend fun promptStyle(project: ProjectEntity): Pair<PromptStyle, PromptOptions?> {
+        val style = settings.promptStyles().firstOrNull { it.id == project.promptStyle } ?: PromptStyles.KAJIAN
+        val options = project.promptOptions?.let { runCatching { optionsJson.decodeFromString(PromptOptions.serializer(), it) }.getOrNull() }
+        return style to options
+    }
+
+    /** Menyimpan gaya prompt dan opsi untuk project (dipakai analisis berikutnya, otomatis maupun lewat chat AI). */
+    suspend fun setPromptStyle(projectId: Long, styleId: String, options: PromptOptions?) {
+        projects.modify(projectId) {
+            it.copy(
+                promptStyle = styleId.takeIf { id -> id != PromptStyles.KAJIAN.id },
+                promptOptions = options?.takeIf { o -> !o.isEmpty() }?.let { o -> optionsJson.encodeToString(PromptOptions.serializer(), o) },
+                updatedAt = nowMillis(),
+            )
+        }
+    }
+
+    private val optionsJson = Json { ignoreUnknownKeys = true }
 
     fun estimate(prompts: List<String>, config: AiConfig?, onlyParts: List<Int>? = null): Estimate {
         val counted = onlyParts?.mapNotNull { prompts.getOrNull(it) } ?: prompts

@@ -8,6 +8,8 @@ expect fun readBytes(path: String): ByteArray?
 
 expect fun writeText(path: String, text: String)
 
+expect fun writeBytes(path: String, bytes: ByteArray)
+
 expect fun createDirectory(path: String)
 
 expect fun nowMillis(): Long
@@ -26,3 +28,9 @@ expect fun listDirectory(path: String): List<String>
 
 /** Memindahkan file (tujuan lama diganti). */
 expect fun moveItem(from: String, to: String)
+
+/** Ukuran semua file di dalam folder [path] (rekursif), dalam byte. */
+expect fun directorySize(path: String): Long
+
+/** Sisa ruang penyimpanan di volume [path], dalam byte. */
+expect fun freeSpace(path: String): Long
