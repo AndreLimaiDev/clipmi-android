@@ -50,7 +50,7 @@ data class ReplyOutcome(val created: Int, val skipped: Int, val errors: List<Str
  */
 class Repository(val db: AppDatabase, private val documents: String) {
     private val json = Json { ignoreUnknownKeys = true }
-    private val words = ListSerializer(Word.serializer())
+    private val wordsSerializer = ListSerializer(Word.serializer())
     private val strings = ListSerializer(String.serializer())
 
     fun projectDir(id: Long) = "projects/$id"
@@ -237,7 +237,7 @@ class Repository(val db: AppDatabase, private val documents: String) {
         clip.hashtags?.let { runCatching { json.decodeFromString(strings, it) }.getOrNull() }.orEmpty()
 
     private fun decodeWords(value: String?): List<Word> =
-        value?.let { runCatching { json.decodeFromString(words, it) }.getOrNull() }.orEmpty()
+        value?.let { runCatching { json.decodeFromString(wordsSerializer, it) }.getOrNull() }.orEmpty()
 
     private fun Segment.toEntity(projectId: Long) = TranscriptSegmentEntity(
         projectId = projectId,
@@ -245,7 +245,7 @@ class Repository(val db: AppDatabase, private val documents: String) {
         startTime = startTime,
         endTime = endTime,
         text = text,
-        words = json.encodeToString(words, this.words),
+        words = json.encodeToString(wordsSerializer, this.words),
         wordsEstimated = wordsEstimated,
     )
 

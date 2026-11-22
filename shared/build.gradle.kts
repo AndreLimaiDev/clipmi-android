@@ -25,6 +25,7 @@ if (androidEnabled) {
 }
 
 kotlin {
+    compilerOptions { freeCompilerArgs.add("-Xexpect-actual-classes") }
     if (iosEnabled) {
         iosArm64()
         iosSimulatorArm64()
