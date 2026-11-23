@@ -15,6 +15,15 @@ interface MediaEngine {
     /** Folder font bawaan di dalam bundle aplikasi (Poppins-Bold.ttf, dll.; sama dengan assets/fonts Android). */
     fun fontsDirectory(): String
 
+    /**
+     * Bilah tab asli iOS (UITabBar, Liquid Glass di iOS 26): tab aktif [selected] (0 Project, 1 Jadwal, 2 Statistik,
+     * 3 Pengaturan) dan apakah tampil (disembunyikan di layar di atas tab).
+     */
+    fun setTabBar(selected: Int, visible: Boolean)
+
+    /** [listener] dipanggil di main thread setiap kali tab diketuk. */
+    fun onTabSelected(listener: TabListener)
+
     /** Folder font yang dipakai libass pratinjau (font bawaan + font tambahan pengguna). */
     fun useFontsDirectory(path: String)
 
@@ -208,6 +217,10 @@ interface ResultListener {
 interface AllowedListener {
     /** "allowed", "denied", atau "unknown" (belum pernah ditanya). */
     fun finished(state: String)
+}
+
+interface TabListener {
+    fun selected(index: Int)
 }
 
 interface PickListener {

@@ -168,6 +168,15 @@ fun App(repo: Repository, engine: MediaEngine) = ClipMiTheme {
         downloads.active != null || renders.active != null || transcriber.active != null || analysis.active != null || localVideos.busy ||
             performance.running
     }
+    // Bilah tab asli iOS (UITabBar, Liquid Glass di iOS 26): Kotlin menentukan tab aktif dan kapan bilah tampil.
+    LaunchedEffect(Unit) {
+        engine.onTabSelected(object : TabListener {
+            override fun selected(index: Int) {
+                tab = MainTab.entries.getOrElse(index) { MainTab.Projects }
+            }
+        })
+    }
+    LaunchedEffect(tab, stack.isEmpty()) { engine.setTabBar(tab.ordinal, stack.isEmpty()) }
     // Ketuk pengingat jadwal: langsung ke halaman siap posting jadwal itu, di atas tab Jadwal.
     LaunchedEffect(Unit) {
         engine.onReminderTapped(object : ResultListener {
@@ -252,54 +261,10 @@ fun App(repo: Repository, engine: MediaEngine) = ClipMiTheme {
                     MainTab.Settings -> SettingsScreen(repo, settings, onAnalysis = { push(Route.AiSettings) }, onTranscription = { push(Route.TranscriptionSettings) }, onBumpers = { push(Route.Bumpers) }, onStyles = { push(Route.Styles()) }, onTeamPack = { push(Route.TeamPack) }, onBackup = { push(Route.Backup) }, open = push)
                 }
             }
+            // Navigasi utama = bilah tab asli iOS di atas layar Compose (lihat RootController di iosApp).
             val topLevel = stack.isEmpty()
-            AnimatedVisibility(
-                visible = topLevel,
-                enter = fadeIn() + slideInVertically { it / 2 },
-                exit = fadeOut() + slideOutVertically { it / 2 },
-                modifier = Modifier.align(Alignment.BottomCenter),
-            ) { FloatingNavBar(tab) { tab = it } }
             if (topLevel) SnackbarInset(FloatingNavSpace - 16.dp)
             ClipMiSnackbarHost(notifier, Modifier.align(Alignment.BottomCenter))
-        }
-    }
-}
-
-/** Navigasi utama: pil melayang 68 dp, item aktif berlatar emerald (sama dengan Android). */
-@Composable
-private fun FloatingNavBar(selected: MainTab, onSelect: (MainTab) -> Unit) {
-    val c = ClipMi.colors
-    val shape = RoundedCornerShape(34.dp)
-    Row(
-        Modifier
-            .navigationBarsPadding()
-            .padding(start = 16.dp, end = 16.dp, bottom = 20.dp)
-            .fillMaxWidth()
-            .height(68.dp)
-            .shadow(if (c.isDark) 0.dp else 12.dp, shape, ambientColor = c.text.copy(alpha = 0.08f), spotColor = c.text.copy(alpha = 0.08f))
-            .clip(shape)
-            .background(if (c.isDark) c.panel.copy(alpha = 0.96f) else c.card)
-            .border(1.dp, if (c.isDark) c.lineStrong else c.line, shape)
-            .padding(horizontal = 6.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        MainTab.entries.forEach { tab ->
-            val active = tab == selected
-            Column(
-                Modifier.weight(1f).fillMaxHeight().clip(RoundedCornerShape(28.dp)).clickable(role = Role.Tab, onClickLabel = tab.label) { onSelect(tab) },
-                horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.spacedBy(2.dp, Alignment.CenterVertically),
-            ) {
-                Box(Modifier.clip(CircleShape).background(if (active) c.accent else Color.Transparent).padding(horizontal = 16.dp, vertical = 4.dp)) {
-                    Icon(tab.icon, contentDescription = null, tint = if (active) c.onAccent else c.textMuted, modifier = Modifier.size(22.dp))
-                }
-                Text(
-                    tab.label,
-                    style = MaterialTheme.typography.labelSmall.copy(fontWeight = if (active) FontWeight.Bold else FontWeight.SemiBold),
-                    color = if (active) c.text else c.textMuted,
-                    maxLines = 1,
-                )
-            }
         }
     }
 }

@@ -27,14 +27,102 @@ struct ComposeView: UIViewControllerRepresentable {
         let engine = IOSMediaEngine()
         // Pengingat jadwal tetap tampil sebagai banner walau aplikasi sedang dibuka.
         UNUserNotificationCenter.current().delegate = engine
-        return MainViewControllerKt.MainViewController(engine: engine, documents: documents)
+        let compose = MainViewControllerKt.MainViewController(engine: engine, documents: documents)
+        let root = RootController(compose: compose)
+        engine.root = root
+        return root
     }
 
     func updateUIViewController(_ uiViewController: UIViewController, context: Context) {}
 }
 
+/// Layar Compose penuh dengan bilah tab asli iOS di bawahnya (Liquid Glass di iOS 26). Tab dan kapan bilah tampil
+/// diatur Kotlin lewat [IOSMediaEngine.setTabBar]; ketukan diteruskan ke Kotlin lewat pendengar tab.
+final class RootController: UIViewController, UITabBarDelegate {
+    private let compose: UIViewController
+    let tabBar = UITabBar()
+    var onSelect: ((Int) -> Void)?
+    private var shown = true
+
+    private static let tabs: [(String, String, String)] = [
+        ("Project", "house", "house.fill"),
+        ("Jadwal", "calendar", "calendar"),
+        ("Statistik", "chart.bar", "chart.bar.fill"),
+        ("Pengaturan", "slider.horizontal.3", "slider.horizontal.3"),
+    ]
+
+    init(compose: UIViewController) {
+        self.compose = compose
+        super.init(nibName: nil, bundle: nil)
+    }
+
+    required init?(coder: NSCoder) { fatalError("init(coder:) tidak dipakai") }
+
+    override func viewDidLoad() {
+        super.viewDidLoad()
+        addChild(compose)
+        compose.view.frame = view.bounds
+        compose.view.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+        view.addSubview(compose.view)
+        compose.didMove(toParent: self)
+
+        tabBar.items = Self.tabs.enumerated().map { index, tab in
+            UITabBarItem(title: tab.0, image: UIImage(systemName: tab.1), selectedImage: UIImage(systemName: tab.2)).also { $0.tag = index }
+        }
+        tabBar.selectedItem = tabBar.items?.first
+        tabBar.delegate = self
+        // Warna aksen ClipMI (emerald) untuk tab aktif; latar dan efek kaca dari sistem.
+        tabBar.tintColor = UIColor(red: 0x04 / 255.0, green: 0x78 / 255.0, blue: 0x57 / 255.0, alpha: 1)
+        tabBar.translatesAutoresizingMaskIntoConstraints = false
+        view.addSubview(tabBar)
+        NSLayoutConstraint.activate([
+            tabBar.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            tabBar.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+            tabBar.bottomAnchor.constraint(equalTo: view.bottomAnchor),
+        ])
+    }
+
+    func tabBar(_ tabBar: UITabBar, didSelect item: UITabBarItem) {
+        onSelect?(item.tag)
+    }
+
+    /// Tab aktif dan apakah bilah tampil (disembunyikan di layar di atas tab: project, editor, pengaturan, dll.).
+    func update(selected: Int, visible: Bool) {
+        if let item = tabBar.items?.first(where: { $0.tag == selected }), tabBar.selectedItem !== item {
+            tabBar.selectedItem = item
+        }
+        guard visible != shown else { return }
+        shown = visible
+        if visible { tabBar.isHidden = false }
+        UIView.animate(withDuration: 0.22, animations: {
+            self.tabBar.alpha = visible ? 1 : 0
+            self.tabBar.transform = visible ? .identity : CGAffineTransform(translationX: 0, y: 24)
+        }, completion: { _ in
+            if !self.shown { self.tabBar.isHidden = true }
+        })
+    }
+}
+
+private extension UITabBarItem {
+    func also(_ block: (UITabBarItem) -> Void) -> UITabBarItem {
+        block(self)
+        return self
+    }
+}
+
 /// Bagian iOS yang tidak bisa ditulis di Kotlin common: yt-dlp lewat Python tertanam dan penggabungan AVFoundation.
 final class IOSMediaEngine: NSObject, MediaEngine {
+    weak var root: RootController?
+    private var tabListener: TabListener?
+
+    func setTabBar(selected: Int32, visible: Bool) {
+        root?.update(selected: Int(selected), visible: visible)
+    }
+
+    func onTabSelected(listener: TabListener) {
+        tabListener = listener
+        root?.onSelect = { [weak self] index in self?.tabListener?.selected(index: Int32(index)) }
+    }
     func downloadYouTube(url: String, directory: String, listener: DownloadListener) {
         if let error = ClipPythonStart() {
             listener.finished(resultJson: Self.json(["ok": false, "error": "Python gagal menyala: \(error)"]))
