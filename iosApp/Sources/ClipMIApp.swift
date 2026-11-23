@@ -461,6 +461,19 @@ final class IOSMediaEngine: NSObject, MediaEngine {
 
     // MARK: Statistik postingan
 
+    func pythonCall(module: String, function: String, args: [String], listener: ResultListener) {
+        if let error = ClipPythonStart() {
+            listener.finished(resultJson: Self.json(["ok": false, "error": "Python gagal menyala: \(error)"]))
+            return
+        }
+        let thread = Thread {
+            let result = ClipPythonCall(module, function, args)
+            DispatchQueue.main.async { listener.finished(resultJson: result) }
+        }
+        thread.stackSize = 16 * 1024 * 1024
+        thread.start()
+    }
+
     func fetchStats(url: String, directory: String, listener: ResultListener) {
         if let error = ClipPythonStart() {
             listener.finished(resultJson: Self.json(["ok": false, "error": "Python gagal menyala: \(error)"]))

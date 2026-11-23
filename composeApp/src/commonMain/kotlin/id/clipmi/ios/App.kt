@@ -1,5 +1,6 @@
 package id.clipmi.ios
 
+import id.clipmi.core.schedule.ScheduleState
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -279,7 +280,7 @@ fun App(repo: Repository, engine: MediaEngine) = ClipMiTheme {
                         onNewSchedule = { clip, date -> push(Route.ScheduleEdit(clipId = clip, date = date)) },
                     )
                     MainTab.Stats -> StatsScreen(repo, engine, scheduler, downloads, onOpenSchedule = { push(Route.Ready(it)) }, onOpenPerformance = { push(Route.Performance) })
-                    MainTab.Settings -> SettingsScreen(repo, settings, onAnalysis = { push(Route.AiSettings) }, onTranscription = { push(Route.TranscriptionSettings) }, onBumpers = { push(Route.Bumpers) }, onStyles = { push(Route.Styles()) }, onTeamPack = { push(Route.TeamPack) }, onBackup = { push(Route.Backup) }, open = push)
+                    MainTab.Settings -> SettingsScreen(repo, settings, engine, downloads, onAnalysis = { push(Route.AiSettings) }, onTranscription = { push(Route.TranscriptionSettings) }, onBumpers = { push(Route.Bumpers) }, onStyles = { push(Route.Styles()) }, onTeamPack = { push(Route.TeamPack) }, onBackup = { push(Route.Backup) }, open = push)
                 }
             }
             // Navigasi utama = bilah tab asli iOS di atas layar Compose (lihat RootController di iosApp).
@@ -301,7 +302,7 @@ private fun BusyKeeper(engine: MediaEngine, busy: () -> Boolean) {
 }
 
 @Composable
-private fun SettingsScreen(repo: Repository, settings: IosSettings, onAnalysis: () -> Unit, onTranscription: () -> Unit, onBumpers: () -> Unit, onStyles: () -> Unit, onTeamPack: () -> Unit, onBackup: () -> Unit, open: (Route) -> Unit) {
+private fun SettingsScreen(repo: Repository, settings: IosSettings, engine: MediaEngine, downloads: Downloads, onAnalysis: () -> Unit, onTranscription: () -> Unit, onBumpers: () -> Unit, onStyles: () -> Unit, onTeamPack: () -> Unit, onBackup: () -> Unit, open: (Route) -> Unit) {
     val corrections by remember { repo.db.corrections().observeAll() }.collectAsState(emptyList())
     val usages by remember { repo.db.aiUsages().observeAll() }.collectAsState(emptyList())
     val rendered by remember { repo.db.clips().observeRendered() }.collectAsState(emptyList())
@@ -365,11 +366,81 @@ private fun SettingsScreen(repo: Repository, settings: IosSettings, onAnalysis: 
             }
         }
         item {
-            SettingsGroup("Tentang") {
+            SettingsGroup("Aplikasi") {
+                YtDlpRow(engine, downloads)
+                GroupDivider()
                 SettingsRow("ClipMI iOS", "Versi uji · dipasang lewat sideload")
             }
         }
     }
+}
+
+/**
+ * Pengunduh YouTube: versi yt-dlp aktif, Perbarui (dari PyPI, langsung dipakai), dan kembali ke versi bawaan bila
+ * versi unduhan bermasalah. Tidak bisa diperbarui selama ada unduhan berjalan.
+ */
+@Composable
+private fun YtDlpRow(engine: MediaEngine, downloads: Downloads) {
+    val scope = rememberCoroutineScope()
+    val notifier = LocalNotifier.current
+    val updater = remember(engine) { YtDlpUpdater(engine) }
+    var info by remember { mutableStateOf<YtDlpUpdater.Info?>(null) }
+    var updating by remember { mutableStateOf(false) }
+    var menu by remember { mutableStateOf(false) }
+    LaunchedEffect(updater) { info = updater.info() }
+    val current = info
+    SettingsRow(
+        "Pengunduh YouTube",
+        current?.version?.let { "yt-dlp $it" + if (current.updated) " · diperbarui" else " · bawaan" } ?: "yt-dlp",
+        trailing = {
+            Box {
+                ActionChip(if (updating) "Memperbarui…" else "Perbarui", enabled = !updating, height = 36.dp, onClick = {
+                    if (downloads.active != null) {
+                        notifier.show("Tunggu unduhan video selesai dulu.")
+                        return@ActionChip
+                    }
+                    if (current?.updated == true) { menu = true; return@ActionChip }
+                    updating = true
+                    scope.launch {
+                        notifier.show(
+                            when (val r = updater.update()) {
+                                is YtDlpUpdater.Result.Updated -> "yt-dlp ${r.version} diperbarui."
+                                is YtDlpUpdater.Result.UpToDate -> "yt-dlp ${r.version} sudah terbaru."
+                                is YtDlpUpdater.Result.Failed -> "Gagal memperbarui yt-dlp: ${r.message}"
+                            },
+                        )
+                        info = updater.info()
+                        updating = false
+                    }
+                })
+                DropdownMenu(menu, onDismissRequest = { menu = false }, containerColor = ClipMi.colors.card) {
+                    DropdownMenuItem(text = { Text("Cek versi terbaru") }, onClick = {
+                        menu = false
+                        updating = true
+                        scope.launch {
+                            notifier.show(
+                                when (val r = updater.update()) {
+                                    is YtDlpUpdater.Result.Updated -> "yt-dlp ${r.version} diperbarui."
+                                    is YtDlpUpdater.Result.UpToDate -> "yt-dlp ${r.version} sudah terbaru."
+                                    is YtDlpUpdater.Result.Failed -> "Gagal memperbarui yt-dlp: ${r.message}"
+                                },
+                            )
+                            info = updater.info()
+                            updating = false
+                        }
+                    })
+                    DropdownMenuItem(text = { Text("Kembali ke versi bawaan") }, onClick = {
+                        menu = false
+                        scope.launch {
+                            val version = updater.reset()
+                            notifier.show("Memakai yt-dlp bawaan${version?.let { " $it" }.orEmpty()}.")
+                            info = updater.info()
+                        }
+                    })
+                }
+            }
+        },
+    )
 }
 
 // ---------------------------------------------------------------------------------------------------------------
@@ -1051,6 +1122,9 @@ private fun ClipsSection(
 ) {
     val c = ClipMi.colors
     var filter by remember { mutableStateOf(ReviewFilter.Active) }
+    // Status jadwal per klip (label Terbit, sama dengan halaman Jadwal).
+    val schedule by rememberScheduleData(repo)
+    val states = schedule?.clipStates.orEmpty()
     Column(Modifier.padding(start = ScreenGutter, end = ScreenGutter, top = 12.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         if (project.transcript != TranscriptStatus.Ready) {
             ClipMiCard {
@@ -1080,7 +1154,7 @@ private fun ClipsSection(
                 style = MaterialTheme.typography.bodySmall, color = c.textMuted,
             )
         }
-        clips.filter(filter::matches).forEach { clip -> ClipCard(repo, engine, renders, clip, onEdit, onSchedule, onPlay) }
+        clips.filter(filter::matches).forEach { clip -> ClipCard(repo, engine, renders, clip, states[clip.id], onEdit, onSchedule, onPlay) }
     }
 }
 
@@ -1250,7 +1324,8 @@ private fun ManualAnalysisSheet(repo: Repository, engine: MediaEngine, project: 
  */
 @Composable
 private fun ClipCard(
-    repo: Repository, engine: MediaEngine, renders: Renders, clip: ClipEntity, onEdit: (Long) -> Unit, onSchedule: (Long) -> Unit, onPlay: (ClipEntity) -> Unit,
+    repo: Repository, engine: MediaEngine, renders: Renders, clip: ClipEntity, scheduleState: ScheduleState?,
+    onEdit: (Long) -> Unit, onSchedule: (Long) -> Unit, onPlay: (ClipEntity) -> Unit,
 ) {
     val c = ClipMi.colors
     val scope = rememberCoroutineScope()
@@ -1294,7 +1369,7 @@ private fun ClipCard(
                     (clip.reason ?: clip.caption)?.let {
                         Text(it, style = MaterialTheme.typography.bodySmall, color = c.textBody, maxLines = if (expanded) Int.MAX_VALUE else 2, overflow = TextOverflow.Ellipsis)
                     }
-                    ClipMeta(clip, renders, expanded)
+                    ClipMeta(clip, renders, expanded, scheduleState)
                 }
                 // Semua aksi di menu ⋯ (sudut kanan atas kartu).
                 Box {
@@ -1431,7 +1506,7 @@ private fun SwipeCard(right: SwipeAction?, left: SwipeAction?, content: @Composa
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-private fun ClipMeta(clip: ClipEntity, renders: Renders, expanded: Boolean) {
+private fun ClipMeta(clip: ClipEntity, renders: Renders, expanded: Boolean, scheduleState: ScheduleState? = null) {
     val c = ClipMi.colors
     FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(4.dp), itemVerticalAlignment = Alignment.CenterVertically) {
         Text(
@@ -1446,7 +1521,11 @@ private fun ClipMeta(clip: ClipEntity, renders: Renders, expanded: Boolean) {
         when {
             renders.active == clip.id -> StatusBadge("Render ${(renders.fraction * 100).toInt()}%", Tone.Busy)
             clip.id in renders.queued -> StatusBadge("Antre render", Tone.Idle)
-            clip.render == RenderStatus.Done -> StatusBadge(if (clip.changedAfterRender) "Hasil lama" else "Siap unggah", if (clip.changedAfterRender) Tone.Warn else Tone.Good)
+            scheduleState == ScheduleState.Published -> StatusBadge("Terbit", Tone.Good)
+            scheduleState == ScheduleState.Partial -> StatusBadge("Sebagian terbit", Tone.Busy)
+            clip.render == RenderStatus.Done && clip.changedAfterRender -> StatusBadge("Hasil lama", Tone.Warn)
+            scheduleState == ScheduleState.Scheduled -> StatusBadge("Dijadwalkan", Tone.Busy)
+            clip.render == RenderStatus.Done -> StatusBadge("Siap unggah", Tone.Good)
             clip.render == RenderStatus.Failed -> StatusBadge("Render gagal", Tone.Bad)
             else -> Unit
         }

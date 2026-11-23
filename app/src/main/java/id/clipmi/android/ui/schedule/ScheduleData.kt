@@ -68,6 +68,15 @@ data class ScheduleData(
     val accountSlots: Map<Long, List<Slot>> = accounts.associate { it.id to SlotCodec.decode(it.slots) }
     val hasSlots: Boolean get() = accountSlots.values.any { it.isNotEmpty() }
     val scheduledClipIds: Set<Long> = schedules.map { it.clip.id }.toSet()
+    /** Status jadwal per klip (terbit, sebagian terbit, atau masih dijadwalkan); jadwal terbaik yang dipakai. */
+    val clipStates: Map<Long, ScheduleState> = schedules.groupBy { it.clip.id }.mapValues { (_, list) ->
+        val states = list.map { it.state }
+        when {
+            ScheduleState.Published in states -> ScheduleState.Published
+            ScheduleState.Partial in states -> ScheduleState.Partial
+            else -> ScheduleState.Scheduled
+        }
+    }
 
     fun schedule(id: Long) = schedules.firstOrNull { it.id == id }
 }

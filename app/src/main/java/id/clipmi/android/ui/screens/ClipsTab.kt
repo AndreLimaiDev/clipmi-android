@@ -1,5 +1,6 @@
 package id.clipmi.android.ui.screens
 
+import id.clipmi.core.schedule.ScheduleState
 import id.clipmi.android.ui.components.ActionChip
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.width
@@ -113,6 +114,9 @@ fun ClipsTab(container: AppContainer, project: ProjectEntity, hasTranscript: Boo
     val series by container.database.series().observe(project.id).collectAsState(initial = emptyList())
     var filter by rememberSaveable { mutableStateOf(ReviewFilter.Active) }
     var editing by remember { mutableStateOf<ClipEntity?>(null) }
+    // Status jadwal per klip (label Terbit, sama dengan halaman Jadwal).
+    val schedule by id.clipmi.android.ui.schedule.rememberScheduleData(container)
+    val states = schedule?.clipStates.orEmpty()
     var confirmClear by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
@@ -149,7 +153,7 @@ fun ClipsTab(container: AppContainer, project: ProjectEntity, hasTranscript: Boo
         // Kunci per klip: status geser/terbuka tiap kartu milik klipnya sendiri, tidak berpindah ke klip lain.
         clips.filter(filter::matches).forEach { clip -> key(clip.id) {
             ClipCard(
-                container, clip, series.firstOrNull { it.id == clip.clipSeriesId }?.title,
+                container, clip, series.firstOrNull { it.id == clip.clipSeriesId }?.title, states[clip.id],
                 onPlay = { playRange(clip.startTime, clip.endTime) },
                 onEdit = { editing = clip },
                 onOpen = { onOpenEditor(clip.id) },
@@ -402,6 +406,7 @@ private fun ClipCard(
     container: AppContainer,
     clip: ClipEntity,
     seriesTitle: String?,
+    scheduleState: ScheduleState?,
     onPlay: () -> Unit,
     onEdit: () -> Unit,
     onCopy: () -> Unit,
@@ -476,7 +481,7 @@ private fun ClipCard(
                         (clip.reason ?: clip.caption)?.let {
                             Text(it, style = MaterialTheme.typography.bodySmall, color = c.textBody, maxLines = if (expanded) 6 else 2, overflow = TextOverflow.Ellipsis)
                         }
-                        ClipMeta(clip, seriesTitle, expanded)
+                        ClipMeta(clip, seriesTitle, expanded, scheduleState)
                     }
                 }
                 if (!expanded) return@ClipMiCard
@@ -490,7 +495,7 @@ private fun ClipCard(
 /** Baris kecil di bawah ringkasan: durasi (atau rentang waktu saat dibuka), status pilih, render, manual, seri. */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-private fun ClipMeta(clip: ClipEntity, seriesTitle: String?, expanded: Boolean) {
+private fun ClipMeta(clip: ClipEntity, seriesTitle: String?, expanded: Boolean, scheduleState: ScheduleState? = null) {
     val c = ClipMi.colors
     FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(4.dp), itemVerticalAlignment = Alignment.CenterVertically) {
         Text(
@@ -502,11 +507,15 @@ private fun ClipMeta(clip: ClipEntity, seriesTitle: String?, expanded: Boolean) 
             ReviewStatus.Rejected -> StatusBadge("Dibuang", Tone.Bad)
             else -> Unit
         }
-        when (clip.render) {
-            RenderStatus.Queued -> StatusBadge("Antre render", Tone.Busy)
-            RenderStatus.Rendering -> StatusBadge("Render ${clip.renderProgress ?: 0}%", Tone.Busy)
-            RenderStatus.Done -> StatusBadge(if (clip.changedAfterRender) "Hasil lama" else "Siap unggah", if (clip.changedAfterRender) Tone.Warn else Tone.Good)
-            RenderStatus.Failed -> StatusBadge("Render gagal", Tone.Bad)
+        when {
+            clip.render == RenderStatus.Queued -> StatusBadge("Antre render", Tone.Busy)
+            clip.render == RenderStatus.Rendering -> StatusBadge("Render ${clip.renderProgress ?: 0}%", Tone.Busy)
+            scheduleState == ScheduleState.Published -> StatusBadge("Terbit", Tone.Good)
+            scheduleState == ScheduleState.Partial -> StatusBadge("Sebagian terbit", Tone.Busy)
+            clip.render == RenderStatus.Done && clip.changedAfterRender -> StatusBadge("Hasil lama", Tone.Warn)
+            scheduleState == ScheduleState.Scheduled -> StatusBadge("Dijadwalkan", Tone.Busy)
+            clip.render == RenderStatus.Done -> StatusBadge("Siap unggah", Tone.Good)
+            clip.render == RenderStatus.Failed -> StatusBadge("Render gagal", Tone.Bad)
             else -> Unit
         }
         if (clip.source == ClipSource.MANUAL) StatusBadge("Manual", Tone.Idle)

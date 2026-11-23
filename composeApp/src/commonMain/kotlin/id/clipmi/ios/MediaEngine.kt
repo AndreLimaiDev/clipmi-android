@@ -127,6 +127,12 @@ interface MediaEngine {
     fun fetchStats(url: String, directory: String, listener: ResultListener)
 
     /**
+     * Fungsi Python tertanam [module].[function] dengan argumen teks, di thread latar; [listener] dipanggil di main
+     * thread dengan teks JSON hasilnya (atau `{"ok": false, "error"}` bila Python gagal).
+     */
+    fun pythonCall(module: String, function: String, args: List<String>, listener: ResultListener)
+
+    /**
      * Permintaan HTTP (URLSession) untuk Mode API AI dan YouTube Data API. [headersJson] objek JSON nama → nilai; [body]
      * null untuk GET. [listener] dipanggil di main thread: kode HTTP (0 = tidak tersambung), isi jawaban, header
      * `retry-after` bila ada, dan pesan kesalahan jaringan ("timeout" bila melewati [timeoutSeconds]).
