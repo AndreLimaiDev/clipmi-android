@@ -37,3 +37,6 @@ iosApp/build/
 iosApp/*.xcodeproj/
 iosApp/Payload/
 iosApp/*.ipa
+
+# Python (uji lokal modul iOS)
+__pycache__/
