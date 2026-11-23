@@ -24,6 +24,8 @@ import id.clipmi.core.analysis.PromptSegment
 import id.clipmi.core.analysis.PromptStyles
 import id.clipmi.core.transcript.CorrectionApplier
 import id.clipmi.core.transcript.Segment
+import id.clipmi.core.transcript.Timecode
+import id.clipmi.core.transcript.SegmentEditor
 import id.clipmi.core.transcript.TranscriptParser
 import id.clipmi.core.transcript.TranscriptTidier
 import id.clipmi.core.transcript.Word
@@ -294,6 +296,55 @@ class Repository(val db: AppDatabase, val documents: String) {
             it.copy(videoStatus = VideoStatus.Deleted.value, videoPath = null, previewPath = null, sourceDeletedAt = nowMillis())
         }
         return freed
+    }
+
+    /** Klip manual dari rentang segmen transkrip (padanan Analysis.createManualClip Android), langsung terpilih. */
+    suspend fun createManualClip(projectId: Long, startSequence: Int, endSequence: Int): Long {
+        val segments = db.segments().forProject(projectId).associateBy { it.sequence }
+        val first = minOf(startSequence, endSequence)
+        val last = maxOf(startSequence, endSequence)
+        val start = segments.getValue(first)
+        val end = segments.getValue(last)
+        val project = db.projects().find(projectId)
+        val (startTime, endTime) = ClipImporter.rangeTimes(
+            ImportSegment(start.sequence, start.startTime, start.endTime, decodeWords(start.words).ifEmpty { null }),
+            ImportSegment(end.sequence, end.startTime, end.endTime, decodeWords(end.words).ifEmpty { null }),
+        )
+        return db.clips().insert(
+            ClipEntity(
+                projectId = projectId,
+                title = "Klip manual ${Timecode.format(startTime)}",
+                startTime = startTime,
+                endTime = endTime,
+                reviewStatus = ReviewStatus.Selected.value,
+                source = ClipSource.MANUAL,
+                introId = project?.introId,
+                outroId = project?.outroId,
+            ),
+        )
+    }
+
+    /**
+     * Ubah teks satu segmen (waktu kata yang tidak berubah dipertahankan, SegmentEditor core). Klip yang memuat segmen ini
+     * ditandai berubah. False bila teks kosong.
+     */
+    suspend fun editSegment(segmentId: Long, text: String): Boolean {
+        val entity = db.segments().find(segmentId) ?: return false
+        val segment = Segment(entity.sequence, entity.startTime, entity.endTime, entity.text, decodeWords(entity.words), entity.wordsEstimated)
+        val edited = SegmentEditor.edit(segment, text) ?: return false
+        if (edited.text == entity.text) return true
+        db.segments().update(entity.copy(text = edited.text, words = json.encodeToString(wordsSerializer, edited.words), wordsEstimated = edited.wordsEstimated))
+        db.clips().touchRange(entity.projectId, entity.startTime, entity.endTime)
+        return true
+    }
+
+    /** Menghapus klip permanen beserta video hasil dan sampulnya (jadwal yang memakainya ikut terhapus). */
+    suspend fun deleteClip(clipId: Long) {
+        val clip = db.clips().find(clipId) ?: return
+        clip.outputPath?.takeIf { !it.contains("://") }?.let { removeItem(absolute(it)) }
+        listDirectory(absolute("${projectDir(clip.projectId)}/covers")).filter { it.startsWith("clip-${clip.id}-") }
+            .forEach { removeItem(absolute("${projectDir(clip.projectId)}/covers/$it")) }
+        db.clips().delete(clipId)
     }
 
     // --- Kamus koreksi (padanan Transcripts + ProjectActions.saveCorrection Android) ---------------------------------

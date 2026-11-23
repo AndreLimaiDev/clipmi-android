@@ -1,5 +1,6 @@
 package id.clipmi.android.ui.styles
 
+import id.clipmi.core.render.HighlightBox
 import id.clipmi.android.ui.components.ActionChip
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
@@ -276,10 +277,43 @@ fun CaptionStyleFields(style: CaptionStyleEntity, update: ((CaptionStyleEntity) 
         if (style.highlightActiveWord) {
             ChoiceRow("Cara sorot", CaptionStyle.HIGHLIGHT_STYLES, style.highlightStyle) { v -> update { it.copy(highlightStyle = v) } }
             ColorField("Warna sorotan", style.highlightColor) { v -> update { it.copy(highlightColor = v) } }
+            if (style.highlightStyle == "box") HighlightBoxFields(style, update)
         }
         ToggleField("Redupkan kata berikutnya", null, style.upcomingColor != null) { v -> update { it.copy(upcomingColor = if (v) "#9CA3AF" else null) } }
         style.upcomingColor?.let { color -> ColorField("Warna kata berikutnya", color) { v -> update { it.copy(upcomingColor = v) } } }
         ToggleField("Warnai kata kunci", "Dari AI atau ditandai di editor", style.keywordHighlight) { v -> update { it.copy(keywordHighlight = v) } }
         if (style.keywordHighlight) ColorField("Warna kata kunci", style.keywordColor) { v -> update { it.copy(keywordColor = v) } }
     }
+}
+
+/**
+ * Kotak sorot kata: preset cepat lalu sudut, tinggi, lebar, dan posisi tegak bisa diatur sendiri (stabilo, pita tengah,
+ * garis bawah, pil). Tanpa pengaturan = kotak lama (sama dengan ClipMI PC). Sama di Android dan iOS.
+ */
+@Composable
+private fun HighlightBoxFields(style: CaptionStyleEntity, update: ((CaptionStyleEntity) -> CaptionStyleEntity) -> Unit) {
+    fun CaptionStyleEntity.box(): HighlightBox? =
+        if (highlightRadius == null && highlightHeight == null && highlightWidth == null && highlightY == null) null
+        else HighlightBox(highlightRadius ?: 0, highlightHeight ?: 100, highlightWidth ?: 100, highlightY ?: HighlightBox.defaultY(highlightHeight ?: 100))
+    fun CaptionStyleEntity.with(box: HighlightBox?) =
+        copy(highlightRadius = box?.radius, highlightHeight = box?.height, highlightWidth = box?.width, highlightY = box?.y)
+    fun change(edit: (HighlightBox) -> HighlightBox) = update { it.with(edit(it.box() ?: HighlightBox(0, 100, 100, 50))) }
+
+    val box = style.box()
+    val presets = CaptionStyle.HIGHLIGHT_BOXES
+    val current = presets.entries.firstOrNull { it.value.second == box }?.key ?: "atur"
+    ChoiceRow("Bentuk kotak", presets.mapValues { it.value.first } + ("atur" to "Diatur sendiri"), current) { key ->
+        val preset = presets[key]
+        if (preset != null) update { it.with(preset.second) } else change { it.copy(radius = if (box == null) 12 else it.radius) }
+    }
+    val shape = box ?: HighlightBox(0, 100, 100, 50)
+    IntSlider("Sudut membulat", shape.radius, 0..HighlightBox.RADIUS_MAX, { v -> change { it.copy(radius = v) } })
+    IntSlider("Tinggi kotak", shape.height, HighlightBox.HEIGHT_RANGE, { v -> change { it.copy(height = v) } }, suffix = "%")
+    IntSlider("Lebar kotak", shape.width, HighlightBox.WIDTH_RANGE, { v -> change { it.copy(width = v) } }, suffix = "%")
+    IntSlider("Posisi tegak", shape.y, HighlightBox.Y_RANGE, { v -> change { it.copy(y = v) } }, suffix = "%")
+    Text(
+        "Posisi tegak: 0% = paling atas, 50% = tengah huruf, 100% = paling bawah (stabilo); terasa bila tinggi kotak bukan 100%. " +
+            "Pengaturan ini hanya di ClipMI HP; ClipMI PC memakai kotak biasa.",
+        style = MaterialTheme.typography.bodySmall, color = ClipMi.colors.textMuted,
+    )
 }

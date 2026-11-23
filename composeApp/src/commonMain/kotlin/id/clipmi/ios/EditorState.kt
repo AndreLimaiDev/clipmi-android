@@ -362,6 +362,8 @@ class EditorState(
 
     fun absolute(relative: String) = repo.absolute(relative)
 
+    fun hashtags(clip: ClipEntity): List<String> = repo.hashtags(clip)
+
     /** Intro/outro klip ini dijadikan bawaan project (klip baru di project ini memakainya). */
     suspend fun saveProjectBumpers() {
         val s = snapshot

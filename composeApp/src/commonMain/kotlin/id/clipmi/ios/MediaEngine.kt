@@ -102,6 +102,9 @@ interface MediaEngine {
      */
     fun grayPixels(imagePath: String, output: String): String?
 
+    /** Lembar bagikan iOS untuk teks (misalnya prompt ke aplikasi ChatGPT, Gemini, atau Claude). */
+    fun shareText(text: String)
+
     /** Lembar bagikan iOS untuk file [path] (simpan ke Files, Google Drive, AirDrop, dan seterusnya). */
     fun shareFile(path: String)
 

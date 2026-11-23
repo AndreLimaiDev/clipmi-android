@@ -70,6 +70,11 @@ object ClipMiIcons {
     /** Sampul: kartu potret dengan judul. */
     val Cover by lazy { stroke("M7 2h10a3 3 0 0 1 3 3v14a3 3 0 0 1-3 3H7a3 3 0 0 1-3-3V5a3 3 0 0 1 3-3z", "M8 15h8M8 18h5", "m4 12 4-4 4 4 3-3 5 5") }
     val Scissors by lazy { stroke(circle(6f, 6f, 3f), circle(6f, 18f, 3f), "M8.1 8.1 20 20M20 4 8.1 15.9") }
+    /** Bilah alat teks sampul: stabilo (sorot), penghapus (hapus sorotan), baris baru, huruf kapital. */
+    val Highlighter by lazy { stroke("M9 11l-6 6v3h9l3-3", "M22 12l-4.6 4.6a2 2 0 0 1-2.8 0l-5.2-5.2a2 2 0 0 1 0-2.8L14 4") }
+    val Eraser by lazy { stroke("M7 21l-4.3-4.3c-1-1-1-2.5 0-3.4l9.6-9.6c1-1 2.5-1 3.4 0l5.6 5.6c1 1 1 2.5 0 3.4L13 21", "M22 21H7", "M5 11l9 9") }
+    val NewLine by lazy { stroke("M20 4v7a4 4 0 0 1-4 4H4", "M9 10l-5 5 5 5") }
+    val TextCase by lazy { stroke("M3 16l4-8 4 8", "M4 14h6", "M15 12h4.5a2 2 0 0 1 0 4H15V8h4a2 2 0 0 1 0 4") }
 
     private fun circle(cx: Float, cy: Float, r: Float) = "M${cx - r} ${cy}a$r $r 0 1 0 ${2 * r} 0a$r $r 0 1 0 ${-2 * r} 0"
 

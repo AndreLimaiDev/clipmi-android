@@ -7,6 +7,19 @@ import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
+import androidx.compose.foundation.gestures.detectTapGestures
+import kotlin.math.roundToInt
+import androidx.compose.ui.unit.IntOffset
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.layout.offset
+import androidx.compose.foundation.layout.RowScope
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
+import androidx.compose.foundation.combinedClickable
+import androidx.compose.animation.core.Animatable
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -55,6 +68,7 @@ import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontWeight
@@ -194,12 +208,16 @@ fun App(repo: Repository, engine: MediaEngine) = ClipMiTheme {
     }
 
     CompositionLocalProvider(LocalNotifier provides notifier) {
-        Box(Modifier.fillMaxSize().background(ClipMi.colors.bg)) {
+        val focusManager = LocalFocusManager.current
+        // Ketuk di luar kolom teks (bagian yang tidak menangkap ketukan) menutup keyboard.
+        Box(Modifier.fillMaxSize().background(ClipMi.colors.bg).pointerInput(Unit) { detectTapGestures(onTap = { focusManager.clearFocus() }) }) {
             when (val top = stack.lastOrNull()) {
                 // Editor selalu gelap, sama dengan Android.
                 is Route.Editor -> ClipMiDarkSurface {
                     Box(Modifier.fillMaxSize().background(ClipMi.colors.bg).safeDrawingPadding()) {
-                        ClipEditorScreen(repo, renders, top.clipId, onBack = pop)
+                        ClipEditorScreen(repo, renders, top.clipId, onBack = pop, onEditStyle = { caption, id ->
+                            push(if (caption) Route.CaptionStyleEdit(id) else Route.FrameStyleEdit(id))
+                        })
                     }
                 }
                 is Route.Project -> ProjectScreen(
@@ -247,7 +265,7 @@ fun App(repo: Repository, engine: MediaEngine) = ClipMiTheme {
                 }
                 Route.Performance -> Box(Modifier.fillMaxSize()) { PerformanceScreen(repo, performance, settings, onBack = pop, onOpenSchedule = { push(Route.Ready(it)) }) }
                 null -> when (tab) {
-                    MainTab.Projects -> ProjectListScreen(repo, engine, downloads, localVideos, onOpen = { push(Route.Project(it)) }, onLocalCreated = { id ->
+                    MainTab.Projects -> ProjectListScreen(repo, engine, downloads, renders, localVideos, onOpen = { push(Route.Project(it)) }, onOpenResults = { push(Route.Results) }, onLocalCreated = { id ->
                         push(Route.Project(id))
                         scope.launch { transcriber.startAutomatically(id) }
                     })
@@ -378,8 +396,10 @@ private fun ProjectEntity.isFailed() = video == VideoStatus.Failed || transcript
 
 @Composable
 private fun ProjectListScreen(
-    repo: Repository, engine: MediaEngine, downloads: Downloads, localVideos: LocalVideos, onOpen: (Long) -> Unit, onLocalCreated: (Long) -> Unit,
+    repo: Repository, engine: MediaEngine, downloads: Downloads, renders: Renders, localVideos: LocalVideos, onOpen: (Long) -> Unit,
+    onOpenResults: () -> Unit, onLocalCreated: (Long) -> Unit,
 ) {
+    val rendered by remember { repo.db.clips().observeRendered() }.collectAsState(emptyList())
     val scope = rememberCoroutineScope()
     val notifier = LocalNotifier.current
     var choosingLocal by remember { mutableStateOf(false) }
@@ -407,7 +427,23 @@ private fun ProjectListScreen(
     ) {
         item {
             Column(Modifier.statusBarsPadding().padding(top = 12.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
-                ScreenHeader("Project", Modifier.padding(horizontal = ScreenGutter))
+                // Hasil render sebagai tombol ikon di kanan judul (angka = video siap; biru = sedang dirender), sama dengan Android.
+                ScreenHeader("Project", Modifier.padding(horizontal = ScreenGutter)) {
+                    if (rendered.isNotEmpty()) {
+                        val done = rendered.count { it.render == RenderStatus.Done }
+                        val busy = renders.active != null
+                        Box {
+                            IconCircle(ClipMiIcons.Film, "Hasil render: $done video siap", onOpenResults)
+                            if (done > 0 || busy) {
+                                Box(
+                                    Modifier.align(Alignment.TopEnd).offset(x = 4.dp, y = (-2).dp).heightIn(min = 18.dp).widthIn(min = 18.dp)
+                                        .clip(RoundedCornerShape(50)).background(if (busy) ClipMi.colors.busy else ClipMi.colors.accent).padding(horizontal = 5.dp),
+                                    contentAlignment = Alignment.Center,
+                                ) { Text(if (busy && done == 0) "…" else "$done", style = MaterialTheme.typography.labelSmall, color = Color.White) }
+                            }
+                        }
+                    }
+                }
                 Row(Modifier.padding(horizontal = ScreenGutter), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                     EntryCard(ClipMiIcons.Link, "Link YouTube", "Tempel link", Modifier.weight(1f)) { linking = true }
                     EntryCard(
@@ -552,7 +588,7 @@ private fun StepMark(step: Step) {
         Tone.Idle -> c.textMuted
     }
     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(3.dp)) {
-        if (step.tone == Tone.Good) Icon(ClipMiIcons.Check, null, tint = color, modifier = Modifier.size(14.dp))
+        if (step.tone == Tone.Good) Icon(ClipMiIcons.CircleCheck, null, tint = color, modifier = Modifier.size(15.dp))
         else Box(Modifier.size(6.dp).clip(CircleShape).background(color))
         Text(step.label, style = MaterialTheme.typography.labelMedium, color = if (step.tone == Tone.Good) c.textBody else color, maxLines = 1)
     }
@@ -615,6 +651,11 @@ private fun ProjectScreen(
     val clips by remember(id) { repo.db.clips().observe(id) }.collectAsState(emptyList())
     val segments by remember(id) { repo.db.segments().observe(id) }.collectAsState(emptyList())
     var tab by remember { mutableStateOf(0) }
+    val playback = remember(id) { SourcePlayback() }
+    // Pilih rentang transkrip: tahan segmen awal, ketuk segmen akhir (sama dengan Android).
+    var selectStart by remember(id) { mutableStateOf<Int?>(null) }
+    var selectEnd by remember(id) { mutableStateOf<Int?>(null) }
+    var editingSegment by remember(id) { mutableStateOf<TranscriptSegmentEntity?>(null) }
     val p = project ?: return
     val c = ClipMi.colors
     val source = p.videoPath?.takeIf { p.video == VideoStatus.Ready }?.let { repo.absolute(it) }
@@ -662,17 +703,24 @@ private fun ProjectScreen(
         else confirm = "Transkrip sekarang diganti hasil transkripsi API. Biaya API ditagih penyedia sesuai panjang audio." to start
     }
 
+    val selecting = selectStart != null
+    val selectedClips = clips.filter { it.review == ReviewStatus.Selected }
+    val pendingClips = selectedClips.filter {
+        (it.render == RenderStatus.NotRendered || it.render == RenderStatus.Failed || it.changedAfterRender) && it.id != renders.active && it.id !in renders.queued
+    }
+    val renderBar = tab == 0 && !selecting && selectedClips.isNotEmpty()
+    Box(Modifier.fillMaxSize()) {
     Column(Modifier.fillMaxSize()) {
         // Video tetap di atas; hanya isi di bawahnya yang bergulir.
         Box(Modifier.fillMaxWidth().background(Color.Black).statusBarsPadding().aspectRatio(16f / 9f)) {
-            if (source != null) SourceVideo(source, Modifier.fillMaxSize())
+            if (source != null) SourceVideo(source, Modifier.fillMaxSize(), playback)
             else ProjectThumbnail(repo, engine, p, Modifier.fillMaxSize())
             IconCircle(
                 ClipMiIcons.Back, "Kembali", onBack, modifier = Modifier.align(Alignment.TopStart).padding(12.dp),
                 background = Color(0x990B0F0E), tint = Color.White, border = false,
             )
         }
-        LazyColumn(Modifier.fillMaxWidth().weight(1f), contentPadding = PaddingValues(bottom = 40.dp)) {
+        LazyColumn(Modifier.fillMaxWidth().weight(1f), contentPadding = PaddingValues(bottom = if (renderBar || selecting) 120.dp else 40.dp)) {
             item {
                 Column(Modifier.padding(start = ScreenGutter, end = ScreenGutter, top = 16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
@@ -683,11 +731,18 @@ private fun ProjectScreen(
                         )
                     }
                     StatusCard(p, downloads, transcriptionReady)
-                    SegmentedTabs(listOf("Klip ${clips.count { it.review != ReviewStatus.Rejected }}", "Transkrip ${segments.size}"), tab, { tab = it })
+                    SegmentedTabs(
+                        listOf("Klip", "Transkrip"), tab, { tab = it; selectStart = null; selectEnd = null },
+                        badges = listOf(clips.count { it.review != ReviewStatus.Rejected }, segments.size),
+                    )
                 }
             }
             if (tab == 0) {
-                item { ClipsSection(repo, engine, renders, analysis, p, clips, onEdit, onSchedule) }
+                item {
+                    ClipsSection(repo, engine, renders, analysis, p, clips, onEdit, onSchedule, onPlay = { clip ->
+                        if (source != null) playback.play(clip.startTime, clip.endTime) else notifier.show("Video sumber belum siap diputar.")
+                    })
+                }
             } else {
                 item {
                     ChipRow(Modifier.padding(top = 12.dp)) {
@@ -705,9 +760,132 @@ private fun ProjectScreen(
                         style = MaterialTheme.typography.bodyMedium, color = c.textMuted, modifier = Modifier.padding(ScreenGutter),
                     )
                 }
-                items(segments, key = { it.id }) { SegmentRow(it) }
+                if (segments.isNotEmpty()) item {
+                    Text(
+                        "Ketuk kalimat untuk memutar · tahan untuk memilih rentang, membuat klip, atau mengubah teks",
+                        style = MaterialTheme.typography.bodySmall, color = c.textMuted, modifier = Modifier.padding(start = ScreenGutter, end = ScreenGutter, top = 12.dp),
+                    )
+                }
+                items(segments, key = { it.id }) { segment ->
+                    val start = selectStart
+                    val selected = start != null && segment.sequence in minOf(start, selectEnd ?: start)..maxOf(start, selectEnd ?: start)
+                    val now = playback.position
+                    val playing = now != null && now >= segment.startTime && now < segment.endTime
+                    SegmentRow(
+                        segment, selected, playing,
+                        onClick = {
+                            when {
+                                start == null -> if (source != null) playback.play(segment.startTime) else notifier.show("Video sumber belum siap diputar.")
+                                selectEnd != null || segment.sequence < start -> { selectStart = segment.sequence; selectEnd = null }
+                                else -> selectEnd = segment.sequence
+                            }
+                        },
+                        onLongClick = { selectStart = segment.sequence; selectEnd = null },
+                    )
+                }
             }
         }
+    }
+
+    // Tab Klip: klip terpilih dirender sekaligus (berurutan), sama dengan bilah render Android.
+    AnimatedVisibility(
+        visible = renderBar,
+        enter = fadeIn() + slideInVertically { it },
+        exit = fadeOut() + slideOutVertically { it },
+        modifier = Modifier.align(Alignment.BottomCenter),
+    ) {
+        BottomBar {
+            val busy = selectedClips.count { it.id == renders.active || it.id in renders.queued }
+            Text(
+                "${selectedClips.size} klip terpilih" + if (busy > 0) " · $busy dirender" else "",
+                style = MaterialTheme.typography.titleSmall.copy(fontSize = 13.sp), color = c.text, modifier = Modifier.weight(1f),
+            )
+            if (pendingClips.isNotEmpty()) {
+                PrimaryButton(if (pendingClips.size == selectedClips.size) "Render semua" else "Render ${pendingClips.size} klip", height = 48.dp, onClick = {
+                    renders.startAll(pendingClips.map { it.id })
+                    notifier.show("Render berjalan satu per satu. Biarkan aplikasi tetap terbuka.")
+                })
+            } else {
+                Text(if (busy > 0) "Merender…" else "Semua sudah dirender", style = MaterialTheme.typography.bodySmall, color = c.textMuted, modifier = Modifier.padding(end = 12.dp))
+            }
+        }
+    }
+    // Rentang transkrip terpilih: batal, ubah teks (satu segmen), atau buat klip manual.
+    AnimatedVisibility(
+        visible = selecting,
+        enter = fadeIn() + slideInVertically { it },
+        exit = fadeOut() + slideOutVertically { it },
+        modifier = Modifier.align(Alignment.BottomCenter),
+    ) {
+        val start = selectStart ?: 0
+        val end = selectEnd ?: start
+        val first = segments.firstOrNull { it.sequence == minOf(start, end) }
+        val last = segments.firstOrNull { it.sequence == maxOf(start, end) }
+        BottomBar {
+            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                Text(
+                    if (selectEnd == null) "Ketuk segmen akhir" else "${kotlin.math.abs(end - start) + 1} segmen dipilih",
+                    style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.ExtraBold, fontSize = 13.sp), color = c.text,
+                )
+                if (first != null && last != null) {
+                    Text(Timecode.format(last.endTime - first.startTime), style = MaterialTheme.typography.bodySmall, color = c.textMuted)
+                }
+            }
+            GhostButton("Batal", onClick = { selectStart = null; selectEnd = null })
+            if (end == start && first != null) {
+                ActionChip("", { editingSegment = first; selectStart = null; selectEnd = null }, height = 44.dp, icon = ClipMiIcons.Edit)
+            }
+            PrimaryButton("Buat klip", height = 44.dp, onClick = {
+                scope.launch {
+                    repo.createManualClip(p.id, start, end)
+                    selectStart = null
+                    selectEnd = null
+                    tab = 0
+                    notifier.show("Klip manual dibuat dan langsung terpilih.")
+                }
+            })
+        }
+    }
+    }
+
+    editingSegment?.let { segment ->
+        SegmentEditSheet(segment, onDone = { editingSegment = null }) { text ->
+            scope.launch {
+                if (repo.editSegment(segment.id, text)) {
+                    editingSegment = null
+                    notifier.show("Teks disimpan.")
+                }
+            }
+        }
+    }
+}
+
+/** Bilah melayang di bawah halaman project (render klip terpilih, rentang transkrip). */
+@Composable
+private fun BottomBar(content: @Composable RowScope.() -> Unit) {
+    val c = ClipMi.colors
+    Row(
+        Modifier
+            .navigationBarsPadding()
+            .padding(start = 16.dp, end = 16.dp, bottom = 12.dp)
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(28.dp))
+            .background(c.panel)
+            .border(1.dp, c.lineStrong, RoundedCornerShape(28.dp))
+            .padding(start = 18.dp, end = 8.dp, top = 8.dp, bottom = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
+        content = content,
+    )
+}
+
+/** Ubah teks satu segmen transkrip (subtitle klip di bagian ini ikut berubah). */
+@Composable
+private fun SegmentEditSheet(segment: TranscriptSegmentEntity, onDone: () -> Unit, onSave: (String) -> Unit) {
+    var text by remember(segment.id) { mutableStateOf(segment.text) }
+    ClipMiSheet(onDone, title = "Edit teks", subtitle = "${Timecode.format(segment.startTime)} – ${Timecode.format(segment.endTime)}") {
+        Field(text, { text = it }, minLines = 3, maxLines = 8)
+        PrimaryButton("Simpan", { onSave(text) }, enabled = text.isNotBlank() && text.trim() != segment.text, modifier = Modifier.fillMaxWidth())
     }
 }
 
@@ -801,7 +979,10 @@ private enum class ReviewFilter(val label: String) {
 }
 
 @Composable
-private fun ClipsSection(repo: Repository, engine: MediaEngine, renders: Renders, analysis: IosAnalysis, project: ProjectEntity, clips: List<ClipEntity>, onEdit: (Long) -> Unit, onSchedule: (Long) -> Unit) {
+private fun ClipsSection(
+    repo: Repository, engine: MediaEngine, renders: Renders, analysis: IosAnalysis, project: ProjectEntity, clips: List<ClipEntity>,
+    onEdit: (Long) -> Unit, onSchedule: (Long) -> Unit, onPlay: (ClipEntity) -> Unit,
+) {
     val c = ClipMi.colors
     var filter by remember { mutableStateOf(ReviewFilter.Active) }
     Column(Modifier.padding(start = ScreenGutter, end = ScreenGutter, top = 12.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -813,7 +994,7 @@ private fun ClipsSection(repo: Repository, engine: MediaEngine, renders: Renders
                 }
             }
         } else {
-            AnalysisCard(repo, analysis, project, compact = clips.isNotEmpty())
+            AnalysisCard(repo, engine, analysis, project, compact = clips.isNotEmpty())
         }
         if (clips.isNotEmpty()) {
             val counts = ReviewFilter.entries.associateWith { f -> clips.count(f::matches) }
@@ -826,13 +1007,20 @@ private fun ClipsSection(repo: Repository, engine: MediaEngine, renders: Renders
                 }
             }
         }
-        clips.filter(filter::matches).forEach { clip -> ClipCard(repo, engine, renders, clip, onEdit, onSchedule) }
+        if (clips.isNotEmpty()) {
+            Text(
+                if (filter == ReviewFilter.Rejected) "Geser ke kiri untuk menghapus permanen · ke kanan untuk memulihkan"
+                else "Geser ke kanan untuk memilih · ke kiri untuk membuang",
+                style = MaterialTheme.typography.bodySmall, color = c.textMuted,
+            )
+        }
+        clips.filter(filter::matches).forEach { clip -> ClipCard(repo, engine, renders, clip, onEdit, onSchedule, onPlay) }
     }
 }
 
 /** Kartu "Pilih momen dengan AI": Mode API (otomatis) atau lewat chat AI (salin prompt, tempel balasan), sama dengan Android. */
 @Composable
-private fun AnalysisCard(repo: Repository, analysis: IosAnalysis, project: ProjectEntity, compact: Boolean) {
+private fun AnalysisCard(repo: Repository, engine: MediaEngine, analysis: IosAnalysis, project: ProjectEntity, compact: Boolean) {
     val scope = rememberCoroutineScope()
     val c = ClipMi.colors
     var manual by remember { mutableStateOf(false) }
@@ -871,7 +1059,7 @@ private fun AnalysisCard(repo: Repository, analysis: IosAnalysis, project: Proje
                 onDismiss = { confirmAgain = false },
             )
         }
-        if (manual) ManualAnalysisSheet(repo, project, prompts, onDismiss = { manual = false })
+        if (manual) ManualAnalysisSheet(repo, engine, project, prompts, onDismiss = { manual = false })
         return
     }
 
@@ -918,7 +1106,7 @@ private fun AnalysisCard(repo: Repository, analysis: IosAnalysis, project: Proje
             }
         }
     }
-    if (manual) ManualAnalysisSheet(repo, project, prompts, onDismiss = { manual = false })
+    if (manual) ManualAnalysisSheet(repo, engine, project, prompts, onDismiss = { manual = false })
 }
 
 /** Angka dengan [decimals] desimal dan titik desimal (pengganti String.format di Kotlin/Native). */
@@ -931,7 +1119,7 @@ private fun fixed(value: Double, decimals: Int): String {
 
 /** Salin prompt ke aplikasi chat AI, lalu tempel balasan JSON-nya (sama dengan Android). */
 @Composable
-private fun ManualAnalysisSheet(repo: Repository, project: ProjectEntity, prompts: List<String>, onDismiss: () -> Unit) {
+private fun ManualAnalysisSheet(repo: Repository, engine: MediaEngine, project: ProjectEntity, prompts: List<String>, onDismiss: () -> Unit) {
     val scope = rememberCoroutineScope()
     val clipboard = LocalClipboardManager.current
     val notifier = LocalNotifier.current
@@ -941,7 +1129,7 @@ private fun ManualAnalysisSheet(repo: Repository, project: ProjectEntity, prompt
 
     ClipMiSheet(
         onDismiss, title = "Lewat chat AI",
-        subtitle = "Salin prompt ke Claude, ChatGPT, atau Gemini, lalu tempel balasan JSON-nya di sini." +
+        subtitle = "Salin atau bagikan prompt ke Claude, ChatGPT, atau Gemini, lalu tempel balasan JSON-nya di sini." +
             if (prompts.size > 1) " Transkrip panjang dibagi ${prompts.size} bagian; kirim satu per satu." else "",
     ) {
         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -960,6 +1148,8 @@ private fun ManualAnalysisSheet(repo: Repository, project: ProjectEntity, prompt
                         clipboard.setText(AnnotatedString(prompt))
                         notifier.show("Prompt disalin. Tempel ke aplikasi chat AI.")
                     }, size = 40.dp, background = c.panel)
+                    // Lembar bagikan iOS: kirim prompt langsung ke aplikasi ChatGPT, Gemini, Claude, dan lainnya.
+                    IconCircle(ClipMiIcons.Share, "Bagikan prompt ke aplikasi AI", { engine.shareText(prompt) }, size = 40.dp, background = c.panel)
                 }
             }
         }
@@ -988,74 +1178,185 @@ private fun ManualAnalysisSheet(repo: Repository, project: ProjectEntity, prompt
     }
 }
 
-/** Kartu klip: ringkas (skor, judul, ringkasan, status); ketuk untuk aksi (sama dengan kartu Android, tanpa geser). */
+/**
+ * Kartu klip: skor, judul, ringkasan, status, dan menu ⋯ berisi semua aksi. Ketuk untuk menampilkan hook dan alasan
+ * lengkap; geser ke kanan = pilih (di tab Dibuang: pulihkan), geser ke kiri = buang (di tab Dibuang: hapus permanen).
+ */
 @Composable
-private fun ClipCard(repo: Repository, engine: MediaEngine, renders: Renders, clip: ClipEntity, onEdit: (Long) -> Unit, onSchedule: (Long) -> Unit) {
+private fun ClipCard(
+    repo: Repository, engine: MediaEngine, renders: Renders, clip: ClipEntity, onEdit: (Long) -> Unit, onSchedule: (Long) -> Unit, onPlay: (ClipEntity) -> Unit,
+) {
     val c = ClipMi.colors
     val scope = rememberCoroutineScope()
     val clipboard = LocalClipboardManager.current
     val notifier = LocalNotifier.current
     var expanded by remember(clip.id) { mutableStateOf(false) }
-    ClipMiCard(onClick = { expanded = !expanded }, spacing = 10.dp) {
-        Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-            ScoreBadge(clip.score)
-            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                Text(ClipText.displayTitle(clip.title, clip.partNumber), style = MaterialTheme.typography.titleSmall, color = c.text, maxLines = if (expanded) 4 else 2, overflow = TextOverflow.Ellipsis)
-                (clip.reason ?: clip.caption)?.let {
-                    Text(it, style = MaterialTheme.typography.bodySmall, color = c.textBody, maxLines = if (expanded) 6 else 2, overflow = TextOverflow.Ellipsis)
-                }
-                ClipMeta(clip, renders, expanded)
-            }
+    var menu by remember(clip.id) { mutableStateOf(false) }
+    var confirmDelete by remember(clip.id) { mutableStateOf(false) }
+    val rendering = renders.active == clip.id
+    val rejected = clip.review == ReviewStatus.Rejected
+
+    fun setReview(status: ReviewStatus) = scope.launch { repo.db.clips().setReview(clip.id, status.value) }
+    fun discard() {
+        setReview(ReviewStatus.Rejected)
+        renders.unqueue(clip.id)
+        notifier.show("Klip dibuang", action = "Urungkan") { setReview(clip.review) }
+    }
+    fun share() {
+        val output = clip.outputPath?.let { repo.absolute(it) }
+        if (output != null && fileSize(output) > 0) {
+            clipboard.setText(AnnotatedString(ClipText.shareText(clip.title, clip.partNumber, clip.caption, repo.hashtags(clip))))
+            notifier.show("Caption & hashtag disalin. Tempel di aplikasi tujuan.")
+            engine.shareFile(output)
+        } else {
+            notifier.show("File hasil tidak ditemukan. Render ulang klip ini.")
         }
-        if (!expanded) return@ClipMiCard
-        clip.hook?.takeIf { it.isNotBlank() }?.let { HookLine(it) }
-        val rendering = renders.active == clip.id
-        if (rendering) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text("Merender ${(renders.fraction * 100).toInt()}% · biarkan aplikasi tetap terbuka", style = MaterialTheme.typography.bodySmall, color = c.textBody, modifier = Modifier.weight(1f))
-                GhostButton("Batalkan", onClick = { renders.cancel() })
-            }
-            ProgressBar(renders.fraction.toFloat(), color = c.busy)
-        } else if (clip.render == RenderStatus.Failed) {
-            clip.renderError?.let { Text("Render gagal: $it", style = MaterialTheme.typography.bodySmall, color = c.bad, maxLines = 3, overflow = TextOverflow.Ellipsis) }
-        }
-        if (clip.render == RenderStatus.Done && !rendering) {
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                ActionChip("Jadwalkan", { onSchedule(clip.id) }, Modifier.weight(1f), height = 40.dp, icon = ClipMiIcons.Calendar, primary = true)
-                ActionChip("Bagikan", {
-                    val output = clip.outputPath?.let { repo.absolute(it) }
-                    if (output != null && fileSize(output) > 0) {
-                        clipboard.setText(AnnotatedString(ClipText.shareText(clip.title, clip.partNumber, clip.caption, repo.hashtags(clip))))
-                        notifier.show("Caption & hashtag disalin. Tempel di aplikasi tujuan.")
-                        engine.shareFile(output)
-                    } else {
-                        notifier.show("File hasil tidak ditemukan. Render ulang klip ini.")
+    }
+
+    SwipeCard(
+        right = if (rejected) SwipeAction("Pulihkan", ClipMiIcons.Refresh, c.accent) { setReview(ReviewStatus.Candidate) }
+        else if (clip.review != ReviewStatus.Selected) SwipeAction("Pilih", ClipMiIcons.CircleCheck, c.accent) { setReview(ReviewStatus.Selected) }
+        else null,
+        left = if (rejected) SwipeAction("Hapus", ClipMiIcons.Trash, c.bad) { confirmDelete = true }
+        else SwipeAction("Buang", ClipMiIcons.Close, c.bad) { discard() },
+    ) {
+        ClipMiCard(onClick = { expanded = !expanded }, spacing = 10.dp) {
+            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                ScoreBadge(clip.score)
+                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Text(ClipText.displayTitle(clip.title, clip.partNumber), style = MaterialTheme.typography.titleSmall, color = c.text, maxLines = if (expanded) 4 else 2, overflow = TextOverflow.Ellipsis)
+                    (clip.reason ?: clip.caption)?.let {
+                        Text(it, style = MaterialTheme.typography.bodySmall, color = c.textBody, maxLines = if (expanded) Int.MAX_VALUE else 2, overflow = TextOverflow.Ellipsis)
                     }
-                }, Modifier.weight(1f), height = 40.dp, icon = ClipMiIcons.Share)
-            }
-        }
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-            ActionChip("Editor", { onEdit(clip.id) }, height = 40.dp, icon = ClipMiIcons.Scissors)
-            if (!rendering) {
-                val label = when (clip.render) { RenderStatus.Done -> "Render ulang"; RenderStatus.Failed -> "Coba lagi"; else -> "Render" }
-                ActionChip(label, { renders.start(clip.id) }, Modifier.weight(1f), height = 40.dp, icon = ClipMiIcons.Film, primary = clip.render == RenderStatus.NotRendered, enabled = renders.active == null)
-            } else {
-                Spacer(Modifier.weight(1f))
-            }
-        }
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            when (clip.review) {
-                ReviewStatus.Candidate -> {
-                    ActionChip("Pilih", { scope.launch { repo.db.clips().setReview(clip.id, ReviewStatus.Selected.value) } }, Modifier.weight(1f), height = 40.dp, icon = ClipMiIcons.Check)
-                    ActionChip("Buang", {
-                        scope.launch { repo.db.clips().setReview(clip.id, ReviewStatus.Rejected.value) }
-                        notifier.show("Klip dibuang", action = "Urungkan") { scope.launch { repo.db.clips().setReview(clip.id, ReviewStatus.Candidate.value) } }
-                    }, Modifier.weight(1f), height = 40.dp, icon = ClipMiIcons.Close)
+                    ClipMeta(clip, renders, expanded)
                 }
-                ReviewStatus.Selected -> ActionChip("Batal pilih", { scope.launch { repo.db.clips().setReview(clip.id, ReviewStatus.Candidate.value) } }, Modifier.weight(1f), height = 40.dp, icon = ClipMiIcons.Close)
-                ReviewStatus.Rejected -> ActionChip("Pulihkan", { scope.launch { repo.db.clips().setReview(clip.id, ReviewStatus.Candidate.value) } }, Modifier.weight(1f), height = 40.dp, icon = ClipMiIcons.Refresh)
+                // Semua aksi di menu ⋯ (sudut kanan atas kartu).
+                Box {
+                    IconCircle(ClipMiIcons.More, "Aksi klip", { menu = true }, size = 36.dp, background = Color.Transparent, border = false, tint = c.textMuted)
+                    DropdownMenu(menu, onDismissRequest = { menu = false }) {
+                        @Composable
+                        fun item(label: String, icon: ImageVector, color: Color = c.text, enabled: Boolean = true, action: () -> Unit) = DropdownMenuItem(
+                            text = { Text(label, color = if (enabled) color else c.textMuted) },
+                            leadingIcon = { Icon(icon, null, Modifier.size(18.dp), tint = if (enabled) color else c.textMuted) },
+                            enabled = enabled,
+                            onClick = { menu = false; action() },
+                        )
+                        item("Putar", ClipMiIcons.Play) { onPlay(clip) }
+                        item("Buka editor", ClipMiIcons.Scissors) { onEdit(clip.id) }
+                        when {
+                            rendering -> item("Batalkan render", ClipMiIcons.Close) { renders.cancel() }
+                            clip.id in renders.queued -> item("Keluarkan dari antrean", ClipMiIcons.Close) { renders.unqueue(clip.id) }
+                            else -> item(
+                                when (clip.render) { RenderStatus.Done -> "Render ulang"; RenderStatus.Failed -> "Render lagi"; else -> "Render" },
+                                ClipMiIcons.Film,
+                            ) {
+                                renders.start(clip.id)
+                                if (renders.active != clip.id) notifier.show("Masuk antrean render.")
+                            }
+                        }
+                        if (clip.render == RenderStatus.Done && !rendering) {
+                            item("Jadwalkan", ClipMiIcons.Calendar) { onSchedule(clip.id) }
+                            item("Bagikan", ClipMiIcons.Share) { share() }
+                        }
+                        when (clip.review) {
+                            ReviewStatus.Candidate -> {
+                                item("Pilih", ClipMiIcons.CircleCheck) { setReview(ReviewStatus.Selected) }
+                                item("Buang", ClipMiIcons.Close, c.bad) { discard() }
+                            }
+                            ReviewStatus.Selected -> {
+                                item("Batal pilih", ClipMiIcons.Close) { setReview(ReviewStatus.Candidate) }
+                                item("Buang", ClipMiIcons.Close, c.bad) { discard() }
+                            }
+                            ReviewStatus.Rejected -> {
+                                item("Pulihkan", ClipMiIcons.Refresh) { setReview(ReviewStatus.Candidate) }
+                                item("Hapus permanen", ClipMiIcons.Trash, c.bad) { confirmDelete = true }
+                            }
+                        }
+                    }
+                }
+            }
+            // Progres dan galat render selalu terlihat (bukan aksi).
+            if (rendering) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text("Merender ${(renders.fraction * 100).toInt()}% · biarkan aplikasi tetap terbuka", style = MaterialTheme.typography.bodySmall, color = c.textBody, modifier = Modifier.weight(1f))
+                    GhostButton("Batalkan", onClick = { renders.cancel() })
+                }
+                ProgressBar(renders.fraction.toFloat(), color = c.busy)
+            } else if (clip.render == RenderStatus.Failed) {
+                clip.renderError?.let { Text("Render gagal: $it", style = MaterialTheme.typography.bodySmall, color = c.bad, maxLines = 3, overflow = TextOverflow.Ellipsis) }
+            }
+            // Diketuk: hook dan alasan lengkap saja.
+            if (expanded) clip.hook?.takeIf { it.isNotBlank() }?.let { HookLine(it) }
+        }
+    }
+
+    if (confirmDelete) {
+        ConfirmDialog(
+            "Hapus klip permanen?", "\"${ClipText.displayTitle(clip.title, clip.partNumber)}\" dihapus beserta video hasil dan jadwalnya. Tidak bisa diurungkan.", "Hapus",
+            danger = true,
+            onConfirm = {
+                confirmDelete = false
+                scope.launch { repo.deleteClip(clip.id); notifier.show("Klip dihapus permanen.") }
+            },
+            onDismiss = { confirmDelete = false },
+        )
+    }
+}
+
+/** Aksi geser kartu: label, ikon, warna, dan yang dijalankan saat geseran melewati batas. */
+private class SwipeAction(val label: String, val icon: ImageVector, val color: Color, val run: () -> Unit)
+
+/**
+ * Kartu yang bisa digeser: ke kanan menjalankan [right], ke kiri [left]; latar berwarna dengan ikon dan label tampil di
+ * bawahnya, lalu kartu kembali ke tempat. Geseran vertikal tetap menggulir daftar.
+ */
+@Composable
+private fun SwipeCard(right: SwipeAction?, left: SwipeAction?, content: @Composable () -> Unit) {
+    val scope = rememberCoroutineScope()
+    val offset = remember { Animatable(0f) }
+    val density = LocalDensity.current
+    val threshold = with(density) { 96.dp.toPx() }
+    val shape = RoundedCornerShape(24.dp)
+    Box(Modifier.fillMaxWidth()) {
+        val x = offset.value
+        val action = if (x > 0) right else if (x < 0) left else null
+        if (action != null) {
+            val reached = kotlin.math.abs(x) >= threshold
+            Row(
+                Modifier.matchParentSize().clip(shape).background(action.color.copy(alpha = if (reached) 0.22f else 0.12f)).padding(horizontal = 24.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = if (x > 0) Arrangement.Start else Arrangement.End,
+            ) {
+                Icon(action.icon, null, tint = action.color, modifier = Modifier.size(22.dp))
+                Spacer(Modifier.width(8.dp))
+                Text(action.label, style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold), color = action.color)
             }
         }
+        Box(
+            Modifier
+                .offset { IntOffset(offset.value.roundToInt(), 0) }
+                .pointerInput(right, left) {
+                    detectHorizontalDragGestures(
+                        onDragEnd = {
+                            val value = offset.value
+                            val chosen = if (value >= threshold) right else if (value <= -threshold) left else null
+                            scope.launch { offset.animateTo(0f) }
+                            chosen?.run?.invoke()
+                        },
+                        onDragCancel = { scope.launch { offset.animateTo(0f) } },
+                    ) { change, amount ->
+                        val next = offset.value + amount
+                        // Arah tanpa aksi tidak bisa digeser jauh.
+                        val limited = when {
+                            next > 0 && right == null -> next.coerceAtMost(24f)
+                            next < 0 && left == null -> next.coerceAtLeast(-24f)
+                            else -> next
+                        }
+                        change.consume()
+                        scope.launch { offset.snapTo(limited) }
+                    }
+                },
+        ) { content() }
     }
 }
 
@@ -1075,6 +1376,7 @@ private fun ClipMeta(clip: ClipEntity, renders: Renders, expanded: Boolean) {
         }
         when {
             renders.active == clip.id -> StatusBadge("Render ${(renders.fraction * 100).toInt()}%", Tone.Busy)
+            clip.id in renders.queued -> StatusBadge("Antre render", Tone.Idle)
             clip.render == RenderStatus.Done -> StatusBadge(if (clip.changedAfterRender) "Hasil lama" else "Siap unggah", if (clip.changedAfterRender) Tone.Warn else Tone.Good)
             clip.render == RenderStatus.Failed -> StatusBadge("Render gagal", Tone.Bad)
             else -> Unit
@@ -1115,10 +1417,28 @@ private fun ScoreBadge(score: Int?) {
     }
 }
 
+/** Satu kalimat transkrip: ketuk untuk memutar, tahan untuk memilih rentang (ditandai saat dipilih atau sedang diputar). */
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
-private fun SegmentRow(segment: TranscriptSegmentEntity) {
+private fun SegmentRow(segment: TranscriptSegmentEntity, selected: Boolean, playing: Boolean, onClick: () -> Unit, onLongClick: () -> Unit) {
     val c = ClipMi.colors
-    Row(Modifier.fillMaxWidth().padding(horizontal = ScreenGutter, vertical = 8.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+    val shape = RoundedCornerShape(16.dp)
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 12.dp, vertical = 2.dp)
+            .clip(shape)
+            .then(
+                when {
+                    selected -> Modifier.background(c.accent.copy(alpha = 0.12f)).border(1.dp, c.accent.copy(alpha = 0.35f), shape)
+                    playing -> Modifier.background(c.panel)
+                    else -> Modifier
+                },
+            )
+            .combinedClickable(onClick = onClick, onLongClick = onLongClick)
+            .padding(horizontal = 8.dp, vertical = 8.dp),
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
         Text(Timecode.format(segment.startTime), style = MaterialTheme.typography.labelMedium, color = c.accent, modifier = Modifier.width(56.dp).padding(top = 2.dp))
         Text(segment.text, style = MaterialTheme.typography.bodyMedium, color = c.text, modifier = Modifier.weight(1f))
     }

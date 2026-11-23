@@ -17,7 +17,7 @@ import androidx.room.RoomDatabaseConstructor
         BumperEntity::class, SocialAccountEntity::class, ScheduleEntity::class, ScheduleAccountEntity::class, PostStatEntity::class,
         PerformanceReportEntity::class,
     ],
-    version = 10,
+    version = 12,
     exportSchema = true,
 )
 @ConstructedBy(AppDatabaseConstructor::class)

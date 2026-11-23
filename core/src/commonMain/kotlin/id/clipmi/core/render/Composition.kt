@@ -109,6 +109,8 @@ data class Composition(
             val height = frame.canvasHeight()
             val rect = frame.videoRect(source)
             val template = frame.usesTemplate()
+            // Area untuk judul, hook, dan subtitle: area transparan template (walau video memenuhi layar), selain itu area video.
+            val area = if (template) frame.templateAreaRect() else rect
             val bar = frame.titleBarHeight()
             val margin = frame.scaled(FrameStyle.EDGE_MARGIN.toDouble())
             val fraction = { value: Int?, default: Int -> Php.round(clamp(value ?: default, 0, 100) / 100.0, 2) }
@@ -165,14 +167,14 @@ data class Composition(
                 ),
                 titleBar = if (frame.titleBar != true) null else TitleBar(
                     // Template: judul di area atas desainnya, tanpa bilah warna.
-                    height = if (template) rect!!.y else bar,
+                    height = if (template) area!!.y else bar,
                     background = if (template) null else frame.titleBarColor,
                     color = frame.titleTextColor,
                 ),
-                subtitleY = frame.subtitleCenterY(rect?.y, rect?.height),
+                subtitleY = frame.subtitleCenterY(area?.y, area?.height),
                 // Hook: di bagian atas area video template, di bawah bilah judul, atau sekitar 15% tinggi layar.
                 hookTop = when {
-                    template -> rect!!.y + frame.scaled(60.0)
+                    template -> area!!.y + frame.scaled(60.0)
                     frame.titleBar == true -> bar + frame.scaled(80.0)
                     else -> Php.roundInt(height * 300.0 / AssWriter.HEIGHT)
                 },

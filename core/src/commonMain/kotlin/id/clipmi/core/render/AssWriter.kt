@@ -193,15 +193,24 @@ class AssWriter(private val measurer: TextMeasurer = TextMeasurer { _, _, _ -> 0
         for (line in lines) {
             val words = line.words.orEmpty()
             val perWord = (style.highlightActiveWord == true || style.animation == "pop" || style.animation == "reveal") && words.isNotEmpty()
+            val drawBox = if (perWord && style.drawsHighlightBox()) {
+                highlightBoxes(words, style, family, fontSize, width, height, centerY, alignment, marginV, px)
+            } else {
+                null
+            }
             val wordEvents = if (perWord) {
-                wordEvents(line, words, style, glow, Keywords.mark(words.map { it.text }, keys))
+                wordEvents(line, words, style, glow, Keywords.mark(words.map { it.text }, keys), drawBox)
             } else {
                 listOf(WordEvent(line.start, line.end, keywordText(line.text, style, keys, glow), null))
             }
 
             if (style.lineBox == true) {
                 // Satu kotak untuk seluruh baris, dengan teks yang sama tata letaknya dengan event kata.
-                val boxLine = if (perWord) words.joinToString(wordSeparator(style)) { text(it.text, style) } else text(line.text, style)
+                val boxLine = if (perWord) {
+                    words.withIndex().joinToString("") { (j, w) -> (if (j > 0) separatorBefore(j, style, drawBox) else "") + text(w.text, style) }
+                } else {
+                    text(line.text, style)
+                }
                 val start = maxOf(0.0, line.start)
                 val end = minOf(duration, line.end)
                 if (end > start) {
@@ -214,7 +223,8 @@ class AssWriter(private val measurer: TextMeasurer = TextMeasurer { _, _, _ -> 0
                 val end = minOf(duration, event.end)
                 val intro = if (i == 0) fade else ""
                 if (end > start) {
-                    if (event.box != null) events += dialogue(lineLayer, start, end, "Box", place + intro + event.box)
+                    // Kotak yang digambar punya \pos sendiri, jadi tanpa posisi baris.
+                    if (event.box != null) events += dialogue(lineLayer, start, end, "Box", (if (event.drawn) "" else place) + intro + event.box)
                     // Dengan kotak sorot, teks harus di lapisan atas kotaknya.
                     events += dialogue(lineLayer + (if (event.box != null) 1 else 0), start, end, "Sub", place + intro + glow + event.text)
                 }
@@ -224,13 +234,77 @@ class AssWriter(private val measurer: TextMeasurer = TextMeasurer { _, _, _ -> 0
         return header + "\n" + events.joinToString("\n") + "\n"
     }
 
-    private data class WordEvent(val start: Double, val end: Double, val text: String, val box: String?)
+    private data class WordEvent(val start: Double, val end: Double, val text: String, val box: String?, val drawn: Boolean = false)
+
+    /** Kotak sorot yang digambar untuk tiap kata, dan kata yang memulai baris baru (baris dipecah sendiri dengan \N). */
+    private class DrawnBoxes(val boxes: List<String>, val breaks: Set<Int>)
+
+    /**
+     * Kotak sorot tiap kata sebagai gambar ASS (\p1) bersudut membulat dengan tinggi yang diatur. Baris yang terlalu
+     * lebar dipecah sendiri seperti libass (baris seimbang, [TextWrap]) dan pemecahannya ditulis sebagai \N, jadi letak
+     * kotak tepat di baris mana pun. Null bila ukuran huruf tidak terbaca; kotak lama (BorderStyle 3) dipakai gantinya.
+     */
+    private fun highlightBoxes(
+        words: List<Word>, style: CaptionStyle, family: String, fontSize: Int, width: Int, height: Int, centerY: Int?, alignment: Int, marginV: Int,
+        px: (Double) -> Int,
+    ): DrawnBoxes? {
+        val shown = words.map { if (style.uppercase == true) Php.mbStrtoupper(it.text) else it.text }
+        val wordWidths = shown.map { measurer.width(family, fontSize, it) }
+        if (wordWidths.any { it <= 0.0 }) return null
+        // Pemisah mode kotak: spasi keras + spasi.
+        val gap = measurer.width(family, fontSize, "a  a") - measurer.width(family, fontSize, "aa")
+        val maxWidth = (width - 2 * px(90.0)).toDouble()
+
+        // Baris seimbang (padanan WrapStyle 0); kata tanpa spasi di dalamnya, jadi jumlah kata per baris pasti cocok.
+        val rows = TextWrap.wrap(measurer, family, fontSize, shown.joinToString(" "), maxWidth)
+            .map { row -> pregSplitSpaces(Php.trim(row)).count { it.isNotEmpty() } }
+        if (rows.sum() != words.size || rows.any { it == 0 }) return null
+        val breaks = mutableSetOf<Int>()
+        var first = 0
+        val rowWords = rows.map { count -> (first until first + count).also { breaks += first; first += count } }
+        breaks -= 0
+
+        val pad = maxOf(4, Php.roundInt(fontSize * 0.1))
+        // libass: tinggi baris = ukuran huruf. Blok baris rata bawah (margin) atau di tengah.
+        val blockCenter = when {
+            centerY != null -> centerY.toDouble()
+            alignment == 5 -> height / 2.0
+            else -> height - marginV - rows.size * fontSize / 2.0
+        }
+        val shape = style.highlightBox() ?: return null
+        val fullHeight = fontSize + 2 * pad
+        val boxHeight = maxOf(4, Php.roundInt(fullHeight * clamp(shape.height, HighlightBox.HEIGHT_RANGE.first, HighlightBox.HEIGHT_RANGE.last) / 100.0))
+        val widthScale = clamp(shape.width, HighlightBox.WIDTH_RANGE.first, HighlightBox.WIDTH_RANGE.last) / 100.0
+        val y = clamp(shape.y, HighlightBox.Y_RANGE.first, HighlightBox.Y_RANGE.last)
+        val boxes = arrayOfNulls<String>(words.size)
+        rowWords.forEachIndexed { r, indices ->
+            val rowCenter = blockCenter - rows.size * fontSize / 2.0 + (r + 0.5) * fontSize
+            // Posisi tegak: 0 = tepi atas kotak rata dengan atas huruf, 100 = tepi bawah rata dengan bawah huruf.
+            val rowTop = rowCenter - fullHeight / 2.0
+            val top = Php.roundInt(rowTop + (fullHeight - boxHeight) * y / 100.0)
+            val rowWidth = indices.sumOf { wordWidths[it] } + gap * (indices.count() - 1)
+            var x = width / 2.0 - rowWidth / 2
+            for (i in indices) {
+                // Lebar diskalakan dari tengah kata.
+                val boxWidth = maxOf(4, Php.roundInt((wordWidths[i] + 2 * pad) * widthScale))
+                val left = Php.roundInt(x + wordWidths[i] / 2 - boxWidth / 2.0)
+                val radius = minOf(px(clamp(shape.radius, 0, HighlightBox.RADIUS_MAX).toDouble()), boxHeight / 2, boxWidth / 2)
+                x += wordWidths[i] + gap
+                // Gaya Box berwarna isi transparan (kotaknya dari garis tepi), jadi gambar ini menyetel alpha isinya sendiri.
+                boxes[i] = "{\\an7\\pos($left,$top)\\bord0\\shad0\\1c${color(style.highlightColor)}\\1a&H00&\\p1}" + roundedRect(boxWidth, boxHeight, radius) + "{\\p0}"
+            }
+        }
+        return DrawnBoxes(boxes.map { it!! }, breaks)
+    }
+
+    /** Pemisah sebelum kata [j]: baris baru di titik pecah kotak yang digambar, selain itu pemisah biasa. */
+    private fun separatorBefore(j: Int, style: CaptionStyle, drawn: DrawnBoxes?) = if (drawn != null && j in drawn.breaks) "\\N" else wordSeparator(style)
 
     /**
      * Satu event per kata, berganti saat kata berikutnya mulai: untuk sorotan kata aktif ("color" atau "box") dan
      * animasi per kata ("pop" membesar, "reveal" menyembunyikan kata yang belum diucapkan).
      */
-    private fun wordEvents(line: SubtitleLine, words: List<Word>, style: CaptionStyle, restore: String, marked: Set<Int>): List<WordEvent> {
+    private fun wordEvents(line: SubtitleLine, words: List<Word>, style: CaptionStyle, restore: String, marked: Set<Int>, drawn: DrawnBoxes? = null): List<WordEvent> {
         val highlight = style.highlightActiveWord == true
         val box = highlight && style.highlightStyle == "box"
         // Di atas kotak, kata aktif tanpa garis tepi supaya hurufnya bersih.
@@ -250,9 +324,10 @@ class AssWriter(private val measurer: TextMeasurer = TextMeasurer { _, _, _ -> 0
         val keyword = keywordTag(style)
 
         return words.mapIndexed { i, word ->
-            val text = words.withIndex().joinToString(separator) { (j, other) ->
+            // Tanpa kotak yang digambar, pemisahnya selalu [separator] (keluaran sama dengan desktop).
+            val text = words.withIndex().joinToString("") { (j, other) ->
                 val key = if (j in marked) keyword else ""
-                when {
+                (if (j > 0) separatorBefore(j, style, drawn) else "") + when {
                     // Warna sorotan ditulis setelah warna kata kunci, jadi sorotan menang saat kata diucapkan.
                     j == i && (active.isNotEmpty() || pop.isNotEmpty()) -> pop + key + active + text(other.text, style) + reset
                     j > i && upcoming != null -> upcoming + key + text(other.text, style) + reset
@@ -261,7 +336,9 @@ class AssWriter(private val measurer: TextMeasurer = TextMeasurer { _, _, _ -> 0
                 }
             }
             // Kotak ikut membesar bersama kata aktif (pop), supaya tetap tepat di belakangnya.
-            val boxText = if (box) {
+            val boxText = if (box && drawn != null) {
+                drawn.boxes[i]
+            } else if (box) {
                 "{\\3a&HFF&}" + words.withIndex().joinToString(separator) { (j, other) ->
                     if (j == i) "{\\3a&H00&}" + pop + text(other.text, style) + "{\\3a&HFF&" + (if (pop.isNotEmpty()) "\\fscx100\\fscy100" else "") + "}"
                     else text(other.text, style)
@@ -269,7 +346,7 @@ class AssWriter(private val measurer: TextMeasurer = TextMeasurer { _, _, _ -> 0
             } else {
                 null
             }
-            WordEvent(if (i == 0) line.start else word.start, words.getOrNull(i + 1)?.start ?: line.end, text, boxText)
+            WordEvent(if (i == 0) line.start else word.start, words.getOrNull(i + 1)?.start ?: line.end, text, boxText, drawn = box && drawn != null)
         }
     }
 

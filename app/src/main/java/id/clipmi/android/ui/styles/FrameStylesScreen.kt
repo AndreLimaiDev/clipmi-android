@@ -422,7 +422,11 @@ fun FrameStyleFields(
             ChoiceRow("Letak video", FrameStyle.VIDEO_POSITIONS, style.videoPosition) { v -> update { it.copy(videoPosition = v) } }
         }
         if (mode == "top") IntSlider("Tinggi area video", style.videoHeight, 30..85, { v -> update { it.copy(videoHeight = v) } }, suffix = "%")
+        if (mode == "template") {
+            ChoiceRow("Video di template", TEMPLATE_FILLS, style.templateFill ?: "area") { v -> update { it.copy(templateFill = v.takeIf { f -> f != "area" }) } }
+        }
         IntSlider("Zoom", style.zoom, 100..200, { v -> update { it.copy(zoom = (v / 5) * 5) } }, suffix = "%")
+        if (mode == "crop" || mode == "top" || mode == "template") CropFields(style, update)
     }
 
     if (mode != "crop" && mode != "template") {
@@ -457,7 +461,9 @@ fun FrameStyleFields(
             error = imageError?.takeIf { it.first == "logo" }?.second,
         )
         if (style.logoPath != null) {
-            AnchorPicker("Posisi logo", style.logoX, style.logoY, hint = if (inEditor) "Seret logo di pratinjau, atau seret titik di sini." else "Seret titik untuk posisi bebas.") { x, y -> update { it.copy(logoX = x, logoY = y) } }
+            AnchorPicker("Posisi logo", style.logoX, style.logoY, hint = if (inEditor) "Seret logo di pratinjau, seret titik di sini, atau atur angkanya di bawah." else "Seret titik, atau atur angkanya di bawah.") { x, y -> update { it.copy(logoX = x, logoY = y) } }
+            IntSlider("Posisi mendatar (X)", style.logoX, 0..100, { v -> update { it.copy(logoX = v) } }, suffix = "%")
+            IntSlider("Posisi tegak (Y)", style.logoY, 0..100, { v -> update { it.copy(logoY = v) } }, suffix = "%")
             IntSlider("Ukuran logo", style.logoSize, 5..40, { v -> update { it.copy(logoSize = v) } }, suffix = "%")
             IntSlider("Kepekatan logo", style.logoOpacity, 10..100, { v -> update { it.copy(logoOpacity = v) } }, suffix = "%")
         }
@@ -512,3 +518,18 @@ suspend fun importFrameImage(media: MediaLibrary, field: String, uri: android.ne
             draft.copy(templatePath = t.path, aspect = t.aspect, templateArea = Json.encodeToString(TemplateArea.serializer(), t.area))
         }
     }
+
+private val TEMPLATE_FILLS = linkedMapOf("area" to "Di area transparan", "full" to "Penuh di balik template")
+
+/** Posisi crop bawaan gaya ini untuk klip yang belum mengatur crop sendiri di editor (tab Crop). Sama dengan iOS. */
+@Composable
+private fun CropFields(style: FrameStyleEntity, update: ((FrameStyleEntity) -> FrameStyleEntity) -> Unit) {
+    ToggleField("Posisi crop dari gaya ini", "Mati = ikut posisi crop project", style.cropX != null || style.cropY != null) { on ->
+        update { if (on) it.copy(cropX = it.cropX ?: 50, cropY = it.cropY ?: 50) else it.copy(cropX = null, cropY = null) }
+    }
+    if (style.cropX != null || style.cropY != null) {
+        IntSlider("Crop mendatar (kiri–kanan)", style.cropX ?: 50, 0..100, { v -> update { it.copy(cropX = v) } }, suffix = "%")
+        IntSlider("Crop tegak (atas–bawah)", style.cropY ?: 50, 0..100, { v -> update { it.copy(cropY = v) } }, suffix = "%")
+    }
+    Text("Crop tiap klip tetap bisa diubah di editor, tab Crop.", style = MaterialTheme.typography.bodySmall, color = ClipMi.colors.textMuted)
+}

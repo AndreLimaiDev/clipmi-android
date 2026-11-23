@@ -26,6 +26,7 @@ import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.ime
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -41,6 +42,19 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import id.clipmi.android.data.ClipEntity
+import id.clipmi.android.ui.components.MarkupField
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.window.DialogProperties
+import androidx.compose.ui.window.Dialog
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.DropdownMenu
+import id.clipmi.android.ui.editor.PlatformGuideLayer
+import id.clipmi.android.ui.editor.PlatformGuide
+import id.clipmi.android.ui.editor.EditorPreviewPrefs
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -147,7 +161,7 @@ private val TABS = listOf(
  * subtitle libass, baris putar, lalu panel tab di bawah. Setiap perubahan langsung tersimpan dan bisa diurungkan.
  */
 @Composable
-actual fun ClipEditorScreen(repo: Repository, renders: Renders, clipId: Long, onBack: () -> Unit) {
+actual fun ClipEditorScreen(repo: Repository, renders: Renders, clipId: Long, onBack: () -> Unit, onEditStyle: (caption: Boolean, id: Long) -> Unit) {
     // Scope aplikasi (bukan layar): penyimpanan terakhir tetap selesai walau editor sudah ditutup.
     val scope = renders.scope
     // null = sedang dimuat; Result.failure = tidak bisa dibuka.
@@ -163,21 +177,23 @@ actual fun ClipEditorScreen(repo: Repository, renders: Renders, clipId: Long, on
                 EmptyState("Video belum siap", result.exceptionOrNull()?.message ?: "", icon = ClipMiIcons.Film)
             }
         } else {
-            Editor(state, renders, onBack)
+            Editor(state, renders, onBack, onEditStyle)
         }
     }
 }
 
 @Composable
-private fun Editor(state: EditorState, renders: Renders, onClose: () -> Unit) {
+private fun Editor(state: EditorState, renders: Renders, onClose: () -> Unit, onEditStyle: (caption: Boolean, id: Long) -> Unit) {
     val c = ClipMi.colors
     val scope = rememberCoroutineScope()
     val notifier = LocalNotifier.current
     val preview = remember(state.source) { PreviewPlayer(state.source) }
     val pending = remember { PendingText() }
     var position by remember { mutableStateOf(state.snapshot.clip.startTime) }
-    var tab by remember { mutableStateOf(0) }
-    var compact by remember { mutableStateOf(false) }
+    // Tab terakhir per klip (kembali dari halaman ubah gaya tetap di tab Gaya).
+    var tab by remember { mutableStateOf(if (EditorMemory.clipId == state.entity.id) EditorMemory.tab else 0) }
+    LaunchedEffect(tab) { EditorMemory.clipId = state.entity.id; EditorMemory.tab = tab }
+    val compact = EditorPreviewPrefs.compact
 
     val snapshot = state.snapshot
     val spec = remember(snapshot) { state.spec() }
@@ -212,8 +228,9 @@ private fun Editor(state: EditorState, renders: Renders, onClose: () -> Unit) {
     }
     val seek: (Double) -> Unit = { preview.seek(it); position = it }
 
-    // Render selesai/gagal: kabar lewat snackbar (hasil ada di Photos).
+    // Render selesai/gagal: jendela render (bila terbuka) atau snackbar (hasil ada di Photos).
     val rendering = renders.active == state.entity.id
+    var renderWindow by remember { mutableStateOf(false) }
     val live by remember(state.entity.id) { state.liveClip() }.collectAsState(state.entity)
     var wasRendering by remember { mutableStateOf(false) }
     LaunchedEffect(rendering, live?.renderStatus) {
@@ -222,12 +239,16 @@ private fun Editor(state: EditorState, renders: Renders, onClose: () -> Unit) {
             val latest = live ?: return@LaunchedEffect
             if (RenderStatus.from(latest.renderStatus).isBusy) return@LaunchedEffect
             wasRendering = false
-            when (RenderStatus.from(latest.renderStatus)) {
+            if (!renderWindow) when (RenderStatus.from(latest.renderStatus)) {
                 RenderStatus.Done -> notifier.show("Render selesai · tersimpan di Photos.")
                 RenderStatus.Failed -> notifier.show(latest.renderError ?: "Render gagal.")
                 else -> Unit
             }
         }
+    }
+
+    if (renderWindow) {
+        RenderWindow(state, renders, live, onRetry = { renders.start(state.entity.id) }, onDismiss = { renderWindow = false })
     }
 
     Column(Modifier.fillMaxSize().imePadding()) {
@@ -240,11 +261,16 @@ private fun Editor(state: EditorState, renders: Renders, onClose: () -> Unit) {
             )
             IconCircle(ClipMiIcons.Undo, "Urungkan", { state.undo() }, size = 40.dp, background = Color.Transparent, border = false, enabled = state.canUndo)
             IconCircle(ClipMiIcons.Redo, "Ulangi", { state.redo() }, size = 40.dp, background = Color.Transparent, border = false, enabled = state.canRedo)
-            PrimaryButton("Render", height = 40.dp, enabled = renders.active == null, onClick = {
+            PrimaryButton("Render", height = 40.dp, enabled = renders.active == null || rendering, onClick = {
+                if (rendering) {
+                    renderWindow = true
+                    return@PrimaryButton
+                }
                 pending.commitAll()
                 scope.launch {
                     state.flush()
                     preview.pause()
+                    renderWindow = true
                     renders.start(state.entity.id)
                 }
             })
@@ -268,10 +294,33 @@ private fun Editor(state: EditorState, renders: Renders, onClose: () -> Unit) {
                 val boxWidth = min(maxWidth.value, maxHeight.value * ratio)
                 Box(Modifier.width(boxWidth.dp).aspectRatio(ratio).clip(RoundedCornerShape(14.dp)).background(Color.Black)) {
                     Preview(state, composition, preview, mode = when (tab) { 1 -> PreviewMode.Crop; 3 -> PreviewMode.Hook; else -> PreviewMode.None })
+                    // Tampilan aplikasi tujuan (hanya panduan, tidak ikut dirender).
+                    EditorPreviewPrefs.guide?.let { PlatformGuideLayer(it, Modifier.fillMaxSize()) }
                 }
             }
-            ToolButton(if (compact) ClipMiIcons.Expand else ClipMiIcons.Collapse, if (compact) "Perbesar pratinjau" else "Perkecil pratinjau", Modifier.align(Alignment.BottomEnd)) {
-                compact = !compact
+            Column(Modifier.align(Alignment.BottomEnd)) {
+                Box {
+                    var menu by remember { mutableStateOf(false) }
+                    val guide = EditorPreviewPrefs.guide
+                    ToolButton(guide?.icon ?: ClipMiIcons.Eye, if (guide != null) "Tampilan ${guide.label}" else "Lihat tampilan aplikasi", active = guide != null) { menu = true }
+                    DropdownMenu(menu, onDismissRequest = { menu = false }, containerColor = EDITOR_CARD) {
+                        DropdownMenuItem(
+                            text = { Text("Tanpa tampilan aplikasi", color = c.text) },
+                            leadingIcon = { Icon(ClipMiIcons.Close, null, Modifier.size(18.dp), tint = c.textMuted) },
+                            onClick = { EditorPreviewPrefs.guide = null; menu = false },
+                        )
+                        PlatformGuide.entries.forEach { g ->
+                            DropdownMenuItem(
+                                text = { Text("Tampilan ${g.label}", color = if (g == guide) c.accent else c.text) },
+                                leadingIcon = { Icon(g.icon, null, Modifier.size(18.dp), tint = if (g == guide) c.accent else c.textMuted) },
+                                onClick = { EditorPreviewPrefs.guide = g; menu = false },
+                            )
+                        }
+                    }
+                }
+                ToolButton(if (compact) ClipMiIcons.Expand else ClipMiIcons.Collapse, if (compact) "Perbesar pratinjau" else "Perkecil pratinjau") {
+                    EditorPreviewPrefs.compact = !compact
+                }
             }
         }
 
@@ -298,12 +347,14 @@ private fun Editor(state: EditorState, renders: Renders, onClose: () -> Unit) {
                 when (tab) {
                     0 -> TrimPanel(state, position, preview.playing, seek)
                     1 -> CropPanel(state, position, seek)
-                    2 -> StylePanel(state)
+                    2 -> StylePanel(state, onEditStyle)
                     3 -> HookPanel(state, pending)
                     else -> CoverPanel(state, position, pending)
                 }
             }
-            Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 6.dp)) {
+            // Saat mengetik, deretan tab disembunyikan supaya kolom isian dan bilah alatnya tidak tertutup.
+            val keyboardOpen = androidx.compose.foundation.layout.WindowInsets.ime.getBottom(androidx.compose.ui.platform.LocalDensity.current) > 0
+            if (!keyboardOpen) Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 6.dp)) {
                 TABS.forEachIndexed { i, item ->
                     val active = tab == i
                     Column(
@@ -328,14 +379,21 @@ private fun Editor(state: EditorState, renders: Renders, onClose: () -> Unit) {
 }
 
 @Composable
-private fun ToolButton(icon: ImageVector, label: String, modifier: Modifier = Modifier, onClick: () -> Unit) {
+private fun ToolButton(icon: ImageVector, label: String, modifier: Modifier = Modifier, active: Boolean = false, onClick: () -> Unit) {
     val c = ClipMi.colors
     val shape = RoundedCornerShape(12.dp)
     Box(
-        modifier.padding(8.dp).size(40.dp).clip(shape).background(EDITOR_CARD).border(1.dp, c.line, shape)
+        modifier.padding(8.dp).size(40.dp).clip(shape).background(if (active) c.accentSoft else EDITOR_CARD)
+            .border(1.dp, if (active) c.accent.copy(alpha = 0.5f) else c.line, shape)
             .clickable(role = Role.Button, onClickLabel = label, onClick = onClick),
         contentAlignment = Alignment.Center,
-    ) { Icon(icon, label, tint = Color.White, modifier = Modifier.size(20.dp)) }
+    ) { Icon(icon, label, tint = if (active) c.accent else Color.White, modifier = Modifier.size(20.dp)) }
+}
+
+/** Tab editor terakhir per klip, supaya kembali dari halaman ubah gaya tetap di tab yang sama. */
+private object EditorMemory {
+    var clipId: Long = 0
+    var tab: Int = 0
 }
 
 /** Bilah geser tipis (2 dp) dengan bulatan putih; ketuk atau seret untuk pindah. [fraction] 0–1. */
@@ -407,7 +465,7 @@ private fun LabeledSlider(label: String, value: String, current: Float, range: C
 @Composable
 private fun AutoSaveField(
     key: String, value: String, pending: PendingText, label: String? = null, placeholder: String? = null, supporting: String? = null,
-    minLines: Int = 1, maxLines: Int = 3, onSave: (String) -> Unit,
+    minLines: Int = 1, maxLines: Int = 3, markup: Boolean = false, onSave: (String) -> Unit,
 ) {
     val c = ClipMi.colors
     var text by remember(key) { mutableStateOf(value) }
@@ -429,10 +487,12 @@ private fun AutoSaveField(
         delay(2000)
         saved = false
     }
-    Field(
-        text, { text = it }, label = label, placeholder = placeholder, supporting = supporting, minLines = minLines, maxLines = maxLines,
-        trailing = if (saved) ({ Icon(ClipMiIcons.Check, contentDescription = "Tersimpan", tint = c.accent, modifier = Modifier.padding(end = 12.dp).size(20.dp)) }) else null,
-    )
+    val mark: (@Composable () -> Unit)? = if (saved) ({ Icon(ClipMiIcons.Check, contentDescription = "Tersimpan", tint = c.accent, modifier = Modifier.padding(end = 12.dp).size(20.dp)) }) else null
+    if (markup) {
+        MarkupField(text, { text = it }, label = label, supporting = supporting, minLines = minLines, maxLines = maxLines, trailing = mark)
+    } else {
+        Field(text, { text = it }, label = label, placeholder = placeholder, supporting = supporting, minLines = minLines, maxLines = maxLines, trailing = mark)
+    }
 }
 
 /** Waktu dengan persepuluhan detik, misalnya "26:27,4". */
@@ -907,7 +967,7 @@ private fun SpeakerSection(state: EditorState, position: Double, seek: (Double) 
 // ---------------------------------------------------------------------------------------------------------------
 
 @Composable
-private fun StylePanel(state: EditorState) {
+private fun StylePanel(state: EditorState, onEditStyle: (caption: Boolean, id: Long) -> Unit) {
     val captionId = state.captionStyleId()
     val frameId = state.frameStyleId()
     val fonts = remember { HashMap<String, FontFamily>() }
@@ -921,28 +981,26 @@ private fun StylePanel(state: EditorState) {
                         FontFamily(Font("caption-${style.fontFamily}", bytes))
                     }.getOrDefault(FontFamily.Default)
                 }
-                StyleCard(style.id == captionId, onClick = { state.apply { it.copy(captionStyleId = style.id) } }) {
+                StyleCard(style.id == captionId, onClick = { state.apply { it.copy(captionStyleId = style.id) } }, onEdit = { onEditStyle(true, style.id) }) {
                     CaptionSample(style, family, style.id == captionId)
                 }
             }
+            AddStyleCard("Gaya baru") { onEditStyle(true, 0) }
         }
         SectionTitle("Bingkai", Modifier.padding(top = 4.dp))
         ChipRow(gutter = 16.dp) {
             for (frame in state.frameStyles) {
-                StyleCard(frame.id == frameId, onClick = { state.apply { it.copy(frameStyleId = frame.id) } }) {
+                StyleCard(frame.id == frameId, onClick = { state.apply { it.copy(frameStyleId = frame.id) } }, onEdit = { onEditStyle(false, frame.id) }) {
                     FrameSample(frame, frame.id == frameId)
                 }
             }
+            AddStyleCard("Bingkai baru") { onEditStyle(false, 0) }
         }
-        Text(
-            "Gaya baru dan perubahan gaya dibuat di ClipMI Android, lalu dipindah lewat cadangan.",
-            style = MaterialTheme.typography.bodySmall, color = ClipMi.colors.textMuted, modifier = Modifier.padding(horizontal = 16.dp),
-        )
     }
 }
 
 @Composable
-private fun StyleCard(selected: Boolean, onClick: () -> Unit, content: @Composable () -> Unit) {
+private fun StyleCard(selected: Boolean, onClick: () -> Unit, onEdit: () -> Unit, content: @Composable () -> Unit) {
     val c = ClipMi.colors
     Box(
         Modifier
@@ -952,7 +1010,35 @@ private fun StyleCard(selected: Boolean, onClick: () -> Unit, content: @Composab
             .border(if (selected) 2.dp else 1.dp, if (selected) c.accent else c.line, RoundedCornerShape(18.dp))
             .clickable(onClick = onClick),
         contentAlignment = Alignment.Center,
-    ) { content() }
+    ) {
+        content()
+        // Ubah gaya ini (sudut kanan atas kartu).
+        Box(
+            Modifier.align(Alignment.TopEnd).padding(4.dp).size(28.dp).clip(RoundedCornerShape(9.dp)).background(Color.Black.copy(alpha = 0.35f))
+                .clickable(role = Role.Button, onClickLabel = "Ubah gaya", onClick = onEdit),
+            contentAlignment = Alignment.Center,
+        ) { Icon(ClipMiIcons.Edit, "Ubah gaya", tint = Color.White, modifier = Modifier.size(14.dp)) }
+    }
+}
+
+/** Kartu di ujung deretan gaya: buat gaya baru. */
+@Composable
+private fun AddStyleCard(label: String, onClick: () -> Unit) {
+    val c = ClipMi.colors
+    Column(
+        Modifier
+            .width(112.dp)
+            .heightIn(min = 96.dp)
+            .clip(RoundedCornerShape(18.dp))
+            .border(1.dp, c.lineStrong, RoundedCornerShape(18.dp))
+            .clickable(role = Role.Button, onClickLabel = label, onClick = onClick)
+            .padding(10.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(6.dp, Alignment.CenterVertically),
+    ) {
+        Icon(ClipMiIcons.Plus, null, tint = c.text, modifier = Modifier.size(24.dp))
+        Text(label, style = MaterialTheme.typography.labelSmall, color = c.textMuted, maxLines = 1)
+    }
 }
 
 @Composable
@@ -1174,9 +1260,16 @@ private fun CoverTitleSection(state: EditorState, pending: PendingText) {
         ChipRow(gutter = 0.dp) {
             CoverTitle.MODELS.forEach { (key, label) -> FilterPill(label, selected = layout.model == key, height = 34.dp, onClick = { update { it.copy(model = key) } }) }
         }
-        if (layout.classic) return@Column
+        if (layout.classic) {
+            // Judul klasik: hanya posisi tegak (judul selalu di tengah mendatar, sama dengan ClipMI PC).
+            LabeledSlider("Posisi tegak", "${layout.y ?: 58}%", (layout.y ?: 58).toFloat(), 5f..95f, onChange = { v ->
+                state.drag { it.copy(coverLayout = CoverTitle.encode(CoverTitle.parse(it.coverLayout).copy(y = v.roundToInt()))) }
+            }, onDone = { state.endDrag() })
+            return@Column
+        }
         AutoSaveField(
-            "cover-${state.entity.id}", layout.text ?: defaultText, pending, label = "Teks sampul", supporting = "Enter = baris baru · *kata* = sorotan", minLines = 2, maxLines = 4,
+            "cover-${state.entity.id}", layout.text ?: defaultText, pending, label = "Teks sampul",
+            supporting = "Pilih kata, lalu ketuk ikon stabilo", minLines = 4, maxLines = 8, markup = true,
         ) { text -> update { it.copy(text = text.takeIf { t -> t.isNotBlank() && t.trim() != defaultText }) } }
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
             Text("Sorotan", style = MaterialTheme.typography.labelMedium, color = c.textBody, modifier = Modifier.width(64.dp))
@@ -1192,11 +1285,110 @@ private fun CoverTitleSection(state: EditorState, pending: PendingText) {
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
             Text("Posisi", style = MaterialTheme.typography.labelMedium, color = c.textBody, modifier = Modifier.width(64.dp))
             listOf("top" to "Atas", "center" to "Tengah", "bottom" to "Bawah").forEach { (key, label) ->
-                FilterPill(label, selected = layout.position == key, height = 32.dp, onClick = { update { it.copy(position = if (it.position == key) null else key) } })
+                FilterPill(label, selected = layout.position == key && layout.y == null, height = 32.dp, onClick = {
+                    update { it.copy(position = if (it.position == key && it.y == null) null else key, y = null) }
+                })
             }
         }
         LabeledSlider("Ukuran", "${layout.size}%", layout.size.toFloat(), CoverTitle.SIZE_MIN.toFloat()..CoverTitle.SIZE_MAX.toFloat(), onChange = { v ->
             state.drag { it.copy(coverLayout = CoverTitle.encode(CoverTitle.parse(it.coverLayout).copy(size = v.roundToInt()))) }
         }, onDone = { state.endDrag() })
+        // Posisi bebas: geser judul ke mana saja (persen lebar/tinggi layar).
+        LabeledSlider("Posisi mendatar (X)", "${layout.x ?: 50}%", (layout.x ?: 50).toFloat(), 0f..100f, onChange = { v ->
+            state.drag { it.copy(coverLayout = CoverTitle.encode(CoverTitle.parse(it.coverLayout).copy(x = v.roundToInt()))) }
+        }, onDone = { state.endDrag() })
+        val defaultY = when (layout.position ?: if (layout.model == "kapital" || layout.model == "pop") "bottom" else "center") { "top" -> 22; "bottom" -> 76; else -> 50 }
+        LabeledSlider("Posisi tegak (Y)", "${layout.y ?: defaultY}%", (layout.y ?: defaultY).toFloat(), 0f..100f, onChange = { v ->
+            state.drag { it.copy(coverLayout = CoverTitle.encode(CoverTitle.parse(it.coverLayout).copy(y = v.roundToInt()))) }
+        }, onDone = { state.endDrag() })
+        if (layout.x != null || layout.y != null) {
+            GhostButton("Kembalikan posisi bawaan", onClick = { update { it.copy(x = null, y = null) } })
+        }
+    }
+}
+
+/**
+ * Jendela render seperti editor video pada umumnya: kartu 9:16 bersudut membulat dengan frame klip, terisi dari bawah
+ * mengikuti progres, lalu tanda selesai dengan Bagikan. Render tetap berjalan bila jendela disembunyikan.
+ */
+@Composable
+private fun RenderWindow(state: EditorState, renders: Renders, live: ClipEntity?, onRetry: () -> Unit, onDismiss: () -> Unit) {
+    val c = ClipMi.colors
+    val notifier = LocalNotifier.current
+    val clipboard = LocalClipboardManager.current
+    val rendering = renders.active == state.entity.id || state.entity.id in renders.queued
+    val status = RenderStatus.from(live?.renderStatus)
+    val done = !rendering && status == RenderStatus.Done
+    val failed = !rendering && status == RenderStatus.Failed
+    val fraction = if (renders.active == state.entity.id) renders.fraction.toFloat().coerceIn(0f, 1f) else if (done) 1f else 0f
+    val shown by animateFloatAsState(fraction, label = "progres render")
+    val frame = remember(state.thumbnail) { decodeImage(state.thumbnail) }
+
+    Dialog(onDismissRequest = { if (!rendering) onDismiss() }, properties = DialogProperties(dismissOnClickOutside = false, usePlatformDefaultWidth = false)) {
+        Column(
+            Modifier.fillMaxWidth().padding(24.dp).clip(RoundedCornerShape(28.dp)).background(EDITOR_PANEL).padding(20.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(16.dp),
+        ) {
+            Box(Modifier.height(320.dp).aspectRatio(9f / 16f).clip(RoundedCornerShape(22.dp)).background(Color.Black)) {
+                frame?.let { Image(it, null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize()) }
+                // Bagian yang belum selesai digelapkan; terang naik dari bawah seiring progres.
+                Box(Modifier.fillMaxWidth().fillMaxHeight(1f - shown).background(Color.Black.copy(alpha = 0.62f)))
+                Box(Modifier.align(Alignment.BottomCenter).fillMaxWidth().fillMaxHeight(shown).border(2.dp, c.accent.copy(alpha = if (done) 0f else 0.9f)))
+                Column(Modifier.align(Alignment.Center), horizontalAlignment = Alignment.CenterHorizontally) {
+                    when {
+                        done -> Box(Modifier.size(64.dp).clip(CircleShape).background(c.accent), contentAlignment = Alignment.Center) {
+                            Icon(ClipMiIcons.Check, null, tint = Color.White, modifier = Modifier.size(34.dp))
+                        }
+                        failed -> Icon(ClipMiIcons.Alert, null, tint = c.bad, modifier = Modifier.size(48.dp))
+                        else -> Text("${(fraction * 100).roundToInt()}%", style = MaterialTheme.typography.displaySmall.copy(fontWeight = FontWeight.ExtraBold), color = Color.White)
+                    }
+                }
+            }
+            Text(
+                when {
+                    done -> "Render selesai · tersimpan di Foto"
+                    failed -> "Render gagal"
+                    renders.active != state.entity.id -> "Menunggu giliran render…"
+                    else -> "Merender klip…"
+                },
+                style = MaterialTheme.typography.titleMedium, color = c.text,
+            )
+            Text(
+                when {
+                    failed -> live?.renderError ?: "Sebab tidak diketahui."
+                    done -> ClipText.displayTitle(live?.title ?: state.entity.title, state.entity.partNumber)
+                    else -> "Biarkan aplikasi tetap terbuka. Layar tidak akan terkunci selama render."
+                },
+                style = MaterialTheme.typography.bodySmall, color = if (failed) c.bad else c.textMuted, textAlign = TextAlign.Center, maxLines = 4,
+            )
+            if (!done && !failed) ProgressBar(fraction, color = c.accent)
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                when {
+                    done -> {
+                        SecondaryButton("Tutup", onClick = onDismiss, modifier = Modifier.weight(1f))
+                        PrimaryButton("Bagikan", icon = ClipMiIcons.Share, modifier = Modifier.weight(1f), onClick = {
+                            val output = live?.outputPath?.let { state.absolute(it) }
+                            if (output != null && fileSize(output) > 0) {
+                                val clip = live!!
+                                clipboard.setText(AnnotatedString(ClipText.shareText(clip.title, clip.partNumber, clip.caption, state.hashtags(clip))))
+                                notifier.show("Caption & hashtag disalin. Tempel di aplikasi tujuan.")
+                                state.renderer.engine.shareFile(output)
+                            } else {
+                                notifier.show("File hasil tidak ditemukan.")
+                            }
+                        })
+                    }
+                    failed -> {
+                        SecondaryButton("Tutup", onClick = onDismiss, modifier = Modifier.weight(1f))
+                        PrimaryButton("Coba lagi", modifier = Modifier.weight(1f), onClick = onRetry)
+                    }
+                    else -> {
+                        SecondaryButton("Sembunyikan", onClick = onDismiss, modifier = Modifier.weight(1f))
+                        SecondaryButton("Batalkan", onClick = { renders.cancel(); onDismiss() }, modifier = Modifier.weight(1f), contentColor = c.bad)
+                    }
+                }
+            }
+        }
     }
 }

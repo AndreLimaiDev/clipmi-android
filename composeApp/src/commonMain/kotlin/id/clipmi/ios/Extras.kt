@@ -67,6 +67,7 @@ import id.clipmi.android.ui.components.GroupDivider
 import id.clipmi.android.ui.components.IconCircle
 import id.clipmi.android.ui.components.LocalNotifier
 import id.clipmi.android.ui.components.PrimaryButton
+import id.clipmi.android.ui.components.PromptStyleGuideSheet
 import id.clipmi.android.ui.components.ProgressBar
 import id.clipmi.android.ui.components.ScreenGutter
 import id.clipmi.android.ui.components.SecondaryButton
@@ -255,6 +256,8 @@ private fun PromptStyleSheet(analysis: IosAnalysis, settings: IosSettings, proje
     var editing by remember { mutableStateOf<PromptStyle?>(null) }
     var creating by remember { mutableStateOf(false) }
     var reload by remember { mutableStateOf(0) }
+    var guide by remember { mutableStateOf(false) }
+    if (guide) PromptStyleGuideSheet(onDismiss = { guide = false })
 
     LaunchedEffect(Unit) {
         val (style, options) = analysis.promptStyle(project)
@@ -309,7 +312,11 @@ private fun PromptStyleSheet(analysis: IosAnalysis, settings: IosSettings, proje
                     else if (on) Icon(ClipMiIcons.CircleCheck, null, tint = c.accent, modifier = Modifier.padding(end = 8.dp).size(20.dp))
                 }
             }
-            GhostButton("+ Buat gaya sendiri", onClick = { creating = true })
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                GhostButton("+ Buat gaya sendiri", onClick = { creating = true })
+                // Panduan membuat gaya sendiri.
+                IconCircle(ClipMiIcons.Book, "Panduan gaya sendiri", { guide = true }, size = 36.dp, background = Color.Transparent, border = false, tint = c.textMuted)
+            }
         }
         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Text("Durasi klip", style = MaterialTheme.typography.labelMedium, color = c.textBody)

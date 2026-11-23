@@ -24,6 +24,9 @@ data class CoverTitleLayout(
     val accent: String? = null,
     val position: String? = null,
     val size: Int = 100,
+    /** Posisi tengah judul dalam persen lebar/tinggi layar (0–100); null = bawaan model atau [position]. */
+    val x: Int? = null,
+    val y: Int? = null,
 ) {
     val classic: Boolean get() = model !in CoverTitle.MODELS || model == CoverTitle.CLASSIC
 }
@@ -142,11 +145,13 @@ object CoverTitle {
 
         fun esc(word: String) = AssWriter.escape(word)
 
-        fun anchorY(default: String): Double = when (layout.position ?: default) {
+        fun anchorY(default: String): Double = layout.y?.let { it.coerceIn(0, 100) / 100.0 } ?: when (layout.position ?: default) {
             "top" -> 0.22
             "bottom" -> 0.76
             else -> 0.5
         }
+        // Geser mendatar dari tengah (posisi X diatur sendiri).
+        val dx = layout.x?.let { Php.roundInt(width * (it.coerceIn(0, 100) - 50) / 100.0) } ?: 0
 
         when (layout.model) {
             "editorial" -> {
@@ -163,7 +168,7 @@ object CoverTitle {
                     val body = line.joinToString(" ") { t ->
                         if (t.accent) "{\\fn$SERIF\\i1\\1c$accent}${esc(t.text)}{\\fn$SANS\\i0\\1c$white}" else esc(t.text)
                     }
-                    event(1, "{\\an2\\pos(${width / 2},${Php.roundInt(y)})\\fn$SANS\\fs${Php.roundInt(size)}\\1c$white\\fsp-2$GLOW}$body")
+                    event(1, "{\\an2\\pos(${width / 2 + dx},${Php.roundInt(y)})\\fn$SANS\\fs${Php.roundInt(size)}\\1c$white\\fsp-2$GLOW}$body")
                 }
             }
             "kapital" -> {
@@ -179,7 +184,7 @@ object CoverTitle {
                     val body = line.joinToString(" ") { t ->
                         if (t.accent) "{\\fn$CONDENSED_HEAVY\\1c$accent}${esc(t.text)}{\\fn$CONDENSED_LIGHT\\1c$white}" else esc(t.text)
                     }
-                    event(1, "{\\an2\\pos(${width / 2},${Php.roundInt(y)})\\fn$CONDENSED_LIGHT\\fs${Php.roundInt(sizes[i])}\\1c$white$GLOW}$body")
+                    event(1, "{\\an2\\pos(${width / 2 + dx},${Php.roundInt(y)})\\fn$CONDENSED_LIGHT\\fs${Php.roundInt(sizes[i])}\\1c$white$GLOW}$body")
                 }
             }
             "pop" -> {
@@ -204,7 +209,7 @@ object CoverTitle {
                     val font = if (big[i]) CONDENSED_HEAVY else SMALL
                     val color = if (big[i]) accent else white
                     val body = line.joinToString(" ") { esc(it.text) }
-                    event(1, "{\\an1\\pos(${Php.roundInt(margin)},${Php.roundInt(y)})\\fn$font\\fs${Php.roundInt(sizes[i])}\\1c$color$GLOW}$body")
+                    event(1, "{\\an1\\pos(${Php.roundInt(margin) + dx},${Php.roundInt(y)})\\fn$font\\fs${Php.roundInt(sizes[i])}\\1c$color$GLOW}$body")
                 }
             }
             "sorot" -> {
@@ -220,7 +225,7 @@ object CoverTitle {
                     val body = line.joinToString(" ") { t ->
                         if (t.accent) "{\\3c$white}${esc(t.text)}{\\3c$accent}" else esc(t.text)
                     }
-                    event(1, "{\\an2\\pos(${width / 2},${Php.roundInt(y)})\\fn$SANS\\fs${Php.roundInt(size)}\\1c$dark\\3c$accent\\bord${Php.roundInt(size * 0.16)}\\shad0}$body")
+                    event(1, "{\\an2\\pos(${width / 2 + dx},${Php.roundInt(y)})\\fn$SANS\\fs${Php.roundInt(size)}\\1c$dark\\3c$accent\\bord${Php.roundInt(size * 0.16)}\\shad0}$body")
                 }
             }
             "tangan" -> {
@@ -234,7 +239,7 @@ object CoverTitle {
                 lines.forEachIndexed { i, line ->
                     y += sizes[i] * leading
                     val body = line.joinToString(" ") { t -> if (t.accent) "{\\1c$accent}${esc(t.text)}{\\1c$white}" else esc(t.text) }
-                    event(1, "{\\an2\\pos(${width / 2},${Php.roundInt(y)})\\frz4\\fn$HAND\\fs${Php.roundInt(sizes[i])}\\1c$white$GLOW}$body")
+                    event(1, "{\\an2\\pos(${width / 2 + dx},${Php.roundInt(y)})\\frz4\\fn$HAND\\fs${Php.roundInt(sizes[i])}\\1c$white$GLOW}$body")
                 }
             }
         }

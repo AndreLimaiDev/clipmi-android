@@ -46,6 +46,7 @@ import java.util.Locale
 fun CaptionStyleEntity.toCore() = CaptionStyle(
     name, fontFamily, fontSize, uppercase, primaryColor, outlineColor, highlightActiveWord, highlightStyle, highlightColor,
     upcomingColor, keywordHighlight, keywordColor, position, wordsPerLine, animation, effect, lineBox, lineBoxColor, lineBoxOpacity,
+    highlightRadius = highlightRadius, highlightHeight = highlightHeight, highlightWidth = highlightWidth, highlightY = highlightY,
 )
 
 fun FrameStyleEntity.toCore() = FrameStyle(
@@ -58,6 +59,7 @@ fun FrameStyleEntity.toCore() = FrameStyle(
     watermarkText = watermarkText, watermarkFont = watermarkFont, watermarkSize = watermarkSize, watermarkColor = watermarkColor,
     watermarkOpacity = watermarkOpacity, watermarkX = watermarkX, watermarkY = watermarkY, titleBar = titleBar,
     titleBarColor = titleBarColor, titleTextColor = titleTextColor, subtitleY = subtitleY,
+    cropX = cropX, cropY = cropY, templateFill = templateFill,
 )
 
 /**
@@ -418,7 +420,7 @@ class Renderer(
         val styled = clip.coverTitle && !layout.classic
         val title = if (clip.coverTitle && !styled) spec.displayTitle() else null
         // Judul besar di sekitar tiga perlima tinggi layar, di atas area subtitle.
-        val titleTop = Php.roundInt(height * 0.58)
+        val titleTop = layout.y?.let { Php.roundInt(height * it.coerceIn(0, 100) / 100.0) } ?: Php.roundInt(height * 0.58)
         val core = ClipRender(AssWriter(FontMeasurer(fontsDir())))
         val workDir = File(context.cacheDir, "cover-${clip.id}-${System.nanoTime()}").apply { mkdirs() }
         try {

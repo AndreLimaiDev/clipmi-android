@@ -35,6 +35,22 @@ object Fonts {
 }
 
 /**
+ * Bentuk kotak sorot yang digambar (ClipMI HP): sudut (px layar 1080), tinggi dan lebar (persen ukuran bawaan), posisi
+ * tegak (0 = paling atas baris, 50 = tengah, 100 = paling bawah).
+ */
+data class HighlightBox(val radius: Int, val height: Int, val width: Int, val y: Int) {
+    companion object {
+        const val RADIUS_MAX = 60
+        val HEIGHT_RANGE = 10..150
+        val WIDTH_RANGE = 50..200
+        val Y_RANGE = 0..100
+
+        /** Posisi bila belum diatur: kotak rendah menempel di bawah huruf (stabilo), kotak tinggi di tengah. */
+        fun defaultY(height: Int): Int = if (height < 100) 100 else 50
+    }
+}
+
+/**
  * Gaya subtitle (padanan model `CaptionStyle` desktop; nama kolom sama). Kolom boleh null seperti model desktop yang
  * belum disimpan; [DEFAULT] = gaya bawaan desktop.
  */
@@ -59,7 +75,23 @@ data class CaptionStyle(
     @SerialName("line_box") val lineBox: Boolean? = null,
     @SerialName("line_box_color") val lineBoxColor: String? = null,
     @SerialName("line_box_opacity") val lineBoxOpacity: Int? = null,
+    /** Kotak sorot kata: sudut membulat (px layar 1080) dan tinggi (persen tinggi kotak bawaan); null = kotak lama. */
+    @SerialName("highlight_radius") val highlightRadius: Int? = null,
+    @SerialName("highlight_height") val highlightHeight: Int? = null,
+    /** Lebar kotak (persen lebar bawaan: kata + jarak tepi) dan posisi tegak (0 = paling atas baris, 50 = tengah, 100 = paling bawah). */
+    @SerialName("highlight_width") val highlightWidth: Int? = null,
+    @SerialName("highlight_y") val highlightY: Int? = null,
 ) {
+    /** Kotak sorot digambar sendiri (sudut/tinggi/lebar/posisi diatur) alih-alih kotak BorderStyle 3 bawaan desktop. */
+    fun drawsHighlightBox(): Boolean =
+        highlightActiveWord == true && highlightStyle == "box" &&
+            (highlightRadius != null || highlightHeight != null || highlightWidth != null || highlightY != null)
+
+    /** Bentuk kotak sorot ini, untuk dicocokkan dengan [HIGHLIGHT_BOXES]. */
+    fun highlightBox(): HighlightBox? =
+        if (highlightRadius == null && highlightHeight == null && highlightWidth == null && highlightY == null) null
+        else HighlightBox(highlightRadius ?: 0, highlightHeight ?: 100, highlightWidth ?: 100, highlightY ?: HighlightBox.defaultY(highlightHeight ?: 100))
+
     /** Batas karakter per tampilan menyesuaikan ukuran font: paling banyak dua baris di layar 1080 px. */
     fun maxCharsPerLine(): Int = maxOf(12, kotlin.math.floor(2100.0 / maxOf(1, fontSize ?: 0)).toInt())
 
@@ -73,6 +105,16 @@ data class CaptionStyle(
             "fade" to "Baris muncul pelan",
         )
         val EFFECTS = linkedMapOf("outline" to "Garis tepi", "shadow" to "Garis tepi + bayangan", "glow" to "Cahaya lembut")
+
+        /** Preset kotak sorot (ClipMI HP). Null = kotak lama desktop. */
+        val HIGHLIGHT_BOXES: Map<String, Pair<String, HighlightBox?>> = linkedMapOf(
+            "kotak" to ("Kotak" to null),
+            "membulat" to ("Membulat" to HighlightBox(16, 100, 100, 50)),
+            "pil" to ("Pil" to HighlightBox(60, 100, 100, 50)),
+            "tengah" to ("Pita tengah" to HighlightBox(8, 55, 105, 50)),
+            "stabilo" to ("Stabilo" to HighlightBox(6, 45, 100, 100)),
+            "garis" to ("Garis bawah" to HighlightBox(4, 18, 100, 100)),
+        )
 
         /** Gaya bawaan desktop (`CaptionStyle::resolveDefault` tanpa gaya tersimpan). */
         val DEFAULT = CaptionStyle(
@@ -144,6 +186,11 @@ data class FrameStyle(
     @SerialName("title_bar_color") val titleBarColor: String? = null,
     @SerialName("title_text_color") val titleTextColor: String? = null,
     @SerialName("subtitle_y") val subtitleY: Int? = null,
+    /** Posisi crop bawaan gaya ini (0–100), dipakai klip yang belum mengatur crop sendiri; null = bawaan project. */
+    @SerialName("crop_x") val cropX: Int? = null,
+    @SerialName("crop_y") val cropY: Int? = null,
+    /** Template: "full" = video memenuhi layar di balik template; null/"area" = di area transparan saja. */
+    @SerialName("template_fill") val templateFill: String? = null,
 ) {
     data class Aspect(val label: String, val hint: String, val width: Int, val height: Int, val scale: Double)
 
@@ -195,13 +242,8 @@ data class FrameStyle(
         if (isCrop()) return Rect(0, 0, width, height)
 
         if (usesTemplate()) {
-            // Video sedikit melebihi area transparan (tertutup template), supaya tidak ada celah di tepinya.
-            val area = templateArea!!
-            val left = maxOf(0.0, area.x - 0.005)
-            val top = maxOf(0.0, area.y - 0.005)
-            val right = minOf(1.0, area.x + area.width + 0.005)
-            val bottom = minOf(1.0, area.y + area.height + 0.005)
-            return Rect(even(width * left), even(height * top), even(width * (right - left)), even(height * (bottom - top)))
+            // Video memenuhi layar di balik template (bisa di-crop bebas), atau hanya di area transparannya.
+            return if (templateFill == "full") Rect(0, 0, width, height) else templateAreaRect()
         }
 
         val inset = videoInset()
@@ -264,6 +306,19 @@ data class FrameStyle(
 
     /** Mode template yang area videonya lengkap. */
     fun usesTemplate(): Boolean = mode == "template" && templateArea != null
+
+    /** Area transparan template di layar (letak judul, hook, dan subtitle mengikuti area ini). */
+    fun templateAreaRect(): Rect? {
+        val area = templateArea ?: return null
+        val width = canvasWidth()
+        val height = canvasHeight()
+        // Video sedikit melebihi area transparan (tertutup template), supaya tidak ada celah di tepinya.
+        val left = maxOf(0.0, area.x - 0.005)
+        val top = maxOf(0.0, area.y - 0.005)
+        val right = minOf(1.0, area.x + area.width + 0.005)
+        val bottom = minOf(1.0, area.y + area.height + 0.005)
+        return Rect(even(width * left), even(height * top), even(width * (right - left)), even(height * (bottom - top)))
+    }
 
     fun hasWatermarkText(): Boolean = Php.trim(watermarkText.orEmpty()).isNotEmpty()
 

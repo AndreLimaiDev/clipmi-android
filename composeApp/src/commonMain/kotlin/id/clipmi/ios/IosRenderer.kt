@@ -419,7 +419,7 @@ class IosRenderer(private val repo: Repository, val engine: MediaEngine) {
         val styled = clip.coverTitle && !layout.classic
         val title = if (clip.coverTitle && !styled) spec.displayTitle() else null
         // Judul besar di sekitar tiga perlima tinggi layar, di atas area subtitle.
-        val titleTop = Php.roundInt(height * 0.58)
+        val titleTop = layout.y?.let { Php.roundInt(height * it.coerceIn(0, 100) / 100.0) } ?: Php.roundInt(height * 0.58)
         val measurer = IosFontMeasurer(engine, fontsDir)
         val core = ClipRender(AssWriter(measurer))
         val workDir = repo.absolute("cover-${clip.id}")

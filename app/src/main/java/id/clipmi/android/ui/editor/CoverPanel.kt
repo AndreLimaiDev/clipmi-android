@@ -1,5 +1,6 @@
 package id.clipmi.android.ui.editor
 
+import id.clipmi.android.ui.components.MarkupField
 import id.clipmi.android.ui.components.ClipMiRangeSlider
 import id.clipmi.android.ui.components.ClipMiSlider
 import androidx.compose.foundation.layout.height
@@ -192,7 +193,13 @@ private fun CoverTitleSection(state: EditorState) {
         ChipRow(gutter = 16.dp, modifier = Modifier.bleed()) {
             CoverTitle.MODELS.forEach { (key, label) -> FilterPill(label, selected = layout.model == key, height = 34.dp, onClick = { update { it.copy(model = key) } }) }
         }
-        if (layout.classic) return@Column
+        if (layout.classic) {
+            // Judul klasik: hanya posisi tegak (judul selalu di tengah mendatar, sama dengan ClipMI PC).
+            PositionSlider("Posisi tegak", layout.y ?: 58, 5..95, onChange = { v ->
+                state.drag { it.copy(coverLayout = CoverTitle.encode(CoverTitle.parse(it.coverLayout).copy(y = v))) }
+            }, onDone = { state.endDrag() })
+            return@Column
+        }
 
         // Teks sampul: tersimpan sendiri setelah berhenti mengetik (centang hijau sebagai tanda).
         var text by remember(state.entity.id) { mutableStateOf(layout.text ?: ClipText.displayTitle(state.entity.title, state.entity.partNumber)) }
@@ -206,9 +213,10 @@ private fun CoverTitleSection(state: EditorState) {
             delay(2000)
             saved = false
         }
-        Field(
-            text, { text = it }, label = "Teks sampul", minLines = 2, maxLines = 4,
-            supporting = "Enter = baris baru · *kata* = sorotan",
+        // Bilah alat: Sorot (*kata*), hapus sorotan, baris baru, kapital (sama dengan iOS).
+        MarkupField(
+            text, { text = it }, label = "Teks sampul", minLines = 4, maxLines = 8,
+            supporting = "Pilih kata, lalu ketuk ikon stabilo",
             trailing = if (saved) ({ Icon(ClipMiIcons.Check, contentDescription = "Tersimpan", tint = c.accent, modifier = Modifier.size(20.dp)) }) else null,
         )
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -226,7 +234,9 @@ private fun CoverTitleSection(state: EditorState) {
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
             Text("Posisi", style = MaterialTheme.typography.labelMedium, color = c.textBody, modifier = Modifier.width(64.dp))
             listOf("top" to "Atas", "center" to "Tengah", "bottom" to "Bawah").forEach { (key, label) ->
-                FilterPill(label, selected = layout.position == key, height = 32.dp, onClick = { update { it.copy(position = if (it.position == key) null else key) } })
+                FilterPill(label, selected = layout.position == key && layout.y == null, height = 32.dp, onClick = {
+                    update { it.copy(position = if (it.position == key && it.y == null) null else key, y = null) }
+                })
             }
         }
         Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
@@ -236,6 +246,34 @@ private fun CoverTitleSection(state: EditorState) {
             }
             CoverSizeSlider(layout.size, onChange = { v -> state.drag { it.copy(coverLayout = CoverTitle.encode(CoverTitle.parse(it.coverLayout).copy(size = v))) } }, onDone = { state.endDrag() })
         }
+        // Posisi bebas: geser judul ke mana saja (persen lebar/tinggi layar).
+        PositionSlider("Posisi mendatar (X)", layout.x ?: 50, 0..100, onChange = { v ->
+            state.drag { it.copy(coverLayout = CoverTitle.encode(CoverTitle.parse(it.coverLayout).copy(x = v))) }
+        }, onDone = { state.endDrag() })
+        val defaultY = when (layout.position ?: if (layout.model == "kapital" || layout.model == "pop") "bottom" else "center") { "top" -> 22; "bottom" -> 76; else -> 50 }
+        PositionSlider("Posisi tegak (Y)", layout.y ?: defaultY, 0..100, onChange = { v ->
+            state.drag { it.copy(coverLayout = CoverTitle.encode(CoverTitle.parse(it.coverLayout).copy(y = v))) }
+        }, onDone = { state.endDrag() })
+        if (layout.x != null || layout.y != null) {
+            GhostButton("Kembalikan posisi bawaan", onClick = { update { it.copy(x = null, y = null) } })
+        }
+    }
+}
+
+@Composable
+private fun PositionSlider(label: String, value: Int, range: IntRange, onChange: (Int) -> Unit, onDone: () -> Unit) {
+    val c = ClipMi.colors
+    Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+        Row {
+            Text(label, style = MaterialTheme.typography.labelMedium, color = c.textBody, modifier = Modifier.weight(1f))
+            Text("$value%", style = MaterialTheme.typography.labelMedium, color = c.text)
+        }
+        ClipMiSlider(
+            value = value.toFloat(),
+            onValueChange = { onChange(Math.round(it).coerceIn(range)) },
+            valueRange = range.first.toFloat()..range.last.toFloat(),
+            onValueChangeFinished = onDone,
+        )
     }
 }
 

@@ -47,6 +47,7 @@ import androidx.compose.material3.Slider
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -394,8 +395,10 @@ internal fun VideoLayer(composition: Composition, sourceSize: Pair<Int, Int>?, s
         layer.frame = CGRectMake(toPoints(left()), toPoints(top), toPoints(dw), toPoints(dh))
         CATransaction.commit()
     }
+    // Posisi dan ukuran lapisan video diperbarui setiap kali pratinjau berubah ukuran (misalnya diperkecil).
+    SideEffect { place() }
     if (keyframes != null) {
-        LaunchedEffect(keyframes, clipStart, dw, dh, top) {
+        LaunchedEffect(keyframes, clipStart, dw, dh, top, scale) {
             while (true) {
                 withFrameNanos { }
                 place()

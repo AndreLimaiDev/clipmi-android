@@ -91,6 +91,8 @@ class TeamPacks(
         put("keyword_highlight", s.keywordHighlight); put("keyword_color", s.keywordColor); put("position", s.position)
         put("words_per_line", s.wordsPerLine); put("animation", s.animation); put("effect", s.effect); put("line_box", s.lineBox)
         put("line_box_color", s.lineBoxColor); put("line_box_opacity", s.lineBoxOpacity); put("is_default", s.isDefault)
+        put("highlight_radius", s.highlightRadius); put("highlight_height", s.highlightHeight)
+        put("highlight_width", s.highlightWidth); put("highlight_y", s.highlightY)
     }
 
     private fun frameJson(s: FrameStyleEntity) = buildJsonObject {
@@ -103,6 +105,7 @@ class TeamPacks(
         put("title_bar", s.titleBar); put("title_bar_color", s.titleBarColor); put("title_text_color", s.titleTextColor); put("subtitle_y", s.subtitleY)
         put("template_area", s.templateArea?.let { runCatching { Json.parseToJsonElement(it) }.getOrNull() } ?: JsonNull)
         put("is_default", s.isDefault)
+        put("crop_x", s.cropX); put("crop_y", s.cropY); put("template_fill", s.templateFill)
         put("logo", exportFile(s.logoPath, TeamPack.LOGO_MAX_BYTES) ?: JsonNull)
         put("background_image", exportFile(s.backgroundPath, TeamPack.BACKGROUND_MAX_BYTES) ?: JsonNull)
         put("template_image", exportFile(s.templatePath, TeamPack.BACKGROUND_MAX_BYTES) ?: JsonNull)
@@ -227,6 +230,10 @@ class TeamPacks(
         lineBox = d.flag("line_box") ?: base.lineBox,
         lineBoxColor = d.str("line_box_color") ?: base.lineBoxColor,
         lineBoxOpacity = d.number("line_box_opacity") ?: base.lineBoxOpacity,
+        highlightRadius = if ("highlight_radius" in d) d.number("highlight_radius") else base.highlightRadius,
+        highlightHeight = if ("highlight_height" in d) d.number("highlight_height") else base.highlightHeight,
+        highlightWidth = if ("highlight_width" in d) d.number("highlight_width") else base.highlightWidth,
+        highlightY = if ("highlight_y" in d) d.number("highlight_y") else base.highlightY,
     )
 
     private fun frame(base: FrameStyleEntity, d: JsonObject) = base.copy(
@@ -259,6 +266,9 @@ class TeamPacks(
         titleTextColor = d.str("title_text_color") ?: base.titleTextColor,
         subtitleY = if ("subtitle_y" in d) d.number("subtitle_y") else base.subtitleY,
         templateArea = if ("template_area" in d) (d["template_area"] as? JsonObject)?.toString() else base.templateArea,
+        cropX = if ("crop_x" in d) d.number("crop_x") else base.cropX,
+        cropY = if ("crop_y" in d) d.number("crop_y") else base.cropY,
+        templateFill = if ("template_fill" in d) d.str("template_fill") else base.templateFill,
     )
 
     /** Nilai teks kolom, atau null bila tidak ada / null. */

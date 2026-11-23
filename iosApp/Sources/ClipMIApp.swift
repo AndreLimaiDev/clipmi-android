@@ -647,6 +647,13 @@ final class IOSMediaEngine: NSObject, MediaEngine {
         top.present(controller, animated: true)
     }
 
+    func shareText(text: String) {
+        guard let top = Self.topController() else { return }
+        let controller = UIActivityViewController(activityItems: [text], applicationActivities: nil)
+        controller.popoverPresentationController?.sourceView = top.view
+        top.present(controller, animated: true)
+    }
+
     private var documentPicker: FilePicker?
     /// Pengingat yang diketuk sebelum Kotlin mendaftarkan pendengarnya (aplikasi dibuka dari notifikasi).
     fileprivate var pendingReminder: String?

@@ -1,5 +1,6 @@
 package id.clipmi.android.ui.editor
 
+import androidx.compose.foundation.layout.ime
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.WindowInsets
@@ -37,6 +38,16 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
+import id.clipmi.android.ui.components.GhostButton
+import id.clipmi.android.data.RenderStatus
+import id.clipmi.android.ui.components.SecondaryButton
+import id.clipmi.android.ui.components.ProgressBar
+import id.clipmi.android.ui.components.FileImage
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.ui.window.DialogProperties
+import androidx.compose.ui.window.Dialog
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -176,6 +187,7 @@ private fun Editor(container: AppContainer, state: EditorState, onClose: () -> U
     }
 
     val seek: (Double) -> Unit = { seconds -> player.seekTo((seconds * 1000).toLong()); position = seconds }
+    var renderWindow by remember { mutableStateOf(false) }
 
     val title: @Composable (Modifier) -> Unit = { modifier ->
         Row(modifier, verticalAlignment = Alignment.CenterVertically) {
@@ -196,13 +208,13 @@ private fun Editor(container: AppContainer, state: EditorState, onClose: () -> U
         PrimaryButton("Render", height = 40.dp, onClick = {
             scope.launch {
                 val latest = container.database.clips().find(state.entity.id) ?: return@launch
-                RenderQueue.render(context, latest)
-                notifier.show("Masuk antrean render.")
-                // Pindah ke Hasil render untuk melihat progresnya; kembali = editor ini lagi.
-                onRendered()
+                if (!latest.render.isBusy) RenderQueue.render(context, latest)
+                // Jendela render 9:16 dengan progres; render tetap berjalan bila jendela disembunyikan.
+                renderWindow = true
             }
         })
     }
+    if (renderWindow) RenderWindow(container, state, onDismiss = { renderWindow = false }, onOpenResults = { renderWindow = false; onRendered() })
 
     val hookLayout = remember(state.snapshot, state.captionStyles, state.frameStyles) { state.hookLayout() }
     val lead = remember(state.snapshot) { state.spec().leadSeconds() }
@@ -271,7 +283,9 @@ private fun Editor(container: AppContainer, state: EditorState, onClose: () -> U
                     4 -> CoverPanel(state, position)
                 }
             }
-            Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 6.dp)) {
+            // Saat mengetik, deretan tab disembunyikan supaya kolom isian dan bilah alatnya tidak tertutup.
+            val keyboardOpen = WindowInsets.ime.getBottom(androidx.compose.ui.platform.LocalDensity.current) > 0
+            if (!keyboardOpen) Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 6.dp)) {
                 TABS.forEachIndexed { i, item ->
                     val active = tab == i
                     Column(
@@ -489,3 +503,94 @@ private fun moveLogo(state: EditorState, fx: Float, fy: Float) {
 
 /** Ukuran gambar logo (lebar, tinggi) per path, supaya tidak dibaca ulang di tiap gerakan jari. */
 private val logoSizes = HashMap<String, Pair<Int, Int>>()
+
+/**
+ * Jendela render seperti editor video pada umumnya (sama dengan iOS): kartu 9:16 bersudut membulat dengan frame klip,
+ * terisi dari bawah mengikuti progres, lalu tanda selesai dengan Bagikan. Render tetap berjalan bila disembunyikan.
+ */
+@Composable
+private fun RenderWindow(container: AppContainer, state: EditorState, onDismiss: () -> Unit, onOpenResults: () -> Unit) {
+    val c = ClipMi.colors
+    val context = androidx.compose.ui.platform.LocalContext.current
+    val scope = rememberCoroutineScope()
+    val notifier = LocalNotifier.current
+    val live by remember(state.entity.id) { container.database.clips().observeOne(state.entity.id) }.collectAsState(initial = null)
+    val clip = live
+    val status = clip?.render
+    val busy = status?.isBusy == true
+    val done = status == RenderStatus.Done && !busy
+    val failed = status == RenderStatus.Failed
+    val fraction = when {
+        done -> 1f
+        status == RenderStatus.Rendering -> (clip.renderProgress ?: 0) / 100f
+        else -> 0f
+    }
+    val shown by animateFloatAsState(fraction, label = "progres render")
+
+    Dialog(onDismissRequest = { if (!busy) onDismiss() }, properties = DialogProperties(dismissOnClickOutside = false, usePlatformDefaultWidth = false)) {
+        Column(
+            Modifier.fillMaxWidth().padding(24.dp).clip(RoundedCornerShape(28.dp)).background(EDITOR_PANEL).padding(20.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(16.dp),
+        ) {
+            Box(Modifier.height(320.dp).aspectRatio(9f / 16f).clip(RoundedCornerShape(22.dp)).background(Color.Black)) {
+                FileImage(state.thumbnail, Modifier.fillMaxSize(), maxSize = 720, placeholder = null)
+                // Bagian yang belum selesai digelapkan; terang naik dari bawah seiring progres.
+                Box(Modifier.fillMaxWidth().fillMaxHeight(1f - shown).background(Color.Black.copy(alpha = 0.62f)))
+                Column(Modifier.align(Alignment.Center), horizontalAlignment = Alignment.CenterHorizontally) {
+                    when {
+                        done -> Box(Modifier.size(64.dp).clip(CircleShape).background(c.accent), contentAlignment = Alignment.Center) {
+                            Icon(ClipMiIcons.Check, null, tint = Color.White, modifier = Modifier.size(34.dp))
+                        }
+                        failed -> Icon(ClipMiIcons.Alert, null, tint = c.bad, modifier = Modifier.size(48.dp))
+                        else -> Text("${(fraction * 100).roundToInt()}%", style = MaterialTheme.typography.displaySmall.copy(fontWeight = FontWeight.ExtraBold), color = Color.White)
+                    }
+                }
+            }
+            Text(
+                when {
+                    done -> "Render selesai · tersimpan di Galeri"
+                    failed -> "Render gagal"
+                    status == RenderStatus.Queued -> "Menunggu giliran render…"
+                    else -> "Merender klip…"
+                },
+                style = MaterialTheme.typography.titleMedium, color = c.text,
+            )
+            Text(
+                when {
+                    failed -> clip?.renderError ?: "Sebab tidak diketahui."
+                    done -> ClipText.displayTitle(clip?.title ?: state.entity.title, state.entity.partNumber)
+                    status == RenderStatus.Queued -> clip?.renderError ?: "Render mulai setelah klip sebelumnya selesai."
+                    else -> "Boleh disembunyikan; render tetap berjalan di latar dan hasilnya tersimpan di Galeri."
+                },
+                style = MaterialTheme.typography.bodySmall, color = if (failed) c.bad else c.textMuted, textAlign = TextAlign.Center, maxLines = 4,
+            )
+            if (busy) ProgressBar(if (status == RenderStatus.Rendering) fraction else null, color = c.accent)
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                when {
+                    done -> {
+                        SecondaryButton("Tutup", onClick = onDismiss, modifier = Modifier.weight(1f))
+                        PrimaryButton("Bagikan", icon = ClipMiIcons.Share, modifier = Modifier.weight(1f), onClick = {
+                            val ok = id.clipmi.android.ui.screens.shareVideo(context, clip?.outputPath, clip?.title)
+                            notifier.show(if (ok) "Caption & hashtag disalin. Tempel di aplikasi tujuan." else "File hasil tidak ditemukan.")
+                        })
+                    }
+                    failed -> {
+                        SecondaryButton("Tutup", onClick = onDismiss, modifier = Modifier.weight(1f))
+                        PrimaryButton("Coba lagi", modifier = Modifier.weight(1f), onClick = {
+                            scope.launch { container.database.clips().find(state.entity.id)?.let { RenderQueue.render(context, it) } }
+                        })
+                    }
+                    else -> {
+                        SecondaryButton("Sembunyikan", onClick = onDismiss, modifier = Modifier.weight(1f))
+                        SecondaryButton("Batalkan", onClick = {
+                            scope.launch { clip?.let { RenderQueue.cancel(context, it) } }
+                            onDismiss()
+                        }, modifier = Modifier.weight(1f), contentColor = c.bad)
+                    }
+                }
+            }
+            if (done || busy) GhostButton("Lihat semua hasil render", onClick = onOpenResults)
+        }
+    }
+}

@@ -1,5 +1,8 @@
 package id.clipmi.android.ui.screens
 
+import androidx.compose.ui.graphics.Color
+import id.clipmi.android.ui.components.IconCircle
+import id.clipmi.android.ui.components.PromptStyleGuideSheet
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -84,6 +87,8 @@ private fun PromptStyleSheet(container: AppContainer, project: ProjectEntity, on
     var editing by remember { mutableStateOf<PromptStyle?>(null) }
     var creating by remember { mutableStateOf(false) }
     var reload by remember { mutableStateOf(0) }
+    var guide by remember { mutableStateOf(false) }
+    if (guide) PromptStyleGuideSheet(onDismiss = { guide = false })
 
     LaunchedEffect(Unit) {
         val (style, options) = container.analysis.promptStyle(project)
@@ -138,7 +143,11 @@ private fun PromptStyleSheet(container: AppContainer, project: ProjectEntity, on
                     else if (on) Icon(ClipMiIcons.CircleCheck, null, tint = c.accent, modifier = Modifier.padding(end = 8.dp).size(20.dp))
                 }
             }
-            GhostButton("+ Buat gaya sendiri", onClick = { creating = true })
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                GhostButton("+ Buat gaya sendiri", onClick = { creating = true })
+                // Panduan membuat gaya sendiri.
+                IconCircle(ClipMiIcons.Book, "Panduan gaya sendiri", { guide = true }, size = 36.dp, background = Color.Transparent, border = false, tint = c.textMuted)
+            }
         }
 
         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {

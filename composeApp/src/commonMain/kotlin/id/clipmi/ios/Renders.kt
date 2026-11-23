@@ -18,8 +18,29 @@ class Renders(val renderer: IosRenderer, val scope: CoroutineScope) {
         private set
     private var job: Job? = null
 
+    /** Klip yang menunggu giliran render (satu per satu). */
+    var queued by mutableStateOf<List<Long>>(emptyList())
+        private set
+
+    /** Merender beberapa klip berurutan (padanan antrean render Android). */
+    fun startAll(clipIds: List<Long>) {
+        val fresh = clipIds.filter { it != active && it !in queued }
+        if (fresh.isEmpty()) return
+        queued = queued + fresh
+        if (active == null) next()
+    }
+
+    private fun next() {
+        val id = queued.firstOrNull() ?: return
+        queued = queued.drop(1)
+        start(id)
+    }
+
     fun start(clipId: Long) {
-        if (active != null) return
+        if (active != null) {
+            if (clipId != active && clipId !in queued) queued = queued + clipId
+            return
+        }
         active = clipId
         fraction = 0.0
         job = scope.launch {
@@ -30,9 +51,18 @@ class Renders(val renderer: IosRenderer, val scope: CoroutineScope) {
             } finally {
                 active = null
                 job = null
+                next()
             }
         }
     }
 
-    fun cancel() = renderer.cancel()
+    /** Membatalkan render yang berjalan sekaligus antreannya. */
+    fun cancel() {
+        queued = emptyList()
+        renderer.cancel()
+    }
+
+    fun unqueue(clipId: Long) {
+        queued = queued - clipId
+    }
 }

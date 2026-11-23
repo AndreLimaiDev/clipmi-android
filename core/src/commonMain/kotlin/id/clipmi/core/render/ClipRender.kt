@@ -73,11 +73,11 @@ data class ClipSpec(
 
     fun hookLayout(): HookLayout = HookLayout.resolve(hookLayout, outputDuration(), leadSeconds())
 
-    fun effectiveCropPosition(): Int = cropPosition ?: projectCropPosition
+    fun effectiveCropPosition(): Int = cropPosition ?: frame.cropX ?: projectCropPosition
 
     fun effectiveZoom(): Double = if (cropZoom != null) clamp(cropZoom, ZOOM_RANGE.first, ZOOM_RANGE.last) / 100.0 else frame.zoomFactor()
 
-    fun effectiveCropY(): Int = clamp(cropY ?: 50, 0, 100)
+    fun effectiveCropY(): Int = clamp(cropY ?: frame.cropY ?: 50, 0, 100)
 
     fun displayTitle(): String = ClipText.displayTitle(title, partNumber)
 

@@ -14,6 +14,7 @@ private val templateJson = Json { ignoreUnknownKeys = true }
 fun CaptionStyleEntity.toCore() = CaptionStyle(
     name, fontFamily, fontSize, uppercase, primaryColor, outlineColor, highlightActiveWord, highlightStyle, highlightColor,
     upcomingColor, keywordHighlight, keywordColor, position, wordsPerLine, animation, effect, lineBox, lineBoxColor, lineBoxOpacity,
+    highlightRadius = highlightRadius, highlightHeight = highlightHeight, highlightWidth = highlightWidth, highlightY = highlightY,
 )
 
 fun FrameStyleEntity.toCore() = FrameStyle(
@@ -26,4 +27,5 @@ fun FrameStyleEntity.toCore() = FrameStyle(
     watermarkText = watermarkText, watermarkFont = watermarkFont, watermarkSize = watermarkSize, watermarkColor = watermarkColor,
     watermarkOpacity = watermarkOpacity, watermarkX = watermarkX, watermarkY = watermarkY, titleBar = titleBar,
     titleBarColor = titleBarColor, titleTextColor = titleTextColor, subtitleY = subtitleY,
+    cropX = cropX, cropY = cropY, templateFill = templateFill,
 )

@@ -286,6 +286,12 @@ data class CaptionStyleEntity(
     @ColumnInfo(name = "line_box") val lineBox: Boolean = false,
     @ColumnInfo(name = "line_box_color") val lineBoxColor: String = "#000000",
     @ColumnInfo(name = "line_box_opacity") val lineBoxOpacity: Int = 65,
+    /** Kotak sorot kata: sudut membulat (px) dan tinggi (persen); null = kotak lama seperti desktop. */
+    @ColumnInfo(name = "highlight_radius") val highlightRadius: Int? = null,
+    @ColumnInfo(name = "highlight_height") val highlightHeight: Int? = null,
+    /** Lebar kotak (persen) dan posisi tegak (0 atas … 100 bawah); null = bawaan. */
+    @ColumnInfo(name = "highlight_width") val highlightWidth: Int? = null,
+    @ColumnInfo(name = "highlight_y") val highlightY: Int? = null,
     @ColumnInfo(name = "is_default") val isDefault: Boolean = false,
     @ColumnInfo(name = "created_at") val createdAt: Long = nowMillis(),
     @ColumnInfo(name = "updated_at") val updatedAt: Long = nowMillis(),
@@ -327,6 +333,11 @@ data class FrameStyleEntity(
     @ColumnInfo(name = "title_bar_color") val titleBarColor: String = "#000000",
     @ColumnInfo(name = "title_text_color") val titleTextColor: String = "#FFFFFF",
     @ColumnInfo(name = "subtitle_y") val subtitleY: Int? = null,
+    /** Crop bawaan gaya (0–100) untuk klip yang belum mengatur crop sendiri; null = bawaan project. */
+    @ColumnInfo(name = "crop_x") val cropX: Int? = null,
+    @ColumnInfo(name = "crop_y") val cropY: Int? = null,
+    /** Template: "full" = video memenuhi layar di balik template; null = di area transparan saja. */
+    @ColumnInfo(name = "template_fill") val templateFill: String? = null,
     @ColumnInfo(name = "is_default") val isDefault: Boolean = false,
     @ColumnInfo(name = "created_at") val createdAt: Long = nowMillis(),
     @ColumnInfo(name = "updated_at") val updatedAt: Long = nowMillis(),

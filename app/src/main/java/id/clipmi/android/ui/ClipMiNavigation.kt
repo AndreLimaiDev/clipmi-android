@@ -1,5 +1,8 @@
 package id.clipmi.android.ui
 
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.mutableStateOf
 import id.clipmi.android.ui.styles.StylesHeader
@@ -183,7 +186,9 @@ fun ClipMiNavigation(container: AppContainer, shared: SharedResult?, onSharedHan
                 restoreState = true
             }
         }
-        Box(Modifier.fillMaxSize().background(ClipMi.colors.bg)) {
+        val focusManager = LocalFocusManager.current
+        // Ketuk di luar kolom teks (bagian yang tidak menangkap ketukan) menutup keyboard.
+        Box(Modifier.fillMaxSize().background(ClipMi.colors.bg).pointerInput(Unit) { detectTapGestures(onTap = { focusManager.clearFocus() }) }) {
           // Layar lebar: navigasi utama di samping kiri, isi di kanannya (poni kamera di kiri ditangani navigasinya).
           Row(Modifier.fillMaxSize()) {
             if (wide) {

@@ -7,6 +7,17 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.size
 import androidx.compose.material3.Icon
 import androidx.compose.runtime.Composable
+import platform.CoreMedia.CMTimeMakeWithSeconds
+import platform.CoreMedia.CMTimeMake
+import platform.CoreMedia.CMTimeGetSeconds
+import platform.AVFoundation.seekToTime
+import platform.AVFoundation.rate
+import platform.AVFoundation.play
+import platform.AVFoundation.currentTime
+import kotlinx.coroutines.delay
+import androidx.compose.runtime.setValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.produceState
@@ -86,9 +97,37 @@ actual fun ClipThumbnail(repo: Repository, engine: MediaEngine, clip: ClipEntity
 
 @OptIn(ExperimentalForeignApi::class)
 @Composable
-actual fun SourceVideo(path: String, modifier: Modifier) {
+actual fun SourceVideo(path: String, modifier: Modifier, playback: SourcePlayback?) {
     val controller = remember(path) { AVPlayerViewController().apply { player = AVPlayer(uRL = NSURL.fileURLWithPath(path)) } }
     DisposableEffect(controller) { onDispose { controller.player?.pause() } }
+    if (playback != null) {
+        var stopAt by remember { mutableStateOf<Double?>(null) }
+        // Putar dari luar (ketuk segmen transkrip atau "Putar" di kartu klip).
+        LaunchedEffect(playback.request) {
+            val request = playback.request ?: return@LaunchedEffect
+            val player = controller.player ?: return@LaunchedEffect
+            player.seekToTime(CMTimeMakeWithSeconds(request.start, 600), CMTimeMake(0, 1), CMTimeMake(0, 1))
+            player.play()
+            stopAt = request.end
+            playback.consumed()
+        }
+        // Waktu pemutar untuk menandai segmen yang sedang diputar, dan berhenti di akhir rentang klip.
+        LaunchedEffect(controller) {
+            while (true) {
+                val player = controller.player
+                if (player != null) {
+                    val now = CMTimeGetSeconds(player.currentTime()).takeIf { !it.isNaN() }
+                    playback.position = if (player.rate > 0f || playback.position != null) now else null
+                    val end = stopAt
+                    if (end != null && now != null && now >= end) {
+                        player.pause()
+                        stopAt = null
+                    }
+                }
+                delay(250)
+            }
+        }
+    }
     UIKitViewController(factory = { controller }, modifier = modifier)
 }
 

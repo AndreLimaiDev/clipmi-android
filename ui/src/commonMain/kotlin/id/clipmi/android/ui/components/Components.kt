@@ -64,6 +64,8 @@ import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.ui.text.input.TextFieldValue
+import androidx.compose.ui.text.TextRange
 import androidx.compose.runtime.Stable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateMapOf
@@ -97,6 +99,12 @@ import id.clipmi.android.ui.theme.ClipMi
 import id.clipmi.android.ui.theme.ClipMiIcons
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.delay
+import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.foundation.layout.ime
+import androidx.compose.foundation.relocation.bringIntoViewRequester
+import androidx.compose.foundation.relocation.BringIntoViewRequester
 
 // ---------------------------------------------------------------------------------------------------------------
 // Tata letak dasar
@@ -620,7 +628,7 @@ fun ChipRow(modifier: Modifier = Modifier, gutter: Dp = ScreenGutter, content: @
 
 /** Tab bersegmen (Transkrip | Klip). */
 @Composable
-fun SegmentedTabs(labels: List<String>, selected: Int, onSelect: (Int) -> Unit, modifier: Modifier = Modifier) {
+fun SegmentedTabs(labels: List<String>, selected: Int, onSelect: (Int) -> Unit, modifier: Modifier = Modifier, badges: List<Int?> = emptyList()) {
     val c = ClipMi.colors
     Row(
         modifier.fillMaxWidth().clip(RoundedCornerShape(18.dp)).background(c.card).border(1.dp, c.line, RoundedCornerShape(18.dp)).padding(4.dp),
@@ -636,11 +644,26 @@ fun SegmentedTabs(labels: List<String>, selected: Int, onSelect: (Int) -> Unit, 
                     .clickable(role = Role.Tab) { onSelect(i) },
                 contentAlignment = Alignment.Center,
             ) {
-                Text(
-                    label,
-                    style = MaterialTheme.typography.titleSmall.copy(fontWeight = if (active) FontWeight.Bold else FontWeight.SemiBold),
-                    color = if (active) c.text else c.textMuted,
-                )
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Text(
+                        label,
+                        style = MaterialTheme.typography.titleSmall.copy(fontWeight = if (active) FontWeight.Bold else FontWeight.SemiBold),
+                        color = if (active) c.text else c.textMuted,
+                    )
+                    // Jumlah sebagai badge kecil (misalnya jumlah klip atau segmen transkrip).
+                    badges.getOrNull(i)?.let { count ->
+                        Box(
+                            Modifier.heightIn(min = 20.dp).clip(RoundedCornerShape(10.dp)).background(if (active) c.accent else c.line).padding(horizontal = 7.dp),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            Text(
+                                count.toString(),
+                                style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
+                                color = if (active) c.onAccent else c.textMuted,
+                            )
+                        }
+                    }
+                }
             }
         }
     }
@@ -698,6 +721,118 @@ fun Field(
             ),
         )
         (error ?: supporting)?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = if (error != null) c.bad else c.textMuted) }
+    }
+}
+
+/**
+ * Kolom teks sampul dengan bilah alat ikon di bawahnya: Sorot (membungkus pilihan atau kata di kursor dengan `*`),
+ * Hapus sorotan, Baris baru, dan KAPITAL. Tanda `*kata*` tetap tampil di teks (sama dengan aturan judul sampul).
+ */
+@Composable
+fun MarkupField(
+    value: String,
+    onValueChange: (String) -> Unit,
+    modifier: Modifier = Modifier,
+    label: String? = null,
+    supporting: String? = null,
+    minLines: Int = 2,
+    maxLines: Int = 6,
+    trailing: (@Composable () -> Unit)? = null,
+) {
+    val c = ClipMi.colors
+    var field by remember { mutableStateOf(TextFieldValue(value, TextRange(value.length))) }
+    LaunchedEffect(value) { if (value != field.text) field = TextFieldValue(value, TextRange(value.length)) }
+    fun apply(next: TextFieldValue) {
+        field = next
+        if (next.text != value) onValueChange(next.text)
+    }
+    /** Pilihan, atau kata di posisi kursor bila tidak ada yang dipilih. */
+    fun range(): Pair<Int, Int> {
+        val t = field.text
+        val sel = field.selection
+        if (!sel.collapsed) return sel.min to sel.max
+        var start = sel.start.coerceIn(0, t.length)
+        var end = start
+        while (start > 0 && !t[start - 1].isWhitespace()) start--
+        while (end < t.length && !t[end].isWhitespace()) end++
+        return start to end
+    }
+    // Saat kolom aktif dan keyboard terbuka, gulir supaya kolom beserta bilah alat di bawahnya terlihat utuh.
+    val requester = remember { BringIntoViewRequester() }
+    var focused by remember { mutableStateOf(false) }
+    val keyboardOpen = WindowInsets.ime.getBottom(LocalDensity.current) > 0
+    LaunchedEffect(focused, keyboardOpen) {
+        if (focused) {
+            delay(250)
+            requester.bringIntoView()
+        }
+    }
+    Column(modifier.fillMaxWidth().bringIntoViewRequester(requester), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        label?.let { Text(it, style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold), color = c.textBody) }
+        OutlinedTextField(
+            value = field,
+            onValueChange = { apply(it) },
+            modifier = Modifier.fillMaxWidth().onFocusChanged { focused = it.isFocused },
+            trailingIcon = trailing,
+            minLines = minLines,
+            maxLines = maxLines,
+            textStyle = MaterialTheme.typography.bodyMedium.copy(color = c.text),
+            shape = MaterialTheme.shapes.medium,
+            colors = OutlinedTextFieldDefaults.colors(
+                focusedContainerColor = c.bg,
+                unfocusedContainerColor = c.bg,
+                focusedBorderColor = c.accent,
+                unfocusedBorderColor = c.line,
+                cursorColor = c.accent,
+            ),
+        )
+        // Bilah alat di bawah kolom: menu pilihan teks bawaan sistem muncul di atas pilihan, jadi tidak menutupinya.
+        Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
+            MarkupTool("Sorot kata", ClipMiIcons.Highlighter, accent = true) {
+                val (start, end) = range()
+                if (end > start) {
+                    val t = field.text
+                    val core = t.substring(start, end).trim('*')
+                    val text = t.substring(0, start) + "*" + core + "*" + t.substring(end)
+                    apply(TextFieldValue(text, TextRange(start, start + core.length + 2)))
+                }
+            }
+            MarkupTool("Hapus sorotan", ClipMiIcons.Eraser) {
+                val sel = field.selection
+                val (start, end) = if (sel.collapsed) 0 to field.text.length else sel.min to sel.max
+                val t = field.text
+                val inner = t.substring(start, end).replace("*", "")
+                apply(TextFieldValue(t.substring(0, start) + inner + t.substring(end), TextRange(start, start + inner.length)))
+            }
+            MarkupTool("Baris baru", ClipMiIcons.NewLine) {
+                val t = field.text
+                val at = field.selection.max
+                apply(TextFieldValue(t.substring(0, at) + "\n" + t.substring(at), TextRange(at + 1)))
+            }
+            MarkupTool("Huruf kapital", ClipMiIcons.TextCase) {
+                val (start, end) = range()
+                if (end > start) {
+                    val t = field.text
+                    val part = t.substring(start, end)
+                    val next = if (part == part.uppercase()) part.lowercase() else part.uppercase()
+                    apply(TextFieldValue(t.substring(0, start) + next + t.substring(end), TextRange(start, end)))
+                }
+            }
+            supporting?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = c.textMuted, modifier = Modifier.weight(1f).padding(start = 4.dp), maxLines = 2) }
+        }
+    }
+}
+
+/** Tombol ikon bilah alat teks (kotak membulat 12dp); [label] dibacakan pembaca layar. */
+@Composable
+private fun MarkupTool(label: String, icon: ImageVector, accent: Boolean = false, onClick: () -> Unit) {
+    val c = ClipMi.colors
+    Box(
+        Modifier.size(40.dp).clip(RoundedCornerShape(12.dp)).background(if (accent) c.accent.copy(alpha = 0.16f) else c.panel)
+            .clickable(role = Role.Button, onClickLabel = label, onClick = onClick),
+        contentAlignment = Alignment.Center,
+    ) {
+        Icon(icon, contentDescription = label, tint = if (accent) c.accent else c.text, modifier = Modifier.size(20.dp))
     }
 }
 

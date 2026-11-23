@@ -1,6 +1,9 @@
 package id.clipmi.ios
 
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontFamily
 import id.clipmi.android.data.ClipEntity
@@ -14,9 +17,32 @@ expect fun ProjectThumbnail(repo: Repository, engine: MediaEngine, project: Proj
 @Composable
 expect fun ClipThumbnail(repo: Repository, engine: MediaEngine, clip: ClipEntity, modifier: Modifier)
 
-/** Pemutar video sumber dengan kontrol bawaan iOS. */
+/**
+ * Kendali pemutar video sumber dari luar: [play] memutar dari [start] dan berhenti di [end] (null = sampai habis);
+ * [position] = waktu pemutar saat ini (detik), null bila belum diputar. Sama dengan pemutar halaman project Android.
+ */
+class SourcePlayback {
+    /** Permintaan putar; [id] baru setiap kali, supaya ketukan berulang di segmen yang sama tetap memutar ulang. */
+    data class Request(val start: Double, val end: Double?, val id: Int)
+
+    var request by mutableStateOf<Request?>(null)
+        private set
+    var position by mutableStateOf<Double?>(null)
+    private var counter = 0
+
+    fun play(start: Double, end: Double? = null) {
+        counter++
+        request = Request(start, end, counter)
+    }
+
+    fun consumed() {
+        request = null
+    }
+}
+
+/** Pemutar video sumber dengan kontrol bawaan iOS; [playback] (opsional) memutar dari luar, misalnya dari transkrip. */
 @Composable
-expect fun SourceVideo(path: String, modifier: Modifier)
+expect fun SourceVideo(path: String, modifier: Modifier, playback: SourcePlayback? = null)
 
 /** Tanggal pendek bahasa Indonesia, misalnya "22 Nov". */
 expect fun dayMonth(millis: Long): String

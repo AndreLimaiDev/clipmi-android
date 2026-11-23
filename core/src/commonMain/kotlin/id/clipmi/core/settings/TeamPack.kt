@@ -62,6 +62,8 @@ object TeamPack {
         "name", "font_family", "font_size", "uppercase", "primary_color", "outline_color", "highlight_active_word",
         "highlight_style", "highlight_color", "upcoming_color", "keyword_highlight", "keyword_color", "position", "words_per_line", "animation", "effect",
         "line_box", "line_box_color", "line_box_opacity", "is_default",
+        // Khusus ClipMI HP (desktop mengabaikannya): kotak sorot kata yang diatur.
+        "highlight_radius", "highlight_height", "highlight_width", "highlight_y",
     )
 
     val FRAME_FIELDS = listOf(
@@ -69,6 +71,8 @@ object TeamPack {
         "video_position", "zoom", "corner_radius", "border_width", "border_color", "logo_x", "logo_y", "logo_size", "logo_opacity",
         "watermark_text", "watermark_font", "watermark_size", "watermark_color", "watermark_opacity", "watermark_x", "watermark_y",
         "title_bar", "title_bar_color", "title_text_color", "subtitle_y", "template_area", "is_default",
+        // Khusus ClipMI HP (desktop mengabaikannya): crop bawaan gaya dan video penuh di balik template.
+        "crop_x", "crop_y", "template_fill",
     )
 
     const val LOGO_MAX_BYTES = 2 * 1024 * 1024
@@ -105,6 +109,10 @@ object TeamPack {
         "line_box_color" to listOf(Rule.Sometimes, COLOR),
         "line_box_opacity" to listOf(Rule.Sometimes, Rule.Integer, Rule.Between(10.0, 100.0)),
         "is_default" to listOf(Rule.Bool),
+        "highlight_radius" to listOf(Rule.Nullable, Rule.Integer, Rule.Between(0.0, 80.0)),
+        "highlight_height" to listOf(Rule.Nullable, Rule.Integer, Rule.Between(10.0, 150.0)),
+        "highlight_width" to listOf(Rule.Nullable, Rule.Integer, Rule.Between(50.0, 200.0)),
+        "highlight_y" to listOf(Rule.Nullable, Rule.Integer, Rule.Between(0.0, 100.0)),
     )
 
     private val FRAME_RULES: Map<String, List<Rule>> = linkedMapOf(
@@ -139,6 +147,9 @@ object TeamPack {
         "title_bar_color" to listOf(Rule.Sometimes, COLOR),
         "title_text_color" to listOf(Rule.Sometimes, COLOR),
         "is_default" to listOf(Rule.Bool),
+        "crop_x" to listOf(Rule.Nullable, Rule.Integer, Rule.Between(0.0, 100.0)),
+        "crop_y" to listOf(Rule.Nullable, Rule.Integer, Rule.Between(0.0, 100.0)),
+        "template_fill" to listOf(Rule.Nullable, Rule.In(listOf("area", "full"))),
     )
 
     private val CORRECTION_RULES: Map<String, List<Rule>> = linkedMapOf(

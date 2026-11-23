@@ -1,5 +1,6 @@
 package id.clipmi.ios
 
+import id.clipmi.core.render.HighlightBox
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -314,6 +315,7 @@ fun CaptionStyleFields(renderer: IosRenderer, style: CaptionStyleEntity, update:
         if (style.highlightActiveWord) {
             ChoiceRow("Cara sorot", CaptionStyle.HIGHLIGHT_STYLES, style.highlightStyle) { v -> update { it.copy(highlightStyle = v) } }
             ColorField("Warna sorotan", style.highlightColor) { v -> update { it.copy(highlightColor = v) } }
+            if (style.highlightStyle == "box") HighlightBoxFields(style, update)
         }
         ToggleField("Redupkan kata berikutnya", null, style.upcomingColor != null) { v -> update { it.copy(upcomingColor = if (v) "#9CA3AF" else null) } }
         style.upcomingColor?.let { color -> ColorField("Warna kata berikutnya", color) { v -> update { it.copy(upcomingColor = v) } } }
@@ -593,7 +595,11 @@ fun FrameStyleFields(
             ChoiceRow("Letak video", FrameStyle.VIDEO_POSITIONS, style.videoPosition) { v -> update { it.copy(videoPosition = v) } }
         }
         if (mode == "top") IntSlider("Tinggi area video", style.videoHeight, 30..85, { v -> update { it.copy(videoHeight = v) } }, suffix = "%")
+        if (mode == "template") {
+            ChoiceRow("Video di template", TEMPLATE_FILLS, style.templateFill ?: "area") { v -> update { it.copy(templateFill = v.takeIf { f -> f != "area" }) } }
+        }
         IntSlider("Zoom", style.zoom, 100..200, { v -> update { it.copy(zoom = (v / 5) * 5) } }, suffix = "%")
+        if (mode == "crop" || mode == "top" || mode == "template") CropFields(style, update)
     }
 
     if (mode != "crop" && mode != "template") {
@@ -628,7 +634,9 @@ fun FrameStyleFields(
             error = imageError?.takeIf { it.first == "logo" }?.second,
         )
         if (style.logoPath != null) {
-            AnchorPicker("Posisi logo", style.logoX, style.logoY, hint = "Seret titik untuk posisi bebas.") { x, y -> update { it.copy(logoX = x, logoY = y) } }
+            AnchorPicker("Posisi logo", style.logoX, style.logoY, hint = "Seret titik, atau atur angkanya di bawah.") { x, y -> update { it.copy(logoX = x, logoY = y) } }
+            IntSlider("Posisi mendatar (X)", style.logoX, 0..100, { v -> update { it.copy(logoX = v) } }, suffix = "%")
+            IntSlider("Posisi tegak (Y)", style.logoY, 0..100, { v -> update { it.copy(logoY = v) } }, suffix = "%")
             IntSlider("Ukuran logo", style.logoSize, 5..40, { v -> update { it.copy(logoSize = v) } }, suffix = "%")
             IntSlider("Kepekatan logo", style.logoOpacity, 10..100, { v -> update { it.copy(logoOpacity = v) } }, suffix = "%")
         }
@@ -654,4 +662,51 @@ fun FrameStyleFields(
         ToggleField("Posisi subtitle otomatis", "Mengikuti tata letak", style.subtitleY == null) { v -> update { it.copy(subtitleY = if (v) null else 75) } }
         style.subtitleY?.let { y -> IntSlider("Posisi subtitle (dari atas)", y, 5..95, { v -> update { it.copy(subtitleY = v) } }, suffix = "%") }
     }
+}
+
+private val TEMPLATE_FILLS = linkedMapOf("area" to "Di area transparan", "full" to "Penuh di balik template")
+
+/**
+ * Kotak sorot kata: preset cepat lalu sudut, tinggi, lebar, dan posisi tegak bisa diatur sendiri (stabilo, pita tengah,
+ * garis bawah, pil). Tanpa pengaturan = kotak lama (sama dengan ClipMI PC). Sama di Android dan iOS.
+ */
+@Composable
+private fun HighlightBoxFields(style: CaptionStyleEntity, update: ((CaptionStyleEntity) -> CaptionStyleEntity) -> Unit) {
+    fun CaptionStyleEntity.box(): HighlightBox? =
+        if (highlightRadius == null && highlightHeight == null && highlightWidth == null && highlightY == null) null
+        else HighlightBox(highlightRadius ?: 0, highlightHeight ?: 100, highlightWidth ?: 100, highlightY ?: HighlightBox.defaultY(highlightHeight ?: 100))
+    fun CaptionStyleEntity.with(box: HighlightBox?) =
+        copy(highlightRadius = box?.radius, highlightHeight = box?.height, highlightWidth = box?.width, highlightY = box?.y)
+    fun change(edit: (HighlightBox) -> HighlightBox) = update { it.with(edit(it.box() ?: HighlightBox(0, 100, 100, 50))) }
+
+    val box = style.box()
+    val presets = CaptionStyle.HIGHLIGHT_BOXES
+    val current = presets.entries.firstOrNull { it.value.second == box }?.key ?: "atur"
+    ChoiceRow("Bentuk kotak", presets.mapValues { it.value.first } + ("atur" to "Diatur sendiri"), current) { key ->
+        val preset = presets[key]
+        if (preset != null) update { it.with(preset.second) } else change { it.copy(radius = if (box == null) 12 else it.radius) }
+    }
+    val shape = box ?: HighlightBox(0, 100, 100, 50)
+    IntSlider("Sudut membulat", shape.radius, 0..HighlightBox.RADIUS_MAX, { v -> change { it.copy(radius = v) } })
+    IntSlider("Tinggi kotak", shape.height, HighlightBox.HEIGHT_RANGE, { v -> change { it.copy(height = v) } }, suffix = "%")
+    IntSlider("Lebar kotak", shape.width, HighlightBox.WIDTH_RANGE, { v -> change { it.copy(width = v) } }, suffix = "%")
+    IntSlider("Posisi tegak", shape.y, HighlightBox.Y_RANGE, { v -> change { it.copy(y = v) } }, suffix = "%")
+    Text(
+        "Posisi tegak: 0% = paling atas, 50% = tengah huruf, 100% = paling bawah (stabilo); terasa bila tinggi kotak bukan 100%. " +
+            "Pengaturan ini hanya di ClipMI HP; ClipMI PC memakai kotak biasa.",
+        style = MaterialTheme.typography.bodySmall, color = ClipMi.colors.textMuted,
+    )
+}
+
+/** Posisi crop bawaan gaya ini untuk klip yang belum mengatur crop sendiri di editor (tab Crop). */
+@Composable
+private fun CropFields(style: FrameStyleEntity, update: ((FrameStyleEntity) -> FrameStyleEntity) -> Unit) {
+    ToggleField("Posisi crop dari gaya ini", "Mati = ikut posisi crop project", style.cropX != null || style.cropY != null) { on ->
+        update { if (on) it.copy(cropX = it.cropX ?: 50, cropY = it.cropY ?: 50) else it.copy(cropX = null, cropY = null) }
+    }
+    if (style.cropX != null || style.cropY != null) {
+        IntSlider("Crop mendatar (kiri–kanan)", style.cropX ?: 50, 0..100, { v -> update { it.copy(cropX = v) } }, suffix = "%")
+        IntSlider("Crop tegak (atas–bawah)", style.cropY ?: 50, 0..100, { v -> update { it.copy(cropY = v) } }, suffix = "%")
+    }
+    Text("Crop tiap klip tetap bisa diubah di editor, tab Crop.", style = MaterialTheme.typography.bodySmall, color = ClipMi.colors.textMuted)
 }
