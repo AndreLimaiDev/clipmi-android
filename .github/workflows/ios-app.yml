@@ -102,8 +102,10 @@ jobs:
         working-directory: iosApp
         run: |
           set -o pipefail
+          # Nomor build = nomor run CI: tiap .ipa berbeda, jadi SideStore bisa menawarkan update (scripts/ios-release.py).
           xcodebuild -project ClipMI.xcodeproj -scheme ClipMI -configuration Release \
             -sdk iphoneos -destination 'generic/platform=iOS' -derivedDataPath build \
+            CURRENT_PROJECT_VERSION=${{ github.run_number }} \
             CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" build | tail -200
 
       - name: Bungkus IPA
