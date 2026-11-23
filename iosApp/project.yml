@@ -11,6 +11,8 @@ targets:
     platform: iOS
     sources:
       - path: Sources
+      # Ikon aplikasi (sama dengan ikon Android; sumber vektor di icon/AppIcon.svg).
+      - path: Assets.xcassets
       # Lebar teks FreeType untuk kotak hook: file C yang sama dengan Android.
       - path: ../app/src/main/cpp/text_measure_core.c
       - path: ../app/src/main/cpp/text_measure_core.h
@@ -75,6 +77,7 @@ targets:
         GENERATE_INFOPLIST_FILE: YES
         INFOPLIST_FILE: Info.plist
         INFOPLIST_KEY_CFBundleDisplayName: ClipMI
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         INFOPLIST_KEY_UILaunchScreen_Generation: YES
         INFOPLIST_KEY_UISupportedInterfaceOrientations: UIInterfaceOrientationPortrait
         INFOPLIST_KEY_LSSupportsOpeningDocumentsInPlace: YES
