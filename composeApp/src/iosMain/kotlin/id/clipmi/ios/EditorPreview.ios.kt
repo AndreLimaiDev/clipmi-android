@@ -1,5 +1,7 @@
 package id.clipmi.ios
 
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.Image
@@ -284,8 +286,43 @@ internal fun Preview(state: EditorState, composition: Composition, preview: Prev
         val scale = widthPx / composition.canvas.width
         Background(state, composition)
         VideoLayer(composition, state.sourceSize, scale, preview, state.snapshot.clip.startTime)
+        // Gambar template dan logo gaya bingkai, sama urutannya dengan render: video, template, logo, lalu subtitle.
+        val frame = state.frameStyle()
+        if (composition.template) FrameImage(state, frame.templatePath, ContentScale.FillBounds)
+        LogoLayer(state, frame.logoPath, composition, scale)
         AssOverlay(state, composition, preview, hookTime)
     }
+}
+
+/** Gambar gaya bingkai (template atau latar) selebar layar hasil; dibaca di luar thread UI. */
+@Composable
+internal fun FrameImage(state: EditorState, relative: String?, contentScale: ContentScale) {
+    val image by produceState<ImageBitmap?>(null, relative) {
+        value = relative?.let { path -> withContext(Dispatchers.Default) { decodeImage(state.absolute(path)) } }
+    }
+    image?.let { Image(it, contentDescription = null, contentScale = contentScale, modifier = Modifier.fillMaxSize()) }
+}
+
+/** Logo gaya bingkai di posisi yang sama dengan render (`anchorExpression`), sama dengan pratinjau Android. */
+@Composable
+private fun LogoLayer(state: EditorState, relative: String?, composition: Composition, scale: Float) {
+    val image by produceState<ImageBitmap?>(null, relative) {
+        value = relative?.let { path -> withContext(Dispatchers.Default) { decodeImage(state.absolute(path)) } }
+    }
+    val bitmap = image ?: return
+    val density = LocalDensity.current
+    val logo = composition.logo
+    val area = composition.anchorArea
+    val canvas = composition.canvas
+    val height = logo.width.toFloat() * bitmap.height / maxOf(1, bitmap.width)
+    val left = area.left + (canvas.width - logo.width - area.left - area.right) * logo.x.toFloat()
+    val top = area.top + (canvas.height - height - area.top - area.bottom) * logo.y.toFloat()
+    Image(
+        bitmap, contentDescription = null, alpha = logo.opacity.toFloat(), contentScale = ContentScale.FillBounds,
+        modifier = Modifier
+            .offset { IntOffset((left * scale).roundToInt(), (top * scale).roundToInt()) }
+            .requiredSize(with(density) { (logo.width * scale).toDp() }, with(density) { (height * scale).toDp() }),
+    )
 }
 
 /** Bagian video yang tidak muat di areanya, sebagai pecahan lebar/tinggi layar hasil (dasar geser crop). */
@@ -354,6 +391,7 @@ internal fun Background(state: EditorState, composition: Composition) {
             }
         }
         "gradient" -> Box(Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(color, parse(background.color2) ?: Color.Black))))
+        "image" -> Box(Modifier.fillMaxSize().background(color)) { FrameImage(state, state.frameStyle().backgroundPath, ContentScale.Crop) }
         else -> Box(Modifier.fillMaxSize().background(color))
     }
 }

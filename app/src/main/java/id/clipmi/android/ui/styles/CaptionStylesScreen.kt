@@ -162,7 +162,8 @@ fun CaptionStyleEditScreen(container: AppContainer, id: Long, copyOf: Long, onBa
     val leave = rememberDiscardGuard(dirty, onBack)
 
     fun update(change: (CaptionStyleEntity) -> CaptionStyleEntity) {
-        draft = change(style)
+        // Dari isi terbaru, bukan nilai saat digambar: callback gestur yang tertahan tidak menimpa perubahan lain.
+        draft = change(draft ?: style)
     }
 
     fun save() = scope.launch {

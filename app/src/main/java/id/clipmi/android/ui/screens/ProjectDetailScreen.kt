@@ -229,7 +229,7 @@ fun ProjectDetailScreen(container: AppContainer, projectId: Long, onBack: () -> 
             val start: suspend () -> Unit = { container.actions.startTranscription(projectId) }
             if (segments.isEmpty()) scope.launch { start() }
             else confirm = Confirm(
-                "Transkripsi ulang lewat API?",
+                "Transkripsi otomatis ulang?",
                 "Transkrip sekarang diganti hasil transkripsi API. Biaya API ditagih penyedia sesuai panjang audio.",
                 "Transkripsi",
                 action = start,
@@ -287,7 +287,7 @@ fun ProjectDetailScreen(container: AppContainer, projectId: Long, onBack: () -> 
                             })
                         } else {
                             ActionChip("Impor SRT/VTT", importSubtitle, height = 32.dp)
-                            ActionChip("Transkripsi API", { transcribeApi() }, height = 32.dp, enabled = canTranscribe)
+                            ActionChip("Transkripsi Otomatis", { transcribeApi() }, height = 32.dp, enabled = canTranscribe)
                         }
                     }
                 }
@@ -312,7 +312,7 @@ fun ProjectDetailScreen(container: AppContainer, projectId: Long, onBack: () -> 
                             DropdownMenu(menu, onDismissRequest = { menu = false }, containerColor = c.card) {
                                 DropdownMenuItem(text = { Text("Terapkan kamus") }, onClick = { menu = false; applyDictionary() })
                                 DropdownMenuItem(text = { Text("Impor SRT/VTT") }, onClick = { menu = false; importSubtitle() })
-                                if (!transcribing) DropdownMenuItem(text = { Text("Transkripsi ulang lewat API") }, enabled = canTranscribe, onClick = { menu = false; transcribeApi() })
+                                if (!transcribing) DropdownMenuItem(text = { Text("Transkripsi Otomatis") }, enabled = canTranscribe, onClick = { menu = false; transcribeApi() })
                             }
                         }
                     }

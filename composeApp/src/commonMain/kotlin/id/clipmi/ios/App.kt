@@ -14,6 +14,9 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.DropdownMenu
+import androidx.compose.ui.text.withStyle
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.RowScope
@@ -221,7 +224,7 @@ fun App(repo: Repository, engine: MediaEngine) = ClipMiTheme {
                     }
                 }
                 is Route.Project -> ProjectScreen(
-                    repo, engine, downloads, renders, analysis, transcriber, top.id, onBack = pop, onEdit = { push(Route.Editor(it)) }, onSchedule = { push(Route.ScheduleEdit(clipId = it)) },
+                    repo, engine, downloads, renders, analysis, transcriber, localVideos, top.id, onBack = pop, onEdit = { push(Route.Editor(it)) }, onSchedule = { push(Route.ScheduleEdit(clipId = it)) },
                 )
                 Route.Backup -> Box(Modifier.statusBarsPadding()) { BackupScreen(repo, engine, onBack = pop) }
                 is Route.ScheduleEdit -> Box(Modifier.fillMaxSize()) {
@@ -645,7 +648,8 @@ private fun NewProjectSheet(repo: Repository, downloads: Downloads, onDismiss: (
 
 @Composable
 private fun ProjectScreen(
-    repo: Repository, engine: MediaEngine, downloads: Downloads, renders: Renders, analysis: IosAnalysis, transcriber: IosTranscriber, id: Long, onBack: () -> Unit, onEdit: (Long) -> Unit, onSchedule: (Long) -> Unit,
+    repo: Repository, engine: MediaEngine, downloads: Downloads, renders: Renders, analysis: IosAnalysis, transcriber: IosTranscriber, localVideos: LocalVideos,
+    id: Long, onBack: () -> Unit, onEdit: (Long) -> Unit, onSchedule: (Long) -> Unit,
 ) {
     val project by remember(id) { repo.db.projects().observe(id) }.collectAsState(null)
     val clips by remember(id) { repo.db.clips().observe(id) }.collectAsState(emptyList())
@@ -656,6 +660,7 @@ private fun ProjectScreen(
     var selectStart by remember(id) { mutableStateOf<Int?>(null) }
     var selectEnd by remember(id) { mutableStateOf<Int?>(null) }
     var editingSegment by remember(id) { mutableStateOf<TranscriptSegmentEntity?>(null) }
+    var query by remember(id) { mutableStateOf("") }
     val p = project ?: return
     val c = ClipMi.colors
     val source = p.videoPath?.takeIf { p.video == VideoStatus.Ready }?.let { repo.absolute(it) }
@@ -730,7 +735,7 @@ private fun ProjectScreen(
                             style = MaterialTheme.typography.bodySmall, color = c.textMuted,
                         )
                     }
-                    StatusCard(p, downloads, transcriptionReady)
+                    StatusCard(p, downloads, localVideos, transcriptionReady)
                     SegmentedTabs(
                         listOf("Klip", "Transkrip"), tab, { tab = it; selectStart = null; selectEnd = null },
                         badges = listOf(clips.count { it.review != ReviewStatus.Rejected }, segments.size),
@@ -744,13 +749,44 @@ private fun ProjectScreen(
                     })
                 }
             } else {
-                item {
+                // Belum ada transkrip (atau transkripsi berjalan): alatnya tampil langsung. Sudah ada: di menu ⋯ samping cari.
+                if (segments.isEmpty() || transcribing) item {
                     ChipRow(Modifier.padding(top = 12.dp)) {
                         if (transcribing) {
                             ActionChip("Batalkan transkripsi", { scope.launch { transcriber.cancel(p.id) } }, height = 32.dp)
                         } else {
                             ActionChip("Impor SRT/VTT", { importSubtitle() }, height = 32.dp)
-                            ActionChip(if (segments.isEmpty()) "Transkripsi API" else "Transkripsi ulang lewat API", { transcribeApi() }, height = 32.dp, enabled = canTranscribe)
+                            ActionChip("Transkripsi Otomatis", { transcribeApi() }, height = 32.dp, enabled = canTranscribe)
+                        }
+                    }
+                }
+                val needle = query.trim()
+                val shown = if (needle.isEmpty()) segments else segments.filter { it.text.contains(needle, ignoreCase = true) }
+                if (segments.isNotEmpty()) item {
+                    Row(
+                        Modifier.padding(start = ScreenGutter, end = ScreenGutter, top = 12.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        SearchField(
+                            query, { query = it }, "Cari di transkrip", Modifier.weight(1f),
+                            trailingText = if (needle.isNotEmpty()) "${shown.size} cocok" else null,
+                            onClear = { query = "" },
+                        )
+                        Box {
+                            var menu by remember { mutableStateOf(false) }
+                            ActionChip("", { menu = true }, height = 48.dp, icon = ClipMiIcons.More)
+                            DropdownMenu(menu, onDismissRequest = { menu = false }, containerColor = c.card) {
+                                DropdownMenuItem(text = { Text("Terapkan kamus") }, onClick = {
+                                    menu = false
+                                    scope.launch {
+                                        val count = repo.applyCorrections(p.id)
+                                        notifier.show(if (count > 0) "$count kata dikoreksi kamus." else "Tidak ada kata yang perlu dikoreksi.")
+                                    }
+                                })
+                                DropdownMenuItem(text = { Text("Impor SRT/VTT") }, onClick = { menu = false; importSubtitle() })
+                                if (!transcribing) DropdownMenuItem(text = { Text("Transkripsi Otomatis") }, enabled = canTranscribe, onClick = { menu = false; transcribeApi() })
+                            }
                         }
                     }
                 }
@@ -766,13 +802,13 @@ private fun ProjectScreen(
                         style = MaterialTheme.typography.bodySmall, color = c.textMuted, modifier = Modifier.padding(start = ScreenGutter, end = ScreenGutter, top = 12.dp),
                     )
                 }
-                items(segments, key = { it.id }) { segment ->
+                items(shown, key = { it.id }) { segment ->
                     val start = selectStart
                     val selected = start != null && segment.sequence in minOf(start, selectEnd ?: start)..maxOf(start, selectEnd ?: start)
                     val now = playback.position
                     val playing = now != null && now >= segment.startTime && now < segment.endTime
                     SegmentRow(
-                        segment, selected, playing,
+                        segment, needle, selected, playing,
                         onClick = {
                             when {
                                 start == null -> if (source != null) playback.play(segment.startTime) else notifier.show("Video sumber belum siap diputar.")
@@ -891,8 +927,11 @@ private fun SegmentEditSheet(segment: TranscriptSegmentEntity, onDone: () -> Uni
 
 /** Status video dan transkrip selama belum siap (unduhan, gagal, tanpa subtitle). */
 @Composable
-private fun StatusCard(p: ProjectEntity, downloads: Downloads, transcriptionReady: Boolean) {
+private fun StatusCard(p: ProjectEntity, downloads: Downloads, localVideos: LocalVideos, transcriptionReady: Boolean) {
     val c = ClipMi.colors
+    val scope = rememberCoroutineScope()
+    val notifier = LocalNotifier.current
+    var pickLocal by remember(p.id) { mutableStateOf(false) }
     val downloading = downloads.active == p.id
     val failed = p.video == VideoStatus.Failed || p.transcript == TranscriptStatus.Failed
     val message = p.transcriptionMessage
@@ -922,9 +961,36 @@ private fun StatusCard(p: ProjectEntity, downloads: Downloads, transcriptionRead
             }
         }
         if (downloading) ProgressBar(downloads.fraction.toFloat())
-        if (failed && p.isYouTube && downloads.active == null) {
-            SecondaryButton("Unduh ulang", onClick = { downloads.start(p.id) }, height = 44.dp, modifier = Modifier.fillMaxWidth())
+        val deleted = p.video == VideoStatus.Deleted
+        if (deleted && !downloading) {
+            Text(
+                "Transkrip dan klip tetap ada. Untuk memutar atau merender ulang, " + if (p.isYouTube) "unduh ulang videonya." else "pilih ulang video sumbernya.",
+                style = MaterialTheme.typography.bodySmall, color = c.textMuted,
+            )
         }
+        if ((failed || deleted) && !downloading) {
+            if (p.isYouTube) {
+                SecondaryButton("Unduh ulang video", icon = ClipMiIcons.Download, height = 44.dp, modifier = Modifier.fillMaxWidth(), onClick = {
+                    if (downloads.active == null) downloads.start(p.id)
+                    else notifier.show("Satu video diunduh pada satu waktu. Tunggu unduhan yang berjalan selesai.")
+                })
+            } else if (deleted) {
+                SecondaryButton(
+                    if (localVideos.busy) "Menyalin video…" else "Pilih ulang video", icon = ClipMiIcons.Refresh, height = 44.dp, modifier = Modifier.fillMaxWidth(),
+                    onClick = { if (!localVideos.busy) pickLocal = true },
+                )
+            }
+        }
+    }
+    if (pickLocal) {
+        LocalVideoSheet(onDismiss = { pickLocal = false }, onPick = { fromFiles ->
+            pickLocal = false
+            scope.launch {
+                localVideos.recover(p.id, fromFiles)
+                    .onSuccess { ok -> if (ok) notifier.show("Video sumber dipasang lagi.") }
+                    .onFailure { notifier.show(it.message ?: "Video tidak bisa dipakai.") }
+            }
+        })
     }
 }
 
@@ -1315,7 +1381,8 @@ private fun SwipeCard(right: SwipeAction?, left: SwipeAction?, content: @Composa
     val scope = rememberCoroutineScope()
     val offset = remember { Animatable(0f) }
     val density = LocalDensity.current
-    val threshold = with(density) { 96.dp.toPx() }
+    val threshold = with(density) { 88.dp.toPx() }
+    val maxTravel = with(density) { 120.dp.toPx() }
     val shape = RoundedCornerShape(24.dp)
     Box(Modifier.fillMaxWidth()) {
         val x = offset.value
@@ -1345,12 +1412,14 @@ private fun SwipeCard(right: SwipeAction?, left: SwipeAction?, content: @Composa
                         },
                         onDragCancel = { scope.launch { offset.animateTo(0f) } },
                     ) { change, amount ->
-                        val next = offset.value + amount
+                        // Melewati batas aksi geseran melambat, dan kartu tidak pernah terlempar penuh ke samping.
+                        val damped = if (kotlin.math.abs(offset.value) >= threshold) amount * 0.35f else amount
+                        val next = offset.value + damped
                         // Arah tanpa aksi tidak bisa digeser jauh.
                         val limited = when {
                             next > 0 && right == null -> next.coerceAtMost(24f)
                             next < 0 && left == null -> next.coerceAtLeast(-24f)
-                            else -> next
+                            else -> next.coerceIn(-maxTravel, maxTravel)
                         }
                         change.consume()
                         scope.launch { offset.snapTo(limited) }
@@ -1420,7 +1489,7 @@ private fun ScoreBadge(score: Int?) {
 /** Satu kalimat transkrip: ketuk untuk memutar, tahan untuk memilih rentang (ditandai saat dipilih atau sedang diputar). */
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
-private fun SegmentRow(segment: TranscriptSegmentEntity, selected: Boolean, playing: Boolean, onClick: () -> Unit, onLongClick: () -> Unit) {
+private fun SegmentRow(segment: TranscriptSegmentEntity, query: String, selected: Boolean, playing: Boolean, onClick: () -> Unit, onLongClick: () -> Unit) {
     val c = ClipMi.colors
     val shape = RoundedCornerShape(16.dp)
     Row(
@@ -1440,6 +1509,23 @@ private fun SegmentRow(segment: TranscriptSegmentEntity, selected: Boolean, play
         horizontalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         Text(Timecode.format(segment.startTime), style = MaterialTheme.typography.labelMedium, color = c.accent, modifier = Modifier.width(56.dp).padding(top = 2.dp))
-        Text(segment.text, style = MaterialTheme.typography.bodyMedium, color = c.text, modifier = Modifier.weight(1f))
+        Text(highlight(segment.text, query, c.highlight, c.onHighlight), style = MaterialTheme.typography.bodyMedium, color = c.text, modifier = Modifier.weight(1f))
     }
+}
+
+/** Teks dengan kata yang dicari ditebalkan dan diberi latar (sama dengan Android). */
+private fun highlight(text: String, query: String, background: Color, color: Color) = buildAnnotatedString {
+    if (query.isEmpty()) {
+        append(text)
+        return@buildAnnotatedString
+    }
+    var start = 0
+    while (true) {
+        val index = text.indexOf(query, start, ignoreCase = true)
+        if (index < 0) break
+        append(text.substring(start, index))
+        withStyle(SpanStyle(fontWeight = FontWeight.Bold, background = background, color = color)) { append(text.substring(index, index + query.length)) }
+        start = index + query.length
+    }
+    append(text.substring(start))
 }

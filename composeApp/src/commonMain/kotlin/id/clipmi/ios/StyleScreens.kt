@@ -29,6 +29,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -212,7 +213,8 @@ fun CaptionStyleEditScreen(repo: Repository, renderer: IosRenderer, id: Long, co
     val leave = rememberDiscardGuard(dirty, onBack)
 
     fun update(change: (CaptionStyleEntity) -> CaptionStyleEntity) {
-        draft = change(style)
+        // Dari isi terbaru, bukan nilai saat digambar: callback gestur yang tertahan tidak menimpa perubahan lain.
+        draft = change(draft ?: style)
     }
 
     fun save() = scope.launch {
@@ -374,7 +376,8 @@ fun FrameStyleEditScreen(repo: Repository, renderer: IosRenderer, media: StyleMe
     val leave = rememberDiscardGuard(dirty, onBack)
 
     fun update(change: (FrameStyleEntity) -> FrameStyleEntity) {
-        draft = change(style)
+        // Dari isi terbaru, bukan nilai saat digambar: callback gestur yang tertahan tidak menimpa perubahan lain.
+        draft = change(draft ?: style)
     }
 
     val pick: (String) -> Unit = { field ->
@@ -529,6 +532,8 @@ private fun AspectPicker(selected: String, onSelect: (String) -> Unit) {
 private fun AnchorPicker(label: String, x: Int, y: Int, hint: String? = null, onSelect: (Int, Int) -> Unit) {
     val c = ClipMi.colors
     val current = FrameStyle.ANCHORS.values.firstOrNull { it.second == x && it.third == y }?.first ?: "Diatur sendiri · $x, $y"
+    // Gestur seret dipasang sekali; panggil callback terbaru supaya tidak memakai isi gaya yang lama.
+    val select by rememberUpdatedState(onSelect)
     val dot = 18.dp
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         FieldLabel(label, current)
@@ -540,9 +545,9 @@ private fun AnchorPicker(label: String, x: Int, y: Int, hint: String? = null, on
                         (offset.x / size.width * 100).roundToInt().coerceIn(0, 100),
                         (offset.y / size.height * 100).roundToInt().coerceIn(0, 100),
                     )
-                    detectDragGestures(onDragStart = { val (px, py) = at(it); onSelect(px, py) }) { change, _ ->
+                    detectDragGestures(onDragStart = { val (px, py) = at(it); select(px, py) }) { change, _ ->
                         val (px, py) = at(change.position)
-                        onSelect(px, py)
+                        select(px, py)
                     }
                 },
         ) {

@@ -127,6 +127,8 @@ fun EditorPreview(
         ) {
             Background(state, composition, Modifier.fillMaxSize())
             VideoLayer(player, composition, sourceSize, scale, state.snapshot.clip.startTime)
+            // Gambar template di atas video (sama dengan render), lalu logo dan subtitle.
+            if (composition.template) FrameImage(state, (state.frameDraft ?: state.frameEntity())?.templatePath, ContentScale.FillBounds, Modifier.fillMaxSize())
             LogoLayer(state, composition, scale)
             AssOverlay(state, player, composition, hookTime, Modifier.fillMaxSize())
             guide?.let { PlatformGuideLayer(it, Modifier.fillMaxSize()) }
@@ -153,8 +155,19 @@ private fun Background(state: EditorState, composition: Composition, modifier: M
             }
         }
         "gradient" -> Box(modifier.background(Brush.verticalGradient(listOf(color, parse(background.color2) ?: Color.Black))))
+        "image" -> Box(modifier.background(color)) {
+            FrameImage(state, (state.frameDraft ?: state.frameEntity())?.backgroundPath, ContentScale.Crop, Modifier.fillMaxSize())
+        }
         else -> Box(modifier.background(color))
     }
+}
+
+/** Gambar gaya bingkai (template atau latar) selebar layar hasil; dibaca di luar thread UI. */
+@Composable
+private fun FrameImage(state: EditorState, path: String?, contentScale: ContentScale, modifier: Modifier) {
+    val file = path?.let { state.container.workspace.file(it) }?.takeIf { it.isFile } ?: return
+    val bitmap by produceState<Bitmap?>(null, file.path) { value = withContext(Dispatchers.IO) { BitmapFactory.decodeFile(file.path) } }
+    bitmap?.let { Image(it.asImageBitmap(), contentDescription = null, modifier = modifier, contentScale = contentScale) }
 }
 
 /**
