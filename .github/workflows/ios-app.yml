@@ -84,7 +84,7 @@ jobs:
         run: |
           set -euo pipefail
           xcodebuild -version
-          major=$(xcodebuild -version | head -1 | sed -E 's/Xcode ([0-9]+).*//')
+          major=$(xcodebuild -version | head -1 | awk '{print $2}' | cut -d. -f1)
           if [ "$major" -lt 26 ]; then
             latest=$(ls -d /Applications/Xcode_26*.app 2>/dev/null | sort -V | tail -1 || true)
             [ -n "$latest" ] || { echo "Xcode 26 tidak ada di runner"; exit 1; }
