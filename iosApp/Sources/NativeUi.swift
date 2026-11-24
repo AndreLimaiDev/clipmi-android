@@ -1,3 +1,4 @@
+import ComposeApp
 import UIKit
 
 // Komponen UI asli iOS untuk layar Compose: menu (UIMenu), lembar aksi, dialog konfirmasi, lembar (sheet), pemilih
@@ -213,11 +214,13 @@ extension IOSMediaEngine {
         components.minute = Int(minute)
         picker.date = Calendar.current.date(from: components) ?? Date()
         let controller = DatePickerController(picker: picker, title: time ? "Pilih jam" : "Pilih tanggal") { date in
-            let c = Calendar.current.dateComponents([.year, .month, .day, .hour, .minute], from: date)
-            listener.picked(
-                year: Int32(c.year ?? Int(year)), month: Int32(c.month ?? Int(month)), day: Int32(c.day ?? Int(day)),
-                hour: Int32(c.hour ?? Int(hour)), minute: Int32(c.minute ?? Int(minute))
-            )
+            let c: DateComponents = Calendar.current.dateComponents([.year, .month, .day, .hour, .minute], from: date)
+            let pickedYear: Int32 = Int32(c.year ?? Int(year))
+            let pickedMonth: Int32 = Int32(c.month ?? Int(month))
+            let pickedDay: Int32 = Int32(c.day ?? Int(day))
+            let pickedHour: Int32 = Int32(c.hour ?? Int(hour))
+            let pickedMinute: Int32 = Int32(c.minute ?? Int(minute))
+            listener.picked(year: pickedYear, month: pickedMonth, day: pickedDay, hour: pickedHour, minute: pickedMinute)
         }
         let navigation = UINavigationController(rootViewController: controller)
         navigation.modalPresentationStyle = .pageSheet
