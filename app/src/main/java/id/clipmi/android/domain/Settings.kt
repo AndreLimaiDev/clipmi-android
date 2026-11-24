@@ -116,8 +116,9 @@ class Settings(private val dao: SettingDao, private val secrets: SecretStore) {
 
     suspend fun autoAnalyze(): Boolean = dao.get(KEY_AI_AUTO) == "1"
 
-    /** "Rapikan audio saat render" (kunci desktop render.enhance_audio); bawaan aktif. */
-    suspend fun enhanceAudio(): Boolean = dao.get(KEY_ENHANCE_AUDIO) != "0"
+    /** "Rapikan audio saat render" (kunci desktop render.enhance_audio). Di HP bawaannya mati (PC: aktif): audio yang
+     *  sudah bersih bisa turun kualitasnya; aktif hanya bila pengguna menyalakannya ("1"). */
+    suspend fun enhanceAudio(): Boolean = dao.get(KEY_ENHANCE_AUDIO) == "1"
 
     suspend fun setEnhanceAudio(enabled: Boolean) = dao.put(KEY_ENHANCE_AUDIO, if (enabled) "1" else "0")
 

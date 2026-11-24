@@ -1,5 +1,6 @@
 package id.clipmi.ios
 
+import id.clipmi.android.ui.components.SwitchRow
 import id.clipmi.android.ui.components.ScreenFrame
 import id.clipmi.android.ui.components.ReadableWidth
 import id.clipmi.android.ui.components.isSideBySide
@@ -366,6 +367,9 @@ private fun SettingsScreen(repo: Repository, settings: IosSettings, engine: Medi
         value = if (cfg != null) "${cfg.provider.label.substringBefore(" (")} · ${cfg.model}" to true else "Belum diatur" to false
     }
     var hasYoutubeKey by remember { mutableStateOf(settings.youtubeKey() != null) }
+    val scope = rememberCoroutineScope()
+    var enhanceAudio by remember { mutableStateOf(false) }
+    LaunchedEffect(Unit) { enhanceAudio = repo.db.settings().get(IosRenderer.KEY_ENHANCE_AUDIO) == "1" }
     var editingYoutubeKey by remember { mutableStateOf(false) }
     if (editingYoutubeKey) YoutubeKeySheet(settings, hasYoutubeKey, onDone = { editingYoutubeKey = false; hasYoutubeKey = settings.youtubeKey() != null })
     LazyColumn(
@@ -394,6 +398,12 @@ private fun SettingsScreen(repo: Repository, settings: IosSettings, engine: Medi
                     if (bumperList.isEmpty()) "Belum ada" else "${bumperList.count { it.kind == "intro" }} intro · ${bumperList.count { it.kind == "outro" }} outro",
                     onClick = onBumpers,
                 )
+                GroupDivider()
+                // Kunci render.enhance_audio sama dengan Android dan PC. Di HP bawaan mati; nyalakan untuk audio yang bising.
+                SwitchRow("Rapikan audio saat render", "Kurangi noise, samakan volume", enhanceAudio, onCheckedChange = { on ->
+                    enhanceAudio = on
+                    scope.launch { repo.db.settings().put(IosRenderer.KEY_ENHANCE_AUDIO, if (on) "1" else "0") }
+                })
             }
         }
         item {

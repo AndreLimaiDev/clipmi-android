@@ -95,7 +95,7 @@ fun SettingsScreen(
     val corrections by container.database.corrections().observeAll().collectAsState(initial = emptyList())
     var ytdlp by remember { mutableStateOf<String?>(null) }
     var updating by remember { mutableStateOf(false) }
-    var enhanceAudio by remember { mutableStateOf(true) }
+    var enhanceAudio by remember { mutableStateOf(false) }
     LaunchedEffect(Unit) { enhanceAudio = container.settings.enhanceAudio() }
     LaunchedEffect(Unit) { ytdlp = runCatching { container.ytDlp.version() }.getOrNull() }
     var hasYoutubeKey by remember { mutableStateOf(container.settings.hasYoutubeKey()) }

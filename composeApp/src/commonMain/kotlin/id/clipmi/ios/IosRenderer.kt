@@ -259,7 +259,8 @@ class IosRenderer(private val repo: Repository, val engine: MediaEngine) {
         val length = spec.outputDuration()
         val cuts = spec.cutRanges()
         val keep = if (cuts.isNotEmpty()) ClipCuts.selectExpression(ClipCuts.kept(cuts, spec.startTime, spec.endTime), spec.startTime) else null
-        val enhance = db.settings().get(KEY_ENHANCE_AUDIO) != "0"
+        // Bawaan mati di HP (PC: aktif): hanya bila pengguna menyalakannya.
+        val enhance = db.settings().get(KEY_ENHANCE_AUDIO) == "1"
         // Sampul dibuat sebelum folder kerja render (FFmpeg sendiri); gagal = render tanpa sampul.
         val cover = if (clip.hasCover) runCatching { cover(clip, project) }.getOrNull() else null
 
