@@ -610,27 +610,25 @@ private fun ResultCard(
                             else -> StatusBadge("Siap unggah", Tone.Good)
                         }
                     }
-                    // Semua aksi di menu ⋯ kanan atas; ketuk gambar untuk memutar.
-                    Box {
-                        var menu by remember { mutableStateOf(false) }
-                        IconCircle(ClipMiIcons.More, "Aksi hasil render", { menu = true }, size = 36.dp, background = Color.Transparent, border = false, tint = c.textMuted)
-                        DropdownMenu(menu, onDismissRequest = { menu = false }, containerColor = c.card) {
-                            val stale = missing || clip.changedAfterRender
-                            if (stale) MenuAction("Render ulang", ClipMiIcons.Refresh, renders.active == null) { menu = false; renders.start(clip.id) }
+                    // Semua aksi di menu ⋯ asli kanan atas; ketuk gambar untuk memutar.
+                    val stale = missing || clip.changedAfterRender
+                    NativeMenuButton(
+                        buildList {
+                            if (stale) add(NativeMenuItem("Render ulang", "arrow.clockwise", enabled = renders.active == null) { renders.start(clip.id) })
                             if (!missing) {
-                                MenuAction(if (isScheduled) "Lihat jadwal" else "Jadwalkan", ClipMiIcons.Calendar) { menu = false; onSchedule(clip.id) }
-                                MenuAction("Bagikan", ClipMiIcons.Share) {
-                                    menu = false
+                                add(NativeMenuItem(if (isScheduled) "Lihat jadwal" else "Jadwalkan", "calendar") { onSchedule(clip.id) })
+                                add(NativeMenuItem("Bagikan", "square.and.arrow.up") {
                                     clipboard.setText(AnnotatedString(ClipText.shareText(clip.title, clip.partNumber, clip.caption, repo.hashtags(clip))))
                                     notifier.show("Caption & hashtag disalin. Tempel di aplikasi tujuan.")
                                     engine.shareFile(output!!)
-                                }
+                                })
                             }
-                            MenuAction("Buka editor", ClipMiIcons.Scissors) { menu = false; onOpenEditor(clip.id) }
-                            MenuAction("Buka project", ClipMiIcons.Home) { menu = false; onOpenProject(clip.projectId) }
-                            if (!stale) MenuAction("Render ulang", ClipMiIcons.Refresh, renders.active == null) { menu = false; renders.start(clip.id) }
-                        }
-                    }
+                            add(NativeMenuItem("Buka editor", "scissors") { onOpenEditor(clip.id) })
+                            add(NativeMenuItem("Buka project", "house") { onOpenProject(clip.projectId) })
+                            if (!stale) add(NativeMenuItem("Render ulang", "arrow.clockwise", enabled = renders.active == null) { renders.start(clip.id) })
+                        },
+                        background = c.card, tint = c.textMuted,
+                    )
                 }
             }
         }

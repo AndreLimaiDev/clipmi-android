@@ -132,6 +132,39 @@ interface MediaEngine {
      */
     fun pythonCall(module: String, function: String, args: List<String>, listener: ResultListener)
 
+    // --- Komponen asli iOS (UIKit di Swift; Kotlin hanya mengirim data) ---------------------------------------------
+
+    /**
+     * Tombol dengan menu asli (UIButton + UIMenu, Liquid Glass di iOS 26). [itemsJson] = daftar
+     * `{"title", "symbol" (SF Symbol), "destructive", "enabled", "checked"}`; [symbol] ikon tombolnya; [tint] dan [background] warna hex (latar harus diisi: view UIKit tampil di lubang lapisan Compose).
+     * Mengembalikan UIView untuk UIKitView. [listener] dipanggil dengan indeks butir yang dipilih.
+     */
+    fun makeMenuButton(symbol: String, tint: String, background: String, itemsJson: String, listener: ChoiceListener): Any
+
+    /** Perbarui isi menu (dan ikon/warna) tombol dari [makeMenuButton]. */
+    fun updateMenuButton(button: Any, symbol: String, tint: String, background: String, itemsJson: String, listener: ChoiceListener)
+
+    /** Lembar aksi asli (UIAlertController .actionSheet) dengan butir [itemsJson] dan tombol Batal; -1 = batal. */
+    fun showActionSheet(title: String?, itemsJson: String, listener: ChoiceListener)
+
+    /** Dialog konfirmasi asli (UIAlertController .alert). [listener]: 1 = konfirmasi, 0 = batal. Mengembalikan token. */
+    fun showAlert(title: String, message: String, confirmLabel: String, destructive: Boolean, listener: ChoiceListener): Long
+
+    /**
+     * Lembar asli (UISheetPresentationController: pegangan, setengah/penuh layar, usap tutup) untuk [controller]
+     * (UIViewController berisi Compose). [listener] dipanggil bila pengguna menutupnya sendiri. Mengembalikan token.
+     */
+    fun presentSheet(controller: Any, listener: ChoiceListener): Long
+
+    /** Tutup dialog/lembar dengan token dari [showAlert] atau [presentSheet] (bila masih tampil). */
+    fun dismissPresented(token: Long)
+
+    /** Pemilih tanggal ([mode] "date") atau jam 24 jam ("time") asli UIDatePicker dalam lembar, dengan Batal/Pakai. */
+    fun showDatePicker(mode: String, year: Int, month: Int, day: Int, hour: Int, minute: Int, listener: DateListener)
+
+    /** Getaran haptik: "light", "medium", "selection", "success", "warning", "error". */
+    fun haptic(kind: String)
+
     /**
      * Permintaan HTTP (URLSession) untuk Mode API AI dan YouTube Data API. [headersJson] objek JSON nama → nilai; [body]
      * null untuk GET. [listener] dipanggil di main thread: kode HTTP (0 = tidak tersambung), isi jawaban, header
@@ -230,6 +263,15 @@ interface AllowedListener {
 
 interface TabListener {
     fun selected(index: Int)
+}
+
+interface ChoiceListener {
+    fun chosen(index: Int)
+}
+
+interface DateListener {
+    /** Bulan 1–12; jam 0–23. */
+    fun picked(year: Int, month: Int, day: Int, hour: Int, minute: Int)
 }
 
 interface PickListener {

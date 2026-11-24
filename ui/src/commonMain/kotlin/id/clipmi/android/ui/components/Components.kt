@@ -113,9 +113,12 @@ import androidx.compose.foundation.relocation.BringIntoViewRequester
 /** Jarak tepi layar (mockup: 20). */
 val ScreenGutter = 20.dp
 
-/** Ruang di bawah daftar agar isi terakhir tidak tertutup navigasi melayang (layar lebar: navigasi di samping). */
+/** Ruang di bawah daftar agar isi terakhir tidak tertutup navigasi melayang (layar lebar Android: navigasi di samping). */
 val FloatingNavSpace: Dp
-    @Composable get() = if (isWideScreen()) 24.dp else 112.dp
+    @Composable get() = if (isWideScreen() && !BottomTabsAlways) 24.dp else 112.dp
+
+/** iOS: bilah tab asli selalu di bawah, juga di iPad; Android: layar lebar memakai navigasi samping. */
+expect val BottomTabsAlways: Boolean
 
 /** Lebar ≥600 dp (tablet, HP miring): navigasi utama pindah ke samping, isi daftar dan form dibatasi lebarnya. */
 @Composable
@@ -947,10 +950,43 @@ fun EmptyState(
 // Panel bawah, dialog, dan snackbar
 // ---------------------------------------------------------------------------------------------------------------
 
-/** Panel bawah untuk form dan pilihan (sudut 28, pegangan kecil di atas). */
+/**
+ * Panel bawah untuk form dan pilihan. Android: panel Material (sudut 28, pegangan kecil di atas). iOS: lembar asli
+ * (UISheetPresentationController) bila sudah didaftarkan, selain itu panel Material.
+ */
+@Composable
+expect fun ClipMiSheet(onDismiss: () -> Unit, title: String? = null, subtitle: String? = null, content: @Composable ColumnScope.() -> Unit)
+
+/** Dialog hanya untuk konfirmasi berisiko (hapus, timpa). iOS: UIAlertController asli bila sudah didaftarkan. */
+@Composable
+expect fun ConfirmDialog(title: String, body: String, confirmLabel: String, onConfirm: () -> Unit, onDismiss: () -> Unit, danger: Boolean = false)
+
+/** Isi panel bawah: judul, subjudul, lalu isian yang bisa digulir. Dipakai panel Material dan lembar asli iOS. */
+@Composable
+fun SheetBody(title: String?, subtitle: String?, modifier: Modifier = Modifier, content: @Composable ColumnScope.() -> Unit) {
+    val c = ClipMi.colors
+    Column(
+        modifier
+            .fillMaxWidth()
+            .verticalScroll(rememberScrollState())
+            .padding(start = ScreenGutter, end = ScreenGutter, top = 8.dp, bottom = 24.dp)
+            .navigationBarsPadding(),
+        verticalArrangement = Arrangement.spacedBy(18.dp),
+    ) {
+        if (title != null) {
+            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                Text(title, style = MaterialTheme.typography.headlineSmall, color = c.text)
+                subtitle?.let { Text(it, style = MaterialTheme.typography.bodyMedium.copy(fontSize = 13.sp), color = c.textMuted) }
+            }
+        }
+        content()
+    }
+}
+
+/** Panel bawah Material (Android, dan cadangan iOS). */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun ClipMiSheet(onDismiss: () -> Unit, title: String? = null, subtitle: String? = null, content: @Composable ColumnScope.() -> Unit) {
+fun MaterialSheet(onDismiss: () -> Unit, title: String? = null, subtitle: String? = null, content: @Composable ColumnScope.() -> Unit) {
     val c = ClipMi.colors
     ModalBottomSheet(
         onDismissRequest = onDismiss,
@@ -963,28 +999,13 @@ fun ClipMiSheet(onDismiss: () -> Unit, title: String? = null, subtitle: String? 
             Box(Modifier.padding(top = 12.dp, bottom = 6.dp).size(width = 40.dp, height = 4.dp).clip(CircleShape).background(c.lineStrong))
         },
     ) {
-        Column(
-            Modifier
-                .fillMaxWidth()
-                .verticalScroll(rememberScrollState())
-                .padding(start = ScreenGutter, end = ScreenGutter, top = 8.dp, bottom = 24.dp)
-                .navigationBarsPadding(),
-            verticalArrangement = Arrangement.spacedBy(18.dp),
-        ) {
-            if (title != null) {
-                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                    Text(title, style = MaterialTheme.typography.headlineSmall, color = c.text)
-                    subtitle?.let { Text(it, style = MaterialTheme.typography.bodyMedium.copy(fontSize = 13.sp), color = c.textMuted) }
-                }
-            }
-            content()
-        }
+        SheetBody(title, subtitle, content = content)
     }
 }
 
-/** Dialog hanya untuk konfirmasi berisiko (hapus, timpa). */
+/** Dialog konfirmasi Material (Android, dan cadangan iOS). */
 @Composable
-fun ConfirmDialog(title: String, body: String, confirmLabel: String, onConfirm: () -> Unit, onDismiss: () -> Unit, danger: Boolean = false) {
+fun MaterialConfirmDialog(title: String, body: String, confirmLabel: String, onConfirm: () -> Unit, onDismiss: () -> Unit, danger: Boolean = false) {
     val c = ClipMi.colors
     AlertDialog(
         onDismissRequest = onDismiss,

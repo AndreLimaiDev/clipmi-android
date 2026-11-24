@@ -1,5 +1,6 @@
 package id.clipmi.ios
 
+import id.clipmi.android.ui.components.isSideBySide
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.ExperimentalFoundationApi
@@ -251,7 +252,7 @@ private fun Editor(state: EditorState, renders: Renders, onClose: () -> Unit, on
         RenderWindow(state, renders, live, onRetry = { renders.start(state.entity.id) }, onDismiss = { renderWindow = false })
     }
 
-    Column(Modifier.fillMaxSize().imePadding()) {
+    val topBar: @Composable () -> Unit = {
         // Bilah atas: tutup, judul, urungkan/ulangi, render.
         Row(Modifier.padding(start = 8.dp, end = 12.dp, top = 4.dp, bottom = 4.dp), verticalAlignment = Alignment.CenterVertically) {
             IconCircle(ClipMiIcons.Close, "Tutup editor", { pending.commitAll(); onClose() }, background = Color.Transparent, border = false)
@@ -284,10 +285,12 @@ private fun Editor(state: EditorState, renders: Renders, onClose: () -> Unit, on
                 ProgressBar(renders.fraction.toFloat(), color = c.busy)
             }
         }
+    }
 
-        // Pratinjau (bisa diperkecil supaya panel mendapat ruang lebih).
-        val previewWeight by animateFloatAsState(if (compact) 0.5f else 1f, label = "pratinjau")
-        Box(Modifier.fillMaxWidth().weight(previewWeight).padding(horizontal = 16.dp, vertical = 4.dp)) {
+    // Pratinjau (bisa diperkecil supaya panel mendapat ruang lebih).
+    val previewWeight by animateFloatAsState(if (compact) 0.5f else 1f, label = "pratinjau")
+    val previewArea: @Composable (Modifier) -> Unit = { area ->
+        Box(area) {
             BoxWithConstraints(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                 val composition = state.composition
                 val ratio = composition.canvas.width.toFloat() / composition.canvas.height
@@ -299,32 +302,32 @@ private fun Editor(state: EditorState, renders: Renders, onClose: () -> Unit, on
                 }
             }
             Column(Modifier.align(Alignment.BottomEnd)) {
-                Box {
-                    var menu by remember { mutableStateOf(false) }
-                    val guide = EditorPreviewPrefs.guide
-                    ToolButton(guide?.icon ?: ClipMiIcons.Eye, if (guide != null) "Tampilan ${guide.label}" else "Lihat tampilan aplikasi", active = guide != null) { menu = true }
-                    DropdownMenu(menu, onDismissRequest = { menu = false }, containerColor = EDITOR_CARD) {
-                        DropdownMenuItem(
-                            text = { Text("Tanpa tampilan aplikasi", color = c.text) },
-                            leadingIcon = { Icon(ClipMiIcons.Close, null, Modifier.size(18.dp), tint = c.textMuted) },
-                            onClick = { EditorPreviewPrefs.guide = null; menu = false },
-                        )
-                        PlatformGuide.entries.forEach { g ->
-                            DropdownMenuItem(
-                                text = { Text("Tampilan ${g.label}", color = if (g == guide) c.accent else c.text) },
-                                leadingIcon = { Icon(g.icon, null, Modifier.size(18.dp), tint = if (g == guide) c.accent else c.textMuted) },
-                                onClick = { EditorPreviewPrefs.guide = g; menu = false },
-                            )
-                        }
-                    }
+                // Tampilan aplikasi tujuan: menu asli iOS (centang pada pilihan aktif).
+                val guide = EditorPreviewPrefs.guide
+                Box(
+                    Modifier.padding(8.dp).size(40.dp).clip(RoundedCornerShape(12.dp))
+                        .border(1.dp, if (guide != null) c.accent.copy(alpha = 0.5f) else c.line, RoundedCornerShape(12.dp)),
+                ) {
+                    NativeMenuButton(
+                        buildList {
+                            add(NativeMenuItem("Tanpa tampilan aplikasi", "eye.slash", checked = guide == null) { EditorPreviewPrefs.guide = null })
+                            PlatformGuide.entries.forEach { g ->
+                                add(NativeMenuItem("Tampilan ${g.label}", "iphone", checked = g == guide) { EditorPreviewPrefs.guide = g })
+                            }
+                        },
+                        background = if (guide != null) c.accentSoft else EDITOR_CARD,
+                        symbol = "eye", tint = if (guide != null) c.accent else Color.White, size = 40.dp,
+                    )
                 }
                 ToolButton(if (compact) ClipMiIcons.Expand else ClipMiIcons.Collapse, if (compact) "Perbesar pratinjau" else "Perkecil pratinjau") {
                     EditorPreviewPrefs.compact = !compact
                 }
             }
         }
+    }
 
-        // Putar/jeda, bilah geser tipis di waktu video hasil, dan waktu.
+    // Putar/jeda, bilah geser tipis di waktu video hasil, dan waktu.
+    val playback: @Composable () -> Unit = {
         Row(Modifier.fillMaxWidth().padding(start = 8.dp, end = 16.dp, top = 2.dp, bottom = 2.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             Box(
                 Modifier.size(44.dp).clip(RoundedCornerShape(12.dp)).clickable(role = Role.Button) {
@@ -340,9 +343,11 @@ private fun Editor(state: EditorState, renders: Renders, onClose: () -> Unit, on
             SeekBar(if (total > 0) (t / total).toFloat() else 0f, Modifier.weight(1f)) { f -> seek(sourceTime(cuts, spec.startTime, spec.endTime, f * total)) }
             Text("${Timecode.format(t)} / ${Timecode.format(total)}", style = MaterialTheme.typography.labelMedium, color = c.textMuted)
         }
+    }
 
-        // Panel tab dan deretan tab.
-        Column(Modifier.fillMaxWidth().weight(1.05f).clip(RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp)).background(EDITOR_PANEL)) {
+    // Panel tab dan deretan tab.
+    val panel: @Composable (Modifier) -> Unit = { area ->
+        Column(area.background(EDITOR_PANEL)) {
             Box(Modifier.weight(1f).fillMaxWidth()) {
                 when (tab) {
                     0 -> TrimPanel(state, position, preview.playing, seek)
@@ -374,6 +379,25 @@ private fun Editor(state: EditorState, renders: Renders, onClose: () -> Unit, on
                     }
                 }
             }
+        }
+    }
+
+    if (isSideBySide()) {
+        // iPad atau layar miring: pratinjau di kiri, panel di kanan (sama dengan Android).
+        Row(Modifier.fillMaxSize().imePadding()) {
+            Column(Modifier.weight(0.42f).fillMaxHeight()) {
+                topBar()
+                previewArea(Modifier.fillMaxWidth().weight(1f).padding(horizontal = 12.dp, vertical = 4.dp))
+                playback()
+            }
+            panel(Modifier.weight(0.58f).fillMaxHeight().clip(RoundedCornerShape(topStart = 28.dp, bottomStart = 28.dp)))
+        }
+    } else {
+        Column(Modifier.fillMaxSize().imePadding()) {
+            topBar()
+            previewArea(Modifier.fillMaxWidth().weight(previewWeight).padding(horizontal = 16.dp, vertical = 4.dp))
+            playback()
+            panel(Modifier.fillMaxWidth().weight(1.05f).clip(RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp)))
         }
     }
 }

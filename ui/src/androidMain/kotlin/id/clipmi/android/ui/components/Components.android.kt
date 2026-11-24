@@ -1,5 +1,6 @@
 package id.clipmi.android.ui.components
 
+import androidx.compose.foundation.layout.ColumnScope
 import android.graphics.BitmapFactory
 import androidx.activity.compose.LocalActivity
 import androidx.compose.foundation.Image
@@ -82,3 +83,13 @@ fun formatBytes(bytes: Long): String = when {
     bytes >= 1L shl 20 -> "%.0f MB".format(Locale.ROOT, bytes / (1L shl 20).toDouble())
     else -> "%.0f KB".format(Locale.ROOT, bytes / 1024.0)
 }
+
+@Composable
+actual fun ClipMiSheet(onDismiss: () -> Unit, title: String?, subtitle: String?, content: @Composable ColumnScope.() -> Unit) =
+    MaterialSheet(onDismiss, title, subtitle, content)
+
+@Composable
+actual fun ConfirmDialog(title: String, body: String, confirmLabel: String, onConfirm: () -> Unit, onDismiss: () -> Unit, danger: Boolean) =
+    MaterialConfirmDialog(title, body, confirmLabel, onConfirm, onDismiss, danger)
+
+actual val BottomTabsAlways: Boolean = false

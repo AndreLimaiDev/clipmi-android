@@ -28,6 +28,8 @@ kotlin {
                 implementation(libs.cmp.material3)
                 implementation(libs.kotlinx.coroutines.core)
                 implementation(libs.kotlinx.serialization.json)
+                // Gestur usap kembali iOS (NavigationBackHandler); versi yang sama dengan yang dibawa CMP ui 1.12.2.
+                implementation("org.jetbrains.androidx.navigationevent:navigationevent-compose:1.1.0")
             }
         }
     }

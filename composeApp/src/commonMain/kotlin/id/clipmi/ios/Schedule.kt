@@ -712,7 +712,6 @@ fun ScheduleEditScreen(repo: Repository, engine: MediaEngine, scheduler: IosSche
     var caption by remember { mutableStateOf("") }
     var hashtags by remember { mutableStateOf("") }
     var note by remember { mutableStateOf("") }
-    var picking by remember { mutableStateOf<String?>(null) }
     var confirmDelete by remember { mutableStateOf(false) }
     var tried by remember { mutableStateOf(false) }
 
@@ -753,8 +752,11 @@ fun ScheduleEditScreen(repo: Repository, engine: MediaEngine, scheduler: IosSche
                 }
             }
             Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                PickerField("Tanggal", "${IdDate.WEEKDAYS_SHORT[day.dayOfWeek.isoDayNumber - 1]}, ${IdDate.dayMonth(day)} ${day.year}", { picking = "date" }, Modifier.weight(1.4f))
-                PickerField("Jam", time.replace(':', '.'), { picking = "time" }, Modifier.weight(1f))
+                PickerField("Tanggal", "${IdDate.WEEKDAYS_SHORT[day.dayOfWeek.isoDayNumber - 1]}, ${IdDate.dayMonth(day)} ${day.year}", { engine.pickDate(day) { day = it } }, Modifier.weight(1.4f))
+                PickerField("Jam", time.replace(':', '.'), {
+                    val (h, m) = Slots.parseTime(time) ?: (Slots.DEFAULT_HOUR to 0)
+                    engine.pickTime(h, m) { hh, mm -> time = hhmm(hh, mm) }
+                }, Modifier.weight(1f))
             }
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 FieldLabel("Akun tujuan")
@@ -818,13 +820,6 @@ fun ScheduleEditScreen(repo: Repository, engine: MediaEngine, scheduler: IosSche
         }
     }
 
-    when (picking) {
-        "date" -> DatePickerSheet(day, onDismiss = { picking = null }) { day = it; picking = null }
-        "time" -> {
-            val (h, m) = Slots.parseTime(time) ?: (Slots.DEFAULT_HOUR to 0)
-            TimePickerDialog(h, m, onDismiss = { picking = null }) { hh, mm -> time = hhmm(hh, mm); picking = null }
-        }
-    }
     if (confirmDelete) {
         ConfirmDialog(
             "Hapus jadwal ini?", "Klipnya kembali ke antrean. Status terbit dan link jadwal ini ikut terhapus.", "Hapus", danger = true,
@@ -1078,16 +1073,15 @@ private fun TargetCard(
                 when (row.status) { TargetStatus.PUBLISHED -> "Terbit"; TargetStatus.SKIPPED -> "Dilewati"; else -> "Menunggu" },
                 when (row.status) { TargetStatus.PUBLISHED -> Tone.Good; TargetStatus.SKIPPED -> Tone.Idle; else -> Tone.Warn },
             )
-            Box {
-                var menu by remember { mutableStateOf(false) }
-                IconCircle(ClipMiIcons.More, "Lainnya", { menu = true }, size = 36.dp, background = Color.Transparent, border = false)
-                DropdownMenu(menu, onDismissRequest = { menu = false }, containerColor = c.card) {
-                    if (pending) DropdownMenuItem(text = { Text("Lewati akun ini") }, onClick = { menu = false; scope.launch { scheduler.markTarget(row.id, TargetStatus.SKIPPED) } })
-                    if (published) DropdownMenuItem(text = { Text(if (row.url == null) "Tambah link" else "Ubah link") }, onClick = { menu = false; sheet = true })
-                    DropdownMenuItem(text = { Text("Isi statistik manual") }, onClick = { menu = false; manual = true })
-                    if (!pending) DropdownMenuItem(text = { Text("Kembalikan ke Menunggu") }, onClick = { menu = false; scope.launch { scheduler.markTarget(row.id, TargetStatus.PENDING) } })
-                }
-            }
+            NativeMenuButton(
+                buildList {
+                    if (pending) add(NativeMenuItem("Lewati akun ini", "forward") { scope.launch { scheduler.markTarget(row.id, TargetStatus.SKIPPED) } })
+                    if (published) add(NativeMenuItem(if (row.url == null) "Tambah link" else "Ubah link", "link") { sheet = true })
+                    add(NativeMenuItem("Isi statistik manual", "chart.bar") { manual = true })
+                    if (!pending) add(NativeMenuItem("Kembalikan ke Menunggu", "arrow.uturn.backward") { scope.launch { scheduler.markTarget(row.id, TargetStatus.PENDING) } })
+                },
+                background = c.card, tint = c.textMuted,
+            )
         }
         if (pending) {
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -1310,6 +1304,7 @@ fun AccountsScreen(repo: Repository, scheduler: IosScheduler, onBack: () -> Unit
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun AccountSheet(scheduler: IosScheduler, account: SocialAccountEntity, onDone: () -> Unit) {
+    val engine = LocalMediaEngine.current
     val c = ClipMi.colors
     val scope = rememberCoroutineScope()
     val notifier = LocalNotifier.current
@@ -1318,7 +1313,6 @@ private fun AccountSheet(scheduler: IosScheduler, account: SocialAccountEntity, 
     var handle by remember { mutableStateOf(account.handle.orEmpty()) }
     var color by remember { mutableStateOf(account.color) }
     var slots by remember { mutableStateOf(SlotCodec.decode(account.slots)) }
-    var timeFor by remember { mutableStateOf<Int?>(null) }
     var confirmDelete by remember { mutableStateOf(false) }
     val nameError = when {
         name.isBlank() -> "Nama akun wajib diisi."
@@ -1354,7 +1348,10 @@ private fun AccountSheet(scheduler: IosScheduler, account: SocialAccountEntity, 
             slots.forEachIndexed { index, slot ->
                 Column(Modifier.fillMaxWidth().clip(MaterialTheme.shapes.medium).background(c.panel).padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        SecondaryButton(slot.time.replace(':', '.'), { timeFor = index }, icon = ClipMiIcons.Clock, height = 40.dp)
+                        SecondaryButton(slot.time.replace(':', '.'), {
+                            val (hour, minute) = Slots.parseTime(slot.time) ?: (Slots.DEFAULT_HOUR to 0)
+                            engine.pickTime(hour, minute) { h, m -> slots = slots.mapIndexed { i, s -> if (i == index) Slot(hhmm(h, m), s.days) else s } }
+                        }, icon = ClipMiIcons.Clock, height = 40.dp)
                         Box(Modifier.weight(1f))
                         IconCircle(ClipMiIcons.Trash, "Hapus slot", { slots = slots.filterIndexed { i, _ -> i != index } }, size = 36.dp, background = c.card, tint = c.bad)
                     }
@@ -1387,13 +1384,6 @@ private fun AccountSheet(scheduler: IosScheduler, account: SocialAccountEntity, 
         }
     }
 
-    timeFor?.let { index ->
-        val (hour, minute) = Slots.parseTime(slots[index].time) ?: (Slots.DEFAULT_HOUR to 0)
-        TimePickerDialog(hour, minute, onDismiss = { timeFor = null }) { h, m ->
-            slots = slots.mapIndexed { i, s -> if (i == index) Slot(hhmm(h, m), s.days) else s }
-            timeFor = null
-        }
-    }
     if (confirmDelete) {
         ConfirmDialog(
             "Hapus akun ini?", "\"${account.name}\" dilepas dari semua jadwal. Jadwal yang jadi tanpa akun dihapus dan klipnya kembali ke antrean.", "Hapus", danger = true,

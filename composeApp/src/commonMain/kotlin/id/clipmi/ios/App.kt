@@ -1,5 +1,15 @@
 package id.clipmi.ios
 
+import id.clipmi.android.ui.components.ScreenFrame
+import id.clipmi.android.ui.components.ReadableWidth
+import id.clipmi.android.ui.components.isSideBySide
+import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.runtime.key
+import androidx.navigationevent.compose.rememberNavigationEventState
+import androidx.navigationevent.compose.NavigationBackHandler
+import androidx.navigationevent.NavigationEventTransitionState
+import androidx.navigationevent.NavigationEventInfo
 import id.clipmi.core.schedule.ScheduleState
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
@@ -177,6 +187,8 @@ fun App(repo: Repository, engine: MediaEngine) = ClipMiTheme {
     val styleMedia = remember { StyleMedia(repo, renders.renderer) }
     val teamPacks = remember { IosTeamPacks(repo, renders.renderer, settings, bumpers) }
     val notifier = remember { Notifier(SnackbarHostState(), scope) }
+    // Dialog dan lembar asli iOS untuk ClipMiSheet/ConfirmDialog (modul :ui).
+    remember(engine) { installNativeUi(engine) }
     var tab by remember { mutableStateOf(MainTab.Projects) }
     // Tumpukan layar di atas tab (kembali = ambil yang teratas).
     var stack by remember { mutableStateOf(listOf<Route>()) }
@@ -211,76 +223,112 @@ fun App(repo: Repository, engine: MediaEngine) = ClipMiTheme {
         performance.recoverInterrupted()
     }
 
-    CompositionLocalProvider(LocalNotifier provides notifier) {
+    CompositionLocalProvider(LocalNotifier provides notifier, LocalMediaEngine provides engine) {
         val focusManager = LocalFocusManager.current
         // Ketuk di luar kolom teks (bagian yang tidak menangkap ketukan) menutup keyboard.
         Box(Modifier.fillMaxSize().background(ClipMi.colors.bg).pointerInput(Unit) { detectTapGestures(onTap = { focusManager.clearFocus() }) }) {
-            when (val top = stack.lastOrNull()) {
-                // Editor selalu gelap, sama dengan Android.
-                is Route.Editor -> ClipMiDarkSurface {
-                    Box(Modifier.fillMaxSize().background(ClipMi.colors.bg).safeDrawingPadding()) {
-                        ClipEditorScreen(repo, renders, top.clipId, onBack = pop, onEditStyle = { caption, id ->
-                            push(if (caption) Route.CaptionStyleEdit(id) else Route.FrameStyleEdit(id))
+            /** Isi satu halaman: halaman di atas tumpukan, atau tab utama bila tumpukan kosong. */
+            @Composable
+            fun Page(top: Route?) {
+                    when (top) {
+                    // Editor selalu gelap, sama dengan Android.
+                    is Route.Editor -> ClipMiDarkSurface {
+                        Box(Modifier.fillMaxSize().background(ClipMi.colors.bg).safeDrawingPadding()) {
+                            ClipEditorScreen(repo, renders, top.clipId, onBack = pop, onEditStyle = { caption, id ->
+                                push(if (caption) Route.CaptionStyleEdit(id) else Route.FrameStyleEdit(id))
+                            })
+                        }
+                    }
+                    is Route.Project -> ProjectScreen(
+                        repo, engine, downloads, renders, analysis, transcriber, localVideos, top.id, onBack = pop, onEdit = { push(Route.Editor(it)) }, onSchedule = { push(Route.ScheduleEdit(clipId = it)) },
+                    )
+                    Route.Backup -> Box(Modifier.statusBarsPadding()) { BackupScreen(repo, engine, onBack = pop) }
+                    is Route.ScheduleEdit -> Box(Modifier.fillMaxSize()) {
+                        ScheduleEditScreen(repo, engine, scheduler, top.id, top.clipId, top.date, onBack = pop, onSaved = { saved ->
+                            // Jadwal baru: kembali ke asal. Diubah: kembali ke Siap Unggah. Dihapus: tutup juga Siap Unggah-nya.
+                            stack = if (saved == 0L) stack.dropLast(1).dropLastWhile { it is Route.Ready } else stack.dropLast(1)
                         })
                     }
+                    is Route.Ready -> Box(Modifier.fillMaxSize()) {
+                        ReadyScreen(
+                            repo, engine, scheduler, renders, top.id, onBack = pop, onEdit = { push(Route.ScheduleEdit(id = top.id)) },
+                            onOpened = { other -> stack = stack.dropLast(1) + Route.Ready(other) },
+                        )
+                    }
+                    Route.Accounts -> Box(Modifier.fillMaxSize()) { AccountsScreen(repo, scheduler, onBack = pop) }
+                    Route.AiSettings -> Box(Modifier.fillMaxSize()) { AnalysisSettingsScreen(settings, ai, onBack = pop) }
+                    Route.TranscriptionSettings -> Box(Modifier.fillMaxSize()) { TranscriptionSettingsScreen(settings, onBack = pop) }
+                    Route.Bumpers -> Box(Modifier.fillMaxSize()) { BumpersScreen(repo, bumpers, onBack = pop) }
+                    Route.TeamPack -> Box(Modifier.fillMaxSize()) { TeamPackScreen(teamPacks, onBack = pop) }
+                    Route.Corrections -> Box(Modifier.fillMaxSize()) { CorrectionsScreen(repo, onBack = pop) }
+                    Route.AiUsage -> Box(Modifier.fillMaxSize()) { AiUsageScreen(repo, onBack = pop) }
+                    Route.Data -> Box(Modifier.fillMaxSize()) { DataScreen(repo, downloads, localVideos, onBack = pop) }
+                    Route.Results -> Box(Modifier.fillMaxSize()) {
+                        ResultsScreen(
+                            repo, engine, renders, onBack = pop,
+                            onOpenProject = { push(Route.Project(it)) }, onOpenEditor = { push(Route.Editor(it)) },
+                            onSchedule = { push(Route.ScheduleEdit(clipId = it)) }, onOpenSchedule = { push(Route.Ready(it)) },
+                        )
+                    }
+                    is Route.Styles -> Box(Modifier.fillMaxSize()) {
+                        StylesScreen(
+                            repo, renders.renderer, top.tab, onTab = { stack = stack.dropLast(1) + Route.Styles(it) }, onBack = pop,
+                            onEdit = { caption, id, copyOf -> push(if (caption) Route.CaptionStyleEdit(id, copyOf) else Route.FrameStyleEdit(id, copyOf)) },
+                        )
+                    }
+                    is Route.CaptionStyleEdit -> Box(Modifier.fillMaxSize()) {
+                        CaptionStyleEditScreen(repo, renders.renderer, top.id, top.copyOf, onBack = pop, onDuplicate = { from -> stack = stack.dropLast(1) + Route.CaptionStyleEdit(0, from) })
+                    }
+                    is Route.FrameStyleEdit -> Box(Modifier.fillMaxSize()) {
+                        FrameStyleEditScreen(repo, renders.renderer, styleMedia, top.id, top.copyOf, onBack = pop, onDuplicate = { from -> stack = stack.dropLast(1) + Route.FrameStyleEdit(0, from) })
+                    }
+                    Route.Performance -> Box(Modifier.fillMaxSize()) { PerformanceScreen(repo, performance, settings, onBack = pop, onOpenSchedule = { push(Route.Ready(it)) }) }
+                    null -> when (tab) {
+                        MainTab.Projects -> ProjectListScreen(repo, engine, downloads, renders, localVideos, onOpen = { push(Route.Project(it)) }, onOpenResults = { push(Route.Results) }, onLocalCreated = { id ->
+                            push(Route.Project(id))
+                            scope.launch { transcriber.startAutomatically(id) }
+                        })
+                        MainTab.Schedule -> ScheduleScreen(
+                            repo, engine, scheduler, renders,
+                            onOpenAccounts = { push(Route.Accounts) },
+                            onOpenSchedule = { push(Route.Ready(it)) },
+                            onNewSchedule = { clip, date -> push(Route.ScheduleEdit(clipId = clip, date = date)) },
+                        )
+                        MainTab.Stats -> StatsScreen(repo, engine, scheduler, downloads, onOpenSchedule = { push(Route.Ready(it)) }, onOpenPerformance = { push(Route.Performance) })
+                        MainTab.Settings -> SettingsScreen(repo, settings, engine, downloads, onAnalysis = { push(Route.AiSettings) }, onTranscription = { push(Route.TranscriptionSettings) }, onBumpers = { push(Route.Bumpers) }, onStyles = { push(Route.Styles()) }, onTeamPack = { push(Route.TeamPack) }, onBackup = { push(Route.Backup) }, open = push)
+                    }
                 }
-                is Route.Project -> ProjectScreen(
-                    repo, engine, downloads, renders, analysis, transcriber, localVideos, top.id, onBack = pop, onEdit = { push(Route.Editor(it)) }, onSchedule = { push(Route.ScheduleEdit(clipId = it)) },
-                )
-                Route.Backup -> Box(Modifier.statusBarsPadding()) { BackupScreen(repo, engine, onBack = pop) }
-                is Route.ScheduleEdit -> Box(Modifier.fillMaxSize()) {
-                    ScheduleEditScreen(repo, engine, scheduler, top.id, top.clipId, top.date, onBack = pop, onSaved = { saved ->
-                        // Jadwal baru: kembali ke asal. Diubah: kembali ke Siap Unggah. Dihapus: tutup juga Siap Unggah-nya.
-                        stack = if (saved == 0L) stack.dropLast(1).dropLastWhile { it is Route.Ready } else stack.dropLast(1)
-                    })
+            }
+
+            /** Halaman beserta bingkainya: selain editor dan project, isi dibatasi lebarnya di tengah (iPad). */
+            @Composable
+            fun Screen(top: Route?) {
+                if (top !is Route.Editor && top !is Route.Project) {
+                    ScreenFrame { Page(top) }
+                } else {
+                    Page(top)
                 }
-                is Route.Ready -> Box(Modifier.fillMaxSize()) {
-                    ReadyScreen(
-                        repo, engine, scheduler, renders, top.id, onBack = pop, onEdit = { push(Route.ScheduleEdit(id = top.id)) },
-                        onOpened = { other -> stack = stack.dropLast(1) + Route.Ready(other) },
-                    )
+            }
+
+            // Usap dari tepi kiri untuk kembali (gestur bawaan iOS, lewat NavigationBackHandler). Selama digeser,
+            // halaman di bawahnya ikut tampil; kunci per posisi tumpukan menjaga keadaan halaman itu setelah kembali.
+            // Editor dan form yang bisa kehilangan isian tidak memakai gestur ini (pakai tombol kembali/tutup).
+            val current = stack.lastOrNull()
+            val swipeBack = current != null && current !is Route.Editor && current !is Route.CaptionStyleEdit &&
+                current !is Route.FrameStyleEdit && current !is Route.ScheduleEdit
+            val backState = rememberNavigationEventState(NavigationEventInfo.None)
+            NavigationBackHandler(state = backState, isBackEnabled = swipeBack, onBackCancelled = {}, onBackCompleted = { pop() })
+            val progress = (backState.transitionState as? NavigationEventTransitionState.InProgress)?.latestEvent?.progress ?: 0f
+            BoxWithConstraints(Modifier.fillMaxSize()) {
+                val width = constraints.maxWidth.toFloat()
+                if (progress > 0f) {
+                    key(stack.size - 1, stack.getOrNull(stack.size - 2)) {
+                        Box(Modifier.fillMaxSize().background(ClipMi.colors.bg)) { Screen(stack.getOrNull(stack.size - 2)) }
+                    }
+                    Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.25f * (1f - progress))))
                 }
-                Route.Accounts -> Box(Modifier.fillMaxSize()) { AccountsScreen(repo, scheduler, onBack = pop) }
-                Route.AiSettings -> Box(Modifier.fillMaxSize()) { AnalysisSettingsScreen(settings, ai, onBack = pop) }
-                Route.TranscriptionSettings -> Box(Modifier.fillMaxSize()) { TranscriptionSettingsScreen(settings, onBack = pop) }
-                Route.Bumpers -> Box(Modifier.fillMaxSize()) { BumpersScreen(repo, bumpers, onBack = pop) }
-                Route.TeamPack -> Box(Modifier.fillMaxSize()) { TeamPackScreen(teamPacks, onBack = pop) }
-                Route.Corrections -> Box(Modifier.fillMaxSize()) { CorrectionsScreen(repo, onBack = pop) }
-                Route.AiUsage -> Box(Modifier.fillMaxSize()) { AiUsageScreen(repo, onBack = pop) }
-                Route.Data -> Box(Modifier.fillMaxSize()) { DataScreen(repo, downloads, localVideos, onBack = pop) }
-                Route.Results -> Box(Modifier.fillMaxSize()) {
-                    ResultsScreen(
-                        repo, engine, renders, onBack = pop,
-                        onOpenProject = { push(Route.Project(it)) }, onOpenEditor = { push(Route.Editor(it)) },
-                        onSchedule = { push(Route.ScheduleEdit(clipId = it)) }, onOpenSchedule = { push(Route.Ready(it)) },
-                    )
-                }
-                is Route.Styles -> Box(Modifier.fillMaxSize()) {
-                    StylesScreen(
-                        repo, renders.renderer, top.tab, onTab = { stack = stack.dropLast(1) + Route.Styles(it) }, onBack = pop,
-                        onEdit = { caption, id, copyOf -> push(if (caption) Route.CaptionStyleEdit(id, copyOf) else Route.FrameStyleEdit(id, copyOf)) },
-                    )
-                }
-                is Route.CaptionStyleEdit -> Box(Modifier.fillMaxSize()) {
-                    CaptionStyleEditScreen(repo, renders.renderer, top.id, top.copyOf, onBack = pop, onDuplicate = { from -> stack = stack.dropLast(1) + Route.CaptionStyleEdit(0, from) })
-                }
-                is Route.FrameStyleEdit -> Box(Modifier.fillMaxSize()) {
-                    FrameStyleEditScreen(repo, renders.renderer, styleMedia, top.id, top.copyOf, onBack = pop, onDuplicate = { from -> stack = stack.dropLast(1) + Route.FrameStyleEdit(0, from) })
-                }
-                Route.Performance -> Box(Modifier.fillMaxSize()) { PerformanceScreen(repo, performance, settings, onBack = pop, onOpenSchedule = { push(Route.Ready(it)) }) }
-                null -> when (tab) {
-                    MainTab.Projects -> ProjectListScreen(repo, engine, downloads, renders, localVideos, onOpen = { push(Route.Project(it)) }, onOpenResults = { push(Route.Results) }, onLocalCreated = { id ->
-                        push(Route.Project(id))
-                        scope.launch { transcriber.startAutomatically(id) }
-                    })
-                    MainTab.Schedule -> ScheduleScreen(
-                        repo, engine, scheduler, renders,
-                        onOpenAccounts = { push(Route.Accounts) },
-                        onOpenSchedule = { push(Route.Ready(it)) },
-                        onNewSchedule = { clip, date -> push(Route.ScheduleEdit(clipId = clip, date = date)) },
-                    )
-                    MainTab.Stats -> StatsScreen(repo, engine, scheduler, downloads, onOpenSchedule = { push(Route.Ready(it)) }, onOpenPerformance = { push(Route.Performance) })
-                    MainTab.Settings -> SettingsScreen(repo, settings, engine, downloads, onAnalysis = { push(Route.AiSettings) }, onTranscription = { push(Route.TranscriptionSettings) }, onBumpers = { push(Route.Bumpers) }, onStyles = { push(Route.Styles()) }, onTeamPack = { push(Route.TeamPack) }, onBackup = { push(Route.Backup) }, open = push)
+                key(stack.size, current) {
+                    Box(Modifier.fillMaxSize().graphicsLayer { translationX = width * progress }) { Screen(current) }
                 }
             }
             // Navigasi utama = bilah tab asli iOS di atas layar Compose (lihat RootController di iosApp).
@@ -386,7 +434,6 @@ private fun YtDlpRow(engine: MediaEngine, downloads: Downloads) {
     val updater = remember(engine) { YtDlpUpdater(engine) }
     var info by remember { mutableStateOf<YtDlpUpdater.Info?>(null) }
     var updating by remember { mutableStateOf(false) }
-    var menu by remember { mutableStateOf(false) }
     LaunchedEffect(updater) { info = updater.info() }
     val current = info
     SettingsRow(
@@ -399,7 +446,32 @@ private fun YtDlpRow(engine: MediaEngine, downloads: Downloads) {
                         notifier.show("Tunggu unduhan video selesai dulu.")
                         return@ActionChip
                     }
-                    if (current?.updated == true) { menu = true; return@ActionChip }
+                    if (current?.updated == true) {
+                        engine.actionSheet("Pengunduh YouTube", listOf(
+                            NativeMenuItem("Cek versi terbaru", "arrow.clockwise") {
+                                updating = true
+                                scope.launch {
+                                    notifier.show(
+                                        when (val r = updater.update()) {
+                                            is YtDlpUpdater.Result.Updated -> "yt-dlp ${r.version} diperbarui."
+                                            is YtDlpUpdater.Result.UpToDate -> "yt-dlp ${r.version} sudah terbaru."
+                                            is YtDlpUpdater.Result.Failed -> "Gagal memperbarui yt-dlp: ${r.message}"
+                                        },
+                                    )
+                                    info = updater.info()
+                                    updating = false
+                                }
+                            },
+                            NativeMenuItem("Kembali ke versi bawaan", "arrow.uturn.backward", destructive = true) {
+                                scope.launch {
+                                    val version = updater.reset()
+                                    notifier.show("Memakai yt-dlp bawaan${version?.let { " $it" }.orEmpty()}.")
+                                    info = updater.info()
+                                }
+                            },
+                        ))
+                        return@ActionChip
+                    }
                     updating = true
                     scope.launch {
                         notifier.show(
@@ -413,31 +485,6 @@ private fun YtDlpRow(engine: MediaEngine, downloads: Downloads) {
                         updating = false
                     }
                 })
-                DropdownMenu(menu, onDismissRequest = { menu = false }, containerColor = ClipMi.colors.card) {
-                    DropdownMenuItem(text = { Text("Cek versi terbaru") }, onClick = {
-                        menu = false
-                        updating = true
-                        scope.launch {
-                            notifier.show(
-                                when (val r = updater.update()) {
-                                    is YtDlpUpdater.Result.Updated -> "yt-dlp ${r.version} diperbarui."
-                                    is YtDlpUpdater.Result.UpToDate -> "yt-dlp ${r.version} sudah terbaru."
-                                    is YtDlpUpdater.Result.Failed -> "Gagal memperbarui yt-dlp: ${r.message}"
-                                },
-                            )
-                            info = updater.info()
-                            updating = false
-                        }
-                    })
-                    DropdownMenuItem(text = { Text("Kembali ke versi bawaan") }, onClick = {
-                        menu = false
-                        scope.launch {
-                            val version = updater.reset()
-                            notifier.show("Memakai yt-dlp bawaan${version?.let { " $it" }.orEmpty()}.")
-                            info = updater.info()
-                        }
-                    })
-                }
             }
         },
     )
@@ -785,18 +832,28 @@ private fun ProjectScreen(
         (it.render == RenderStatus.NotRendered || it.render == RenderStatus.Failed || it.changedAfterRender) && it.id != renders.active && it.id !in renders.queued
     }
     val renderBar = tab == 0 && !selecting && selectedClips.isNotEmpty()
-    Box(Modifier.fillMaxSize()) {
-    Column(Modifier.fillMaxSize()) {
-        // Video tetap di atas; hanya isi di bawahnya yang bergulir.
-        Box(Modifier.fillMaxWidth().background(Color.Black).statusBarsPadding().aspectRatio(16f / 9f)) {
-            if (source != null) SourceVideo(source, Modifier.fillMaxSize(), playback)
-            else ProjectThumbnail(repo, engine, p, Modifier.fillMaxSize())
+    // iPad mendatar (atau layar lebar miring): video di kiri setinggi layar, isi di kanan (sama dengan Android).
+    val side = isSideBySide()
+    val videoBox: @Composable (Modifier) -> Unit = { area ->
+        Box(area) {
+            Box(Modifier.align(Alignment.Center).fillMaxWidth().aspectRatio(16f / 9f)) {
+                if (source != null) SourceVideo(source, Modifier.fillMaxSize(), playback)
+                else ProjectThumbnail(repo, engine, p, Modifier.fillMaxSize())
+            }
             IconCircle(
                 ClipMiIcons.Back, "Kembali", onBack, modifier = Modifier.align(Alignment.TopStart).padding(12.dp),
                 background = Color(0x990B0F0E), tint = Color.White, border = false,
             )
         }
-        LazyColumn(Modifier.fillMaxWidth().weight(1f), contentPadding = PaddingValues(bottom = if (renderBar || selecting) 120.dp else 40.dp)) {
+    }
+    Box(Modifier.fillMaxSize()) {
+    Row(Modifier.fillMaxSize()) {
+    if (side) videoBox(Modifier.weight(0.45f).fillMaxHeight().background(Color.Black).statusBarsPadding())
+    Column(Modifier.weight(0.55f).fillMaxHeight().then(if (side) Modifier.statusBarsPadding() else Modifier), horizontalAlignment = Alignment.CenterHorizontally) {
+        // Video tetap di atas; hanya isi di bawahnya yang bergulir.
+        if (!side) videoBox(Modifier.fillMaxWidth().background(Color.Black).statusBarsPadding().aspectRatio(16f / 9f))
+        // Layar lebar tegak (iPad): isi dibatasi lebarnya supaya baris tidak memanjang.
+        LazyColumn(Modifier.widthIn(max = ReadableWidth).fillMaxWidth().weight(1f), contentPadding = PaddingValues(bottom = if (renderBar || selecting) 120.dp else 40.dp)) {
             item {
                 Column(Modifier.padding(start = ScreenGutter, end = ScreenGutter, top = 16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
@@ -844,21 +901,19 @@ private fun ProjectScreen(
                             trailingText = if (needle.isNotEmpty()) "${shown.size} cocok" else null,
                             onClear = { query = "" },
                         )
-                        Box {
-                            var menu by remember { mutableStateOf(false) }
-                            ActionChip("", { menu = true }, height = 48.dp, icon = ClipMiIcons.More)
-                            DropdownMenu(menu, onDismissRequest = { menu = false }, containerColor = c.card) {
-                                DropdownMenuItem(text = { Text("Terapkan kamus") }, onClick = {
-                                    menu = false
+                        NativeMenuButton(
+                            buildList {
+                                add(NativeMenuItem("Terapkan kamus", "character.book.closed") {
                                     scope.launch {
                                         val count = repo.applyCorrections(p.id)
                                         notifier.show(if (count > 0) "$count kata dikoreksi kamus." else "Tidak ada kata yang perlu dikoreksi.")
                                     }
                                 })
-                                DropdownMenuItem(text = { Text("Impor SRT/VTT") }, onClick = { menu = false; importSubtitle() })
-                                if (!transcribing) DropdownMenuItem(text = { Text("Transkripsi Otomatis") }, enabled = canTranscribe, onClick = { menu = false; transcribeApi() })
-                            }
-                        }
+                                add(NativeMenuItem("Impor SRT/VTT", "doc.text") { importSubtitle() })
+                                if (!transcribing) add(NativeMenuItem("Transkripsi Otomatis", "waveform", enabled = canTranscribe) { transcribeApi() })
+                            },
+                            background = c.panel, tint = c.text, size = 48.dp,
+                        )
                     }
                 }
                 if (segments.isEmpty()) item {
@@ -892,6 +947,7 @@ private fun ProjectScreen(
                 }
             }
         }
+    }
     }
 
     // Tab Klip: klip terpilih dirender sekaligus (berurutan), sama dengan bilah render Android.
@@ -1322,6 +1378,7 @@ private fun ManualAnalysisSheet(repo: Repository, engine: MediaEngine, project: 
  * Kartu klip: skor, judul, ringkasan, status, dan menu ⋯ berisi semua aksi. Ketuk untuk menampilkan hook dan alasan
  * lengkap; geser ke kanan = pilih (di tab Dibuang: pulihkan), geser ke kiri = buang (di tab Dibuang: hapus permanen).
  */
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun ClipCard(
     repo: Repository, engine: MediaEngine, renders: Renders, clip: ClipEntity, scheduleState: ScheduleState?,
@@ -1332,7 +1389,6 @@ private fun ClipCard(
     val clipboard = LocalClipboardManager.current
     val notifier = LocalNotifier.current
     var expanded by remember(clip.id) { mutableStateOf(false) }
-    var menu by remember(clip.id) { mutableStateOf(false) }
     var confirmDelete by remember(clip.id) { mutableStateOf(false) }
     val rendering = renders.active == clip.id
     val rejected = clip.review == ReviewStatus.Rejected
@@ -1354,6 +1410,38 @@ private fun ClipCard(
         }
     }
 
+    // Aksi klip: menu ⋯ asli iOS dan lembar aksi saat kartu ditekan lama.
+    val items = buildList {
+        add(NativeMenuItem("Putar", "play") { onPlay(clip) })
+        add(NativeMenuItem("Buka editor", "scissors") { onEdit(clip.id) })
+        when {
+            rendering -> add(NativeMenuItem("Batalkan render", "xmark.circle") { renders.cancel() })
+            clip.id in renders.queued -> add(NativeMenuItem("Keluarkan dari antrean", "xmark.circle") { renders.unqueue(clip.id) })
+            else -> add(NativeMenuItem(when (clip.render) { RenderStatus.Done -> "Render ulang"; RenderStatus.Failed -> "Render lagi"; else -> "Render" }, "film") {
+                renders.start(clip.id)
+                if (renders.active != clip.id) notifier.show("Masuk antrean render.")
+            })
+        }
+        if (clip.render == RenderStatus.Done && !rendering) {
+            add(NativeMenuItem("Jadwalkan", "calendar") { onSchedule(clip.id) })
+            add(NativeMenuItem("Bagikan", "square.and.arrow.up") { share() })
+        }
+        when (clip.review) {
+            ReviewStatus.Candidate -> {
+                add(NativeMenuItem("Pilih", "checkmark.circle") { setReview(ReviewStatus.Selected) })
+                add(NativeMenuItem("Buang", "xmark", destructive = true) { discard() })
+            }
+            ReviewStatus.Selected -> {
+                add(NativeMenuItem("Batal pilih", "circle") { setReview(ReviewStatus.Candidate) })
+                add(NativeMenuItem("Buang", "xmark", destructive = true) { discard() })
+            }
+            ReviewStatus.Rejected -> {
+                add(NativeMenuItem("Pulihkan", "arrow.uturn.backward") { setReview(ReviewStatus.Candidate) })
+                add(NativeMenuItem("Hapus permanen", "trash", destructive = true) { confirmDelete = true })
+            }
+        }
+    }
+
     SwipeCard(
         right = if (rejected) SwipeAction("Pulihkan", ClipMiIcons.Refresh, c.accent) { setReview(ReviewStatus.Candidate) }
         else if (clip.review != ReviewStatus.Selected) SwipeAction("Pilih", ClipMiIcons.CircleCheck, c.accent) { setReview(ReviewStatus.Selected) }
@@ -1361,7 +1449,16 @@ private fun ClipCard(
         left = if (rejected) SwipeAction("Hapus", ClipMiIcons.Trash, c.bad) { confirmDelete = true }
         else SwipeAction("Buang", ClipMiIcons.Close, c.bad) { discard() },
     ) {
-        ClipMiCard(onClick = { expanded = !expanded }, spacing = 10.dp) {
+        ClipMiCard(
+            Modifier.clip(MaterialTheme.shapes.large).combinedClickable(
+                onClick = { expanded = !expanded },
+                onLongClick = {
+                    engine.haptic("medium")
+                    engine.actionSheet(ClipText.displayTitle(clip.title, clip.partNumber), items)
+                },
+            ),
+            spacing = 10.dp,
+        ) {
             Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 ScoreBadge(clip.score)
                 Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
@@ -1371,50 +1468,8 @@ private fun ClipCard(
                     }
                     ClipMeta(clip, renders, expanded, scheduleState)
                 }
-                // Semua aksi di menu ⋯ (sudut kanan atas kartu).
-                Box {
-                    IconCircle(ClipMiIcons.More, "Aksi klip", { menu = true }, size = 36.dp, background = Color.Transparent, border = false, tint = c.textMuted)
-                    DropdownMenu(menu, onDismissRequest = { menu = false }) {
-                        @Composable
-                        fun item(label: String, icon: ImageVector, color: Color = c.text, enabled: Boolean = true, action: () -> Unit) = DropdownMenuItem(
-                            text = { Text(label, color = if (enabled) color else c.textMuted) },
-                            leadingIcon = { Icon(icon, null, Modifier.size(18.dp), tint = if (enabled) color else c.textMuted) },
-                            enabled = enabled,
-                            onClick = { menu = false; action() },
-                        )
-                        item("Putar", ClipMiIcons.Play) { onPlay(clip) }
-                        item("Buka editor", ClipMiIcons.Scissors) { onEdit(clip.id) }
-                        when {
-                            rendering -> item("Batalkan render", ClipMiIcons.Close) { renders.cancel() }
-                            clip.id in renders.queued -> item("Keluarkan dari antrean", ClipMiIcons.Close) { renders.unqueue(clip.id) }
-                            else -> item(
-                                when (clip.render) { RenderStatus.Done -> "Render ulang"; RenderStatus.Failed -> "Render lagi"; else -> "Render" },
-                                ClipMiIcons.Film,
-                            ) {
-                                renders.start(clip.id)
-                                if (renders.active != clip.id) notifier.show("Masuk antrean render.")
-                            }
-                        }
-                        if (clip.render == RenderStatus.Done && !rendering) {
-                            item("Jadwalkan", ClipMiIcons.Calendar) { onSchedule(clip.id) }
-                            item("Bagikan", ClipMiIcons.Share) { share() }
-                        }
-                        when (clip.review) {
-                            ReviewStatus.Candidate -> {
-                                item("Pilih", ClipMiIcons.CircleCheck) { setReview(ReviewStatus.Selected) }
-                                item("Buang", ClipMiIcons.Close, c.bad) { discard() }
-                            }
-                            ReviewStatus.Selected -> {
-                                item("Batal pilih", ClipMiIcons.Close) { setReview(ReviewStatus.Candidate) }
-                                item("Buang", ClipMiIcons.Close, c.bad) { discard() }
-                            }
-                            ReviewStatus.Rejected -> {
-                                item("Pulihkan", ClipMiIcons.Refresh) { setReview(ReviewStatus.Candidate) }
-                                item("Hapus permanen", ClipMiIcons.Trash, c.bad) { confirmDelete = true }
-                            }
-                        }
-                    }
-                }
+                // Semua aksi di menu ⋯ asli (sudut kanan atas kartu).
+                NativeMenuButton(items, background = c.card, tint = c.textMuted)
             }
             // Progres dan galat render selalu terlihat (bukan aksi).
             if (rendering) {
@@ -1459,6 +1514,10 @@ private fun SwipeCard(right: SwipeAction?, left: SwipeAction?, content: @Composa
     val threshold = with(density) { 88.dp.toPx() }
     val maxTravel = with(density) { 120.dp.toPx() }
     val shape = RoundedCornerShape(24.dp)
+    // Getar halus saat geseran melewati titik aksi (lepas di sini = aksi dijalankan).
+    val engine = LocalMediaEngine.current
+    val passed = kotlin.math.abs(offset.value) >= threshold
+    LaunchedEffect(passed) { if (passed) engine.haptic("light") }
     Box(Modifier.fillMaxWidth()) {
         val x = offset.value
         val action = if (x > 0) right else if (x < 0) left else null

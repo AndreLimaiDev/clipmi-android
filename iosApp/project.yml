@@ -80,6 +80,8 @@ targets:
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         INFOPLIST_KEY_UILaunchScreen_Generation: YES
         INFOPLIST_KEY_UISupportedInterfaceOrientations: UIInterfaceOrientationPortrait
+        # iPad: semua arah (tata letak berdampingan saat mendatar, juga Split View/Stage Manager). iPhone tetap tegak.
+        INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad: "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight"
         INFOPLIST_KEY_LSSupportsOpeningDocumentsInPlace: YES
     postBuildScripts:
       # Pustaka standar Python ke <app>/python dan modul biner (.so) menjadi framework (CPython "Using Python on iOS").
