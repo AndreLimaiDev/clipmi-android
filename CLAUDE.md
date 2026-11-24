@@ -32,7 +32,9 @@ Aplikasi Android berdiri sendiri untuk clipping kajian/ceramah menjadi klip vert
 
 ## Aturan kerja
 - Commit hanya bila pengguna meminta; push hanya dengan "Commit & push" (atau yang setara). Pesan commit berbahasa Indonesia dan diakhiri `Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>`.
-- Remote: `origin` = https://github.com/AndreLimaiDev/clipmi-android.git (kode, privat). Rilis APK di repo publik terpisah `AndreLimaiDev/clipmi-android-releases` (`clipmi.updateRepo`); diunggah manual oleh pengguna (lihat `docs/rilis.md`); setelah dipublikasikan, cocokkan sha256-nya. PC ini tidak punya GitHub CLI.
+- Remote: `origin` = https://github.com/AndreLimaiDev/clipmi-android.git (kode). Sejak 24 November 2026 **publik sementara** (menit macOS GitHub Actions gratis untuk build iOS); pengguna bisa menjadikannya privat lagi. Jangan commit rahasia; commit memakai email noreply GitHub (riwayat lama sudah ditulis ulang).
+- Rilis APK di repo publik terpisah `AndreLimaiDev/clipmi-android-releases` (`clipmi.updateRepo`, lihat `docs/rilis.md`), boleh diterbitkan lewat gh bila pengguna meminta; setelah terbit, cocokkan sha256-nya. Rilis iOS lewat source SideStore di `AndreLimaiDev/clipmi-ios-releases` (lihat `docs/rilis-ios.md`).
+- GitHub CLI: `C:\Program Files\GitHub CLI\gh.exe` (sudah login).
 - Jangan mengubah pengaturan sistem atau keamanan Windows/HP. Tanyakan dulu sebelum mengunduh berkas besar (sebutkan nama, sumber, ukuran) dan sebelum memasang alat baru.
 - Jangan pernah menulis atau menampilkan API key asli pengguna.
 - Cek dokumentasi terbaru (Context7 atau situs resmi Android) sebelum menebak API Media3, Compose, WorkManager, atau NDK.
