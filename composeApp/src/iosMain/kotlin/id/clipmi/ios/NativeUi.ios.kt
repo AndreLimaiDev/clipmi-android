@@ -18,7 +18,7 @@ import platform.UIKit.UIView
 
 @OptIn(ExperimentalComposeUiApi::class)
 @Composable
-actual fun NativeMenuButton(items: List<NativeMenuItem>, background: Color, modifier: Modifier, symbol: String, tint: Color, size: Dp) {
+actual fun NativeMenuButton(items: List<NativeMenuItem>, background: Color, modifier: Modifier, fill: Color, symbol: String, tint: Color, size: Dp) {
     val engine = LocalMediaEngine.current
     val latest by rememberUpdatedState(items)
     // Satu pendengar per tombol; memanggil daftar butir terbaru, jadi aksi selalu memakai keadaan layar sekarang.
@@ -32,10 +32,11 @@ actual fun NativeMenuButton(items: List<NativeMenuItem>, background: Color, modi
     val json = items.toJson()
     val tintHex = tint.toHex()
     val backgroundHex = background.toHex()
+    val fillHex = fill.toHex()
     UIKitView(
-        factory = { engine.makeMenuButton(symbol, tintHex, backgroundHex, json, listener) as UIView },
+        factory = { engine.makeMenuButton(symbol, tintHex, backgroundHex, fillHex, json, listener) as UIView },
         modifier = modifier.size(size),
-        update = { engine.updateMenuButton(it, symbol, tintHex, backgroundHex, json, listener) },
+        update = { engine.updateMenuButton(it, symbol, tintHex, backgroundHex, fillHex, json, listener) },
         // Ketukan langsung ke tombol UIKit (tanpa jeda 150 ms); daftar tetap bisa digulir dari luar tombol.
         properties = UIKitInteropProperties(interactionMode = UIKitInteropInteractionMode.NonCooperative, isNativeAccessibilityEnabled = true),
     )

@@ -234,11 +234,8 @@ class Repository(val db: AppDatabase, val documents: String) {
         val segments = db.segments().forProject(id).map {
             ImportSegment(it.sequence, it.startTime, it.endTime, decodeWords(it.words).ifEmpty { null })
         }
-        val parsed = try {
-            ClipImporter.parse(reply, segments)
-        } catch (e: AnalysisResultException) {
-            runCatching { ClipImporter.parse(ChatPaste.clean(reply), segments) }.getOrNull() ?: throw e
-        }
+        // Salinan ChatGPT (escape Markdown/HTML) atau kutip lengkung: dicoba lagi setelah dirapikan (sama dengan Android).
+        val parsed = ChatPaste.firstReadable(reply) { ClipImporter.parse(it, segments) }
         var created = 0
         var skipped = 0
         db.useWriterConnection { transactor ->

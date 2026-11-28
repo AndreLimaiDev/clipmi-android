@@ -1,5 +1,6 @@
 package id.clipmi.android.domain
 
+import id.clipmi.core.analysis.ChatPaste
 import android.content.Context
 import id.clipmi.android.data.AiUsageEntity
 import id.clipmi.android.data.AppDatabase
@@ -94,7 +95,7 @@ class PerformanceReports(
         if (reply.isBlank()) return Result.failure(AnalysisResultException("Tempel balasan dari chat AI dulu."))
         val digest = digest()
         val result = try {
-            PerformancePrompt.parse(reply, digest)
+            ChatPaste.firstReadable(reply) { PerformancePrompt.parse(it, digest) }
         } catch (e: AnalysisResultException) {
             return Result.failure(e)
         }

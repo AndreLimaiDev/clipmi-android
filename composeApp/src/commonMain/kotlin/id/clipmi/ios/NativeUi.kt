@@ -47,13 +47,14 @@ val LocalMediaEngine = staticCompositionLocalOf<MediaEngine> { error("MediaEngin
 
 /**
  * Tombol (ikon SF Symbol [symbol], bawaan ⋯) yang membuka menu asli iOS berisi [items]. [background] harus sama dengan
- * latar di belakangnya, karena view UIKit tampil di lubang lapisan Compose.
+ * latar di sekitarnya (view UIKit persegi tampil di lubang lapisan Compose); [fill] = isi tombol bersudut membulat.
  */
 @Composable
 expect fun NativeMenuButton(
     items: List<NativeMenuItem>,
     background: Color,
     modifier: Modifier = Modifier,
+    fill: Color = background,
     symbol: String = "ellipsis",
     tint: Color = Color.Gray,
     size: Dp = 36.dp,

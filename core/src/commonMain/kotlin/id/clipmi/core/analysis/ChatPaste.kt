@@ -33,4 +33,27 @@ object ChatPaste {
         // Spasi tak terputus dan spasi lebar nol bukan spasi JSON.
         return unescaped.replace('\u00A0', ' ').replace("\u200B", "").replace("\uFEFF", "")
     }
+
+    /**
+     * Tanda kutip lengkung (\u201C \u201D \u201E \u2033, dari Smart Punctuation iOS atau aplikasi catatan) menjadi tanda kutip lurus JSON.
+     * Hanya dipakai sebagai percobaan terakhir: kutip lengkung di dalam teks ikut berubah.
+     */
+    fun straightQuotes(text: String): String =
+        text.replace('\u201C', '"').replace('\u201D', '"').replace('\u201E', '"').replace('\u2033', '"')
+
+    /** Bentuk balasan yang dicoba berurutan: apa adanya, dirapikan, lalu dirapikan dengan kutip lurus. */
+    fun candidates(text: String): List<String> {
+        val cleaned = clean(text)
+        return listOf(text, cleaned, straightQuotes(cleaned)).distinct()
+    }
+
+    /** Hasil [read] dari bentuk pertama yang terbaca (lihat [candidates]); bila semuanya gagal, galat dari balasan asli. */
+    fun <T> firstReadable(text: String, read: (String) -> T): T {
+        val original = runCatching { read(text) }
+        if (original.isSuccess) return original.getOrThrow()
+        for (candidate in candidates(text).drop(1)) {
+            runCatching { return read(candidate) }
+        }
+        return original.getOrThrow()
+    }
 }

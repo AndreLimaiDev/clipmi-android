@@ -1,5 +1,7 @@
 package id.clipmi.ios
 
+import id.clipmi.core.analysis.ClipImporter
+import id.clipmi.core.analysis.ChatPaste
 import id.clipmi.android.ui.components.SwitchRow
 import id.clipmi.android.ui.components.ScreenFrame
 import id.clipmi.android.ui.components.ReadableWidth
@@ -922,7 +924,7 @@ private fun ProjectScreen(
                                 add(NativeMenuItem("Impor SRT/VTT", "doc.text") { importSubtitle() })
                                 if (!transcribing) add(NativeMenuItem("Transkripsi Otomatis", "waveform", enabled = canTranscribe) { transcribeApi() })
                             },
-                            background = c.panel, tint = c.text, size = 48.dp,
+                            background = c.bg, fill = c.panel, tint = c.text, size = 48.dp,
                         )
                     }
                 }
@@ -1359,7 +1361,19 @@ private fun ManualAnalysisSheet(repo: Repository, engine: MediaEngine, project: 
                 }
             }
         }
-        Field(reply, { reply = it; replyError = null }, label = "Balasan JSON dari AI", placeholder = "{\"clips\": [ … ]}", error = replyError, minLines = 4, maxLines = 8)
+        // Centang hijau begitu balasan terbaca sebagai JSON klip (termasuk salinan ChatGPT yang perlu dirapikan).
+        val readable = remember(reply) {
+            reply.isNotBlank() && ChatPaste.candidates(reply).any { runCatching { ClipImporter.decode(it) }.isSuccess }
+        }
+        Box {
+            Field(reply, { reply = it; replyError = null }, label = "Balasan JSON dari AI", placeholder = "{\"clips\": [ … ]}", error = replyError, minLines = 4, maxLines = 8)
+            if (readable && replyError == null) {
+                Icon(
+                    ClipMiIcons.CircleCheck, "Balasan JSON terbaca", tint = c.accent,
+                    modifier = Modifier.align(Alignment.BottomEnd).padding(end = 10.dp, bottom = 10.dp).size(22.dp).background(c.bg, CircleShape),
+                )
+            }
+        }
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             SecondaryButton("Tempel", icon = ClipMiIcons.Copy, modifier = Modifier.weight(1f), onClick = {
                 clipboard.getText()?.text?.let { reply = it; replyError = null }

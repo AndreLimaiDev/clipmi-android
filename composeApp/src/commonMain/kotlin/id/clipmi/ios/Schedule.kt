@@ -1,5 +1,6 @@
 package id.clipmi.ios
 
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -431,6 +432,26 @@ private fun PeriodNav(label: String, monthOpen: Boolean, onToggle: () -> Unit, o
     }
 }
 
+/**
+ * Centang di pojok kartu tanggal: hijau = semua jadwal hari itu sudah terbit di semua akunnya, kuning = baru sebagian.
+ * Hari tanpa jadwal terbit tidak diberi tanda.
+ */
+@Composable
+private fun PublishedBadge(schedules: List<ScheduleView>, modifier: Modifier) {
+    if (schedules.isEmpty()) return
+    val states = schedules.map { it.state }
+    val all = states.all { it == ScheduleState.Published }
+    val some = states.any { it != ScheduleState.Scheduled }
+    if (!all && !some) return
+    val c = ClipMi.colors
+    Box(
+        modifier.offset(x = 3.dp, y = (-3).dp).size(16.dp).clip(CircleShape).background(if (all) c.accent else c.warn).border(1.5.dp, c.bg, CircleShape),
+        contentAlignment = Alignment.Center,
+    ) {
+        Icon(ClipMiIcons.Check, contentDescription = if (all) "Semua terbit" else "Sebagian terbit", tint = Color.White, modifier = Modifier.size(10.dp))
+    }
+}
+
 /** Tujuh hari mendatar (Sen–Min): tanggal, titik warna akun yang punya jadwal, hari terpilih disorot. */
 @Composable
 private fun WeekStrip(start: LocalDate, selected: LocalDate, byDay: Map<LocalDate, List<ScheduleView>>, onSelect: (LocalDate) -> Unit) {
@@ -441,8 +462,9 @@ private fun WeekStrip(start: LocalDate, selected: LocalDate, byDay: Map<LocalDat
             val day = start.plusDays(i)
             val isSelected = day == selected
             val dots = byDay[day].orEmpty().flatMap { s -> s.targets.map { it.account.color } }.distinct().take(3)
+            Box(Modifier.weight(1f)) {
             Column(
-                Modifier.weight(1f).clip(RoundedCornerShape(16.dp))
+                Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp))
                     .background(if (isSelected) c.accent else c.card)
                     .border(1.dp, if (isSelected) c.accent else c.line, RoundedCornerShape(16.dp))
                     .clickable { onSelect(day) }
@@ -464,6 +486,8 @@ private fun WeekStrip(start: LocalDate, selected: LocalDate, byDay: Map<LocalDat
                 Row(Modifier.height(6.dp), horizontalArrangement = Arrangement.spacedBy(2.dp)) {
                     dots.forEach { AccountDot(if (isSelected) "#FFFFFF" else it, 5.dp) }
                 }
+            }
+            PublishedBadge(byDay[day].orEmpty(), Modifier.align(Alignment.TopEnd))
             }
         }
     }
@@ -558,8 +582,9 @@ private fun MonthCard(selected: LocalDate, byDay: Map<LocalDate, List<ScheduleVi
                     val inMonth = day.month == month.month
                     val isSelected = day == selected
                     val dots = byDay[day].orEmpty().flatMap { s -> s.targets.map { it.account.color } }.distinct().take(3)
+                    Box(Modifier.weight(1f).aspectRatio(1.05f).padding(2.dp)) {
                     Column(
-                        Modifier.weight(1f).aspectRatio(1.05f).padding(2.dp).clip(RoundedCornerShape(12.dp))
+                        Modifier.fillMaxSize().clip(RoundedCornerShape(12.dp))
                             .background(if (isSelected) c.accentSoft else Color.Transparent)
                             .clickable { onSelect(day) },
                         horizontalAlignment = Alignment.CenterHorizontally,
@@ -577,6 +602,8 @@ private fun MonthCard(selected: LocalDate, byDay: Map<LocalDate, List<ScheduleVi
                         Row(Modifier.height(8.dp).padding(top = 2.dp), horizontalArrangement = Arrangement.spacedBy(2.dp)) {
                             dots.forEach { AccountDot(it, 5.dp) }
                         }
+                    }
+                    PublishedBadge(byDay[day].orEmpty(), Modifier.align(Alignment.TopEnd))
                     }
                 }
             }

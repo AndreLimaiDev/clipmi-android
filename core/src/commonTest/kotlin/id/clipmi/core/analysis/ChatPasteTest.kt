@@ -50,6 +50,18 @@ class ChatPasteTest {
     }
 
     @Test
+    fun curlyQuotesAreReadableAsLastResort() {
+        // Smart Punctuation iOS / aplikasi catatan: tanda kutip lengkung.
+        val curly = "{“clips”: [{“title”: “Sabar itu indah”}]}"
+        assertThrows(AnalysisResultException::class) { ClipImporter.decode(curly) }
+        val clips = ChatPaste.firstReadable(curly) { ClipImporter.decode(it) }
+        assertEquals("Sabar itu indah", clips[0].jsonObject.getValue("title").jsonPrimitive.content)
+        // Balasan yang sudah benar dibaca apa adanya (kutip lengkung di dalam teks tidak diubah).
+        val fine = "{\"clips\": [{\"title\": \"Kata “jin”\"}]}"
+        assertEquals("Kata “jin”", ChatPaste.firstReadable(fine) { ClipImporter.decode(it) }[0].jsonObject.getValue("title").jsonPrimitive.content)
+    }
+
+    @Test
     fun validJsonEscapesAreKept() {
         val json = """{"clips": [{"title": "Kata \"jin\" dan C:\\folder\nbaris \u00e9 \/"}]}"""
         assertEquals(json, ChatPaste.clean(json))

@@ -346,7 +346,7 @@ private fun ManualAnalysisSheet(container: AppContainer, project: ProjectEntity,
         // Centang hijau di pojok kanan bawah begitu balasan terbaca sebagai JSON klip (termasuk salinan ChatGPT yang
         // perlu dirapikan), sebelum Simpan kandidat.
         val readable = remember(reply) {
-            reply.isNotBlank() && listOf(reply, ChatPaste.clean(reply)).any { runCatching { ClipImporter.decode(it) }.isSuccess }
+            reply.isNotBlank() && ChatPaste.candidates(reply).any { runCatching { ClipImporter.decode(it) }.isSuccess }
         }
         Box {
             Field(

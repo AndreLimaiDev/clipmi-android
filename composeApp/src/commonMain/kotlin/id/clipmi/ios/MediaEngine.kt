@@ -136,13 +136,14 @@ interface MediaEngine {
 
     /**
      * Tombol dengan menu asli (UIButton + UIMenu, Liquid Glass di iOS 26). [itemsJson] = daftar
-     * `{"title", "symbol" (SF Symbol), "destructive", "enabled", "checked"}`; [symbol] ikon tombolnya; [tint] dan [background] warna hex (latar harus diisi: view UIKit tampil di lubang lapisan Compose).
+     * `{"title", "symbol" (SF Symbol), "destructive", "enabled", "checked"}`; [symbol] ikon tombolnya; [tint] warna ikon; [background] warna di sekitar tombol (view UIKit persegi tampil di lubang lapisan Compose, jadi sudutnya
+     * harus diwarnai seperti latarnya); [fill] isi tombol bersudut membulat. Semua warna hex.
      * Mengembalikan UIView untuk UIKitView. [listener] dipanggil dengan indeks butir yang dipilih.
      */
-    fun makeMenuButton(symbol: String, tint: String, background: String, itemsJson: String, listener: ChoiceListener): Any
+    fun makeMenuButton(symbol: String, tint: String, background: String, fill: String, itemsJson: String, listener: ChoiceListener): Any
 
     /** Perbarui isi menu (dan ikon/warna) tombol dari [makeMenuButton]. */
-    fun updateMenuButton(button: Any, symbol: String, tint: String, background: String, itemsJson: String, listener: ChoiceListener)
+    fun updateMenuButton(button: Any, symbol: String, tint: String, background: String, fill: String, itemsJson: String, listener: ChoiceListener)
 
     /** Lembar aksi asli (UIAlertController .actionSheet) dengan butir [itemsJson] dan tombol Batal; -1 = batal. */
     fun showActionSheet(title: String?, itemsJson: String, listener: ChoiceListener)

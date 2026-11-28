@@ -315,7 +315,7 @@ private fun Editor(state: EditorState, renders: Renders, onClose: () -> Unit, on
                                 add(NativeMenuItem("Tampilan ${g.label}", "iphone", checked = g == guide) { EditorPreviewPrefs.guide = g })
                             }
                         },
-                        background = if (guide != null) c.accentSoft else EDITOR_CARD,
+                        background = c.bg, fill = if (guide != null) c.accentSoft else EDITOR_CARD,
                         symbol = "eye", tint = if (guide != null) c.accent else Color.White, size = 40.dp,
                     )
                 }

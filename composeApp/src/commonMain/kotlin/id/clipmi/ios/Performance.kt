@@ -1,5 +1,6 @@
 package id.clipmi.ios
 
+import id.clipmi.core.analysis.ChatPaste
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -204,7 +205,7 @@ class IosPerformance(
         if (reply.isBlank()) return Result.failure(AnalysisResultException("Tempel balasan dari chat AI dulu."))
         val digest = digest()
         val result = try {
-            PerformancePrompt.parse(reply, digest)
+            ChatPaste.firstReadable(reply) { PerformancePrompt.parse(it, digest) }
         } catch (e: AnalysisResultException) {
             return Result.failure(e)
         }

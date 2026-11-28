@@ -654,7 +654,8 @@ fun SegmentedTabs(labels: List<String>, selected: Int, onSelect: (Int) -> Unit, 
                         color = if (active) c.text else c.textMuted,
                     )
                     // Jumlah sebagai badge kecil (misalnya jumlah klip atau segmen transkrip).
-                    badges.getOrNull(i)?.let { count ->
+                    // Nol tidak ditampilkan.
+                    badges.getOrNull(i)?.takeIf { it > 0 }?.let { count ->
                         Box(
                             Modifier.heightIn(min = 20.dp).clip(RoundedCornerShape(10.dp)).background(if (active) c.accent else c.line).padding(horizontal = 7.dp),
                             contentAlignment = Alignment.Center,

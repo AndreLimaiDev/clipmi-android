@@ -1,5 +1,12 @@
 package id.clipmi.ios
 
+import androidx.compose.ui.Alignment
+import androidx.compose.material3.Icon
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.draw.clip
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -76,6 +83,28 @@ class IosTeamPacks(
 
     data class Applied(val bumpersFailed: Int)
 
+    /** Satu butir yang bisa dipilih untuk diekspor. */
+    data class Item(val id: Long, val label: String)
+
+    /** Isi yang tersedia untuk diekspor. */
+    data class Contents(val captions: List<Item>, val frames: List<Item>, val bumpers: List<Item>, val corrections: Int)
+
+    /** Pilihan isi paket: hanya bagian yang dipilih yang ditulis (bagian lain dikosongkan, aman dibaca PC dan Android). */
+    data class Selection(
+        val prompt: Boolean,
+        val captionIds: Set<Long>,
+        val frameIds: Set<Long>,
+        val bumperIds: Set<Long>,
+        val corrections: Boolean,
+    )
+
+    suspend fun contents(): Contents = Contents(
+        captions = db.styles().captionStyles().map { Item(it.id, it.name) },
+        frames = db.styles().frameStyles().map { Item(it.id, it.name) },
+        bumpers = db.bumpers().all().map { Item(it.id, "${if (it.kind == "intro") "Intro" else "Outro"} · ${it.name}") },
+        corrections = db.corrections().all().size,
+    )
+
     @OptIn(ExperimentalTime::class)
     private fun today(): String {
         val now = Instant.fromEpochMilliseconds(nowMillis()).toLocalDateTime(TimeZone.currentSystemDefault())
@@ -94,28 +123,30 @@ class IosTeamPacks(
     private fun pad(value: Int) = value.toString().padStart(2, '0')
 
     /** Menulis paket ke file sementara lalu membuka lembar bagikan (simpan ke Files, AirDrop, WhatsApp, dll.). */
-    suspend fun export() {
-        val json = Json { prettyPrint = true }.encodeToString(JsonObject.serializer(), build())
+    suspend fun export(selection: Selection) {
+        val json = Json { prettyPrint = true }.encodeToString(JsonObject.serializer(), build(selection))
         createDirectory(repo.absolute("tmp"))
         val path = repo.absolute("tmp/ClipMI-paket-tim-${today()}.json")
         writeText(path, json)
         engine.shareFile(path)
     }
 
-    private suspend fun build(): JsonObject {
+    private suspend fun build(selection: Selection): JsonObject {
         val styles = db.styles()
         return buildJsonObject {
             put("format", TeamPack.FORMAT)
             put("version", TeamPack.VERSION)
             put("exported_at", exportedAt())
-            put("prompt_template", settings.promptTemplate())
-            put("prompt_max_tokens", settings.promptMaxTokens())
-            put("caption_styles", buildJsonArray { styles.captionStyles().forEach { add(captionJson(it)) } })
-            put("frame_styles", buildJsonArray { styles.frameStyles().forEach { add(frameJson(it)) } })
+            if (selection.prompt) {
+                put("prompt_template", settings.promptTemplate())
+                put("prompt_max_tokens", settings.promptMaxTokens())
+            }
+            put("caption_styles", buildJsonArray { styles.captionStyles().filter { it.id in selection.captionIds }.forEach { add(captionJson(it)) } })
+            put("frame_styles", buildJsonArray { styles.frameStyles().filter { it.id in selection.frameIds }.forEach { add(frameJson(it)) } })
             put(
                 "bumpers",
                 buildJsonArray {
-                    db.bumpers().all().forEach { b ->
+                    db.bumpers().all().filter { it.id in selection.bumperIds }.forEach { b ->
                         exportFile(b.path, TeamPack.VIDEO_MAX_BYTES)?.let { video ->
                             add(buildJsonObject { put("kind", b.kind); put("name", b.name); put("duration", b.duration); put("video", video) })
                         }
@@ -125,7 +156,7 @@ class IosTeamPacks(
             put(
                 "corrections",
                 buildJsonArray {
-                    db.corrections().all().forEach { e -> add(buildJsonObject { put("wrong_text", e.wrongText); put("correct_text", e.correctText); put("is_active", e.isActive) }) }
+                    if (selection.corrections) db.corrections().all().forEach { e -> add(buildJsonObject { put("wrong_text", e.wrongText); put("correct_text", e.correctText); put("is_active", e.isActive) }) }
                 },
             )
         }
@@ -350,6 +381,7 @@ fun TeamPackScreen(packs: IosTeamPacks, onBack: () -> Unit) {
     val notifier = LocalNotifier.current
     var busy by remember { mutableStateOf<String?>(null) }
     var pack by remember { mutableStateOf<Pair<ParsedPack, PackPreview>?>(null) }
+    var choosing by remember { mutableStateOf<IosTeamPacks.Contents?>(null) }
 
     Column(Modifier.fillMaxSize().background(c.bg)) {
         SubScreenHeader("Paket Standar Tim", onBack)
@@ -367,11 +399,7 @@ fun TeamPackScreen(packs: IosTeamPacks, onBack: () -> Unit) {
                 Text("Prompt, gaya, intro/outro, dan kamus · sama dengan ClipMI di PC dan Android", style = MaterialTheme.typography.bodySmall, color = c.textMuted)
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     ActionChip("Ekspor paket", {
-                        scope.launch {
-                            busy = "Menyiapkan paket…"
-                            runCatching { packs.export() }.onFailure { notifier.show("Paket gagal dibuat: ${it.message}") }
-                            busy = null
-                        }
+                        scope.launch { choosing = packs.contents() }
                     }, Modifier.weight(1f), height = 44.dp, icon = ClipMiIcons.Download, enabled = busy == null)
                     ActionChip("Impor paket", {
                         scope.launch {
@@ -385,6 +413,17 @@ fun TeamPackScreen(packs: IosTeamPacks, onBack: () -> Unit) {
                     "Ekspor membuka lembar bagikan: simpan ke Files, kirim lewat AirDrop, atau WhatsApp ke anggota tim. API key tidak ikut.",
                     style = MaterialTheme.typography.bodySmall, color = c.textMuted,
                 )
+            }
+        }
+    }
+
+    choosing?.let { contents ->
+        ExportChooser(contents, onDismiss = { choosing = null }) { selection ->
+            choosing = null
+            scope.launch {
+                busy = "Menyiapkan paket…"
+                runCatching { packs.export(selection) }.onFailure { notifier.show("Paket gagal dibuat: ${it.message}") }
+                busy = null
             }
         }
     }
@@ -410,6 +449,63 @@ fun TeamPackScreen(packs: IosTeamPacks, onBack: () -> Unit) {
                 }
             })
             GhostButton("Batal", { pack = null })
+        }
+    }
+}
+
+/** Pilih isi Paket Standar Tim sebelum diekspor: per bagian, dan per gaya atau video intro/outro. */
+@Composable
+private fun ExportChooser(contents: IosTeamPacks.Contents, onDismiss: () -> Unit, onExport: (IosTeamPacks.Selection) -> Unit) {
+    val c = ClipMi.colors
+    var prompt by remember { mutableStateOf(true) }
+    var captions by remember { mutableStateOf(contents.captions.map { it.id }.toSet()) }
+    var frames by remember { mutableStateOf(contents.frames.map { it.id }.toSet()) }
+    var bumperIds by remember { mutableStateOf(contents.bumpers.map { it.id }.toSet()) }
+    var corrections by remember { mutableStateOf(contents.corrections > 0) }
+    val nothing = !prompt && captions.isEmpty() && frames.isEmpty() && bumperIds.isEmpty() && !corrections
+
+    ClipMiSheet(onDismiss, title = "Pilih isi paket", subtitle = "Hanya yang dicentang ikut diekspor. API key tidak pernah ikut.") {
+        CheckRow("Template prompt", "Prompt pemilihan momen dan batas token", prompt) { prompt = it }
+        ChoiceGroup("Gaya subtitle", contents.captions, captions) { captions = it }
+        ChoiceGroup("Gaya bingkai", contents.frames, frames) { frames = it }
+        ChoiceGroup("Intro & outro", contents.bumpers, bumperIds) { bumperIds = it }
+        if (contents.corrections > 0) CheckRow("Kamus koreksi", "${contents.corrections} kata", corrections) { corrections = it }
+        if (nothing) Text("Pilih minimal satu isi.", style = MaterialTheme.typography.bodySmall, color = c.bad)
+        PrimaryButton("Ekspor", modifier = Modifier.fillMaxWidth(), icon = ClipMiIcons.Download, enabled = !nothing, onClick = {
+            onExport(IosTeamPacks.Selection(prompt, captions, frames, bumperIds, corrections))
+        })
+    }
+}
+
+/** Satu bagian berisi beberapa butir: centang bagian = semua, lalu tiap butir bisa dicentang sendiri. */
+@Composable
+private fun ChoiceGroup(title: String, items: List<IosTeamPacks.Item>, selected: Set<Long>, onChange: (Set<Long>) -> Unit) {
+    if (items.isEmpty()) return
+    val all = items.map { it.id }.toSet()
+    Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+        CheckRow(title, "${selected.size} dari ${items.size} dipilih", selected.isNotEmpty()) { on -> onChange(if (on) all else emptySet()) }
+        items.forEach { item ->
+            CheckRow(item.label, null, item.id in selected, indent = true) { on -> onChange(if (on) selected + item.id else selected - item.id) }
+        }
+    }
+}
+
+@Composable
+private fun CheckRow(title: String, subtitle: String?, checked: Boolean, indent: Boolean = false, onChange: (Boolean) -> Unit) {
+    val c = ClipMi.colors
+    Row(
+        Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).clickable(role = Role.Checkbox) { onChange(!checked) }
+            .padding(start = if (indent) 28.dp else 4.dp, end = 4.dp, top = 8.dp, bottom = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
+        Icon(
+            if (checked) ClipMiIcons.CircleCheck else ClipMiIcons.Plus, contentDescription = null,
+            tint = if (checked) c.accent else c.textMuted, modifier = Modifier.size(if (indent) 20.dp else 22.dp),
+        )
+        Column(Modifier.weight(1f)) {
+            Text(title, style = if (indent) MaterialTheme.typography.bodyMedium else MaterialTheme.typography.titleSmall, color = c.text)
+            subtitle?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = c.textMuted) }
         }
     }
 }

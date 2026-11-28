@@ -90,26 +90,32 @@ extension IOSMediaEngine {
 
     // MARK: Menu
 
-    func makeMenuButton(symbol: String, tint: String, background: String, itemsJson: String, listener: ChoiceListener) -> Any {
+    func makeMenuButton(symbol: String, tint: String, background: String, fill: String, itemsJson: String, listener: ChoiceListener) -> Any {
+        // Wadah persegi berwarna latar sekitar (sudutnya tidak terlihat), tombol bersudut membulat di dalamnya.
+        let container = UIView()
         let button = NativeMenuButton(type: .system)
         button.showsMenuAsPrimaryAction = true
         button.layer.cornerRadius = 12
         button.layer.masksToBounds = true
-        configureMenu(button, symbol: symbol, tint: tint, background: background, itemsJson: itemsJson, listener: listener)
-        return button
+        button.frame = container.bounds
+        button.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+        container.addSubview(button)
+        configureMenu(container, button, symbol: symbol, tint: tint, background: background, fill: fill, itemsJson: itemsJson, listener: listener)
+        return container
     }
 
-    func updateMenuButton(button: Any, symbol: String, tint: String, background: String, itemsJson: String, listener: ChoiceListener) {
-        guard let button = button as? NativeMenuButton else { return }
-        configureMenu(button, symbol: symbol, tint: tint, background: background, itemsJson: itemsJson, listener: listener)
+    func updateMenuButton(button: Any, symbol: String, tint: String, background: String, fill: String, itemsJson: String, listener: ChoiceListener) {
+        guard let container = button as? UIView, let menuButton = container.subviews.first as? NativeMenuButton else { return }
+        configureMenu(container, menuButton, symbol: symbol, tint: tint, background: background, fill: fill, itemsJson: itemsJson, listener: listener)
     }
 
-    private func configureMenu(_ button: NativeMenuButton, symbol: String, tint: String, background: String, itemsJson: String, listener: ChoiceListener) {
+    private func configureMenu(_ container: UIView, _ button: NativeMenuButton, symbol: String, tint: String, background: String, fill: String, itemsJson: String, listener: ChoiceListener) {
+        container.backgroundColor = hexColor(background)
         button.listener = listener
         let config = UIImage.SymbolConfiguration(pointSize: 17, weight: .semibold)
         button.setImage(UIImage(systemName: symbol, withConfiguration: config), for: .normal)
         button.tintColor = hexColor(tint)
-        button.backgroundColor = hexColor(background)
+        button.backgroundColor = hexColor(fill)
         let actions: [UIMenuElement] = menuItems(itemsJson).enumerated().map { index, item in
             let action = UIAction(title: item.title, image: item.symbol.flatMap { UIImage(systemName: $0) }) { [weak button] _ in
                 button?.listener?.chosen(index: Int32(index))
@@ -171,8 +177,9 @@ extension IOSMediaEngine {
         let token = Self.token()
         sheetController.modalPresentationStyle = .pageSheet
         if let sheet = sheetController.sheetPresentationController {
+            // Mulai setengah layar; tarik pegangan ke atas untuk penuh.
             sheet.detents = [.medium(), .large()]
-            sheet.selectedDetentIdentifier = .large
+            sheet.selectedDetentIdentifier = .medium
             sheet.prefersGrabberVisible = true
             sheet.prefersScrollingExpandsWhenScrolledToEdge = true
             sheet.preferredCornerRadius = 28
